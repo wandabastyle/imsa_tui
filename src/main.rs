@@ -71,6 +71,22 @@ enum ViewMode {
     Class(usize),
 }
 
+#[derive(Debug, Clone, Default)]
+struct DemoFlagState {
+    enabled: bool,
+    idx: usize,
+}
+
+fn demo_flag_name(idx: usize) -> &'static str {
+    match idx % 5 {
+        0 => "Green",
+        1 => "Yellow",
+        2 => "Red",
+        3 => "White",
+        _ => "Checkered",
+    }
+}
+
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -644,6 +660,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut previous_flag = "-".to_string();
     let mut transition_started_at = Instant::now();
     let mut view_mode = ViewMode::Overall;
+    let mut demo_flag = DemoFlagState::default();
 
     loop {
         drain_messages(
@@ -668,10 +685,16 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
         }
 
-        let current_flag = if header.flag.is_empty() { "-" } else { &header.flag };
+        let live_flag = if header.flag.is_empty() { "-" } else { &header.flag };
+        let effective_flag = if demo_flag.enabled {
+            demo_flag_name(demo_flag.idx)
+        } else {
+            live_flag
+        };
+
         let transition_from_flag = previous_flag.clone();
-        if current_flag != previous_flag {
-            previous_flag = current_flag.to_string();
+        if effective_flag != previous_flag {
+            previous_flag = effective_flag.to_string();
             transition_started_at = Instant::now();
         }
 
@@ -693,7 +716,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             } else {
                 &header.time_to_go
             };
-            let flag_raw = if header.flag.is_empty() { "-" } else { &header.flag };
+            let flag_raw = effective_flag;
             let (flag_text, flag_span_style, header_style) =
                 animated_flag_theme(flag_raw, &transition_from_flag, transition_started_at);
 
@@ -736,21 +759,26 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             let mut header_spans = vec![
                 Span::styled(header_lead, header_style),
                 Span::styled(flag_text, flag_span_style),
-                Span::styled(
-                    format!(
-                        " | Day {} | {}",
-                        if header.day_time.is_empty() { "-" } else { &header.day_time },
-                        age,
-                    ),
-                    header_style,
-                ),
             ];
+
+            if demo_flag.enabled {
+                header_spans.push(Span::styled(" | DEMO", header_style.add_modifier(Modifier::BOLD)));
+            }
+
+            header_spans.push(Span::styled(
+                format!(
+                    " | Day {} | {}",
+                    if header.day_time.is_empty() { "-" } else { &header.day_time },
+                    age,
+                ),
+                header_style,
+            ));
 
             if let Some(err) = &last_error {
                 header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
             }
 
-            header_spans.push(Span::styled(" | q quit", header_style));
+            header_spans.push(Span::styled(" | r test flag | 0 live | g cycle | o overview | q quit", header_style));
 
             let status_widget = Paragraph::new(Line::from(header_spans))
                 .style(header_style)
@@ -827,6 +855,17 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     }
                     KeyCode::Char('o') => {
                         view_mode = ViewMode::Overall;
+                    }
+                    KeyCode::Char('r') => {
+                        if demo_flag.enabled {
+                            demo_flag.idx = (demo_flag.idx + 1) % 5;
+                        } else {
+                            demo_flag.enabled = true;
+                            demo_flag.idx = 0;
+                        }
+                    }
+                    KeyCode::Char('0') => {
+                        demo_flag.enabled = false;
                     }
                     _ => {}
                 }
