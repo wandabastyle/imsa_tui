@@ -234,7 +234,8 @@ fn first_present_string(root: &Value, keys: &[&str]) -> String {
 
 fn parse_flag_code(code: &str) -> String {
     match code.trim() {
-        "0" | "1" | "" => "Green".to_string(),
+        "0" | "" => "Green".to_string(),
+        "1" => "White".to_string(),
         "2" => "Yellow".to_string(),
         "3" => "Red".to_string(),
         "4" => "Checkered".to_string(),
@@ -384,6 +385,12 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
         "green" => (
             "Green".to_string(),
             Color::Rgb(0, 153, 68),
+            Color::Black,
+            false,
+        ),
+        "white" => (
+            "White".to_string(),
+            Color::Rgb(245, 245, 245),
             Color::Black,
             false,
         ),
