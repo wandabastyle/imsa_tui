@@ -12,10 +12,10 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
     Terminal,
 };
 use reqwest::blocking::Client;
@@ -85,6 +85,50 @@ fn demo_flag_name(idx: usize) -> &'static str {
         3 => "White",
         _ => "Checkered",
     }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
+}
+
+fn help_popup() -> Paragraph<'static> {
+    let text = vec![
+        Line::from(vec![Span::styled(
+            "Keyboard Help",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from("h      toggle help"),
+        Line::from("g      cycle views"),
+        Line::from("o      switch to overall view"),
+        Line::from("r      cycle demo flag"),
+        Line::from("0      return to live flag"),
+        Line::from("q      quit"),
+        Line::from("Esc    close help / quit app"),
+        Line::from(""),
+        Line::from("Press h or Esc to close this popup."),
+    ];
+
+    Paragraph::new(text)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("Help").borders(Borders::ALL))
 }
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
@@ -234,8 +278,7 @@ fn first_present_string(root: &Value, keys: &[&str]) -> String {
 
 fn parse_flag_code(code: &str) -> String {
     match code.trim() {
-        "0" | "" => "Green".to_string(),
-        "1" => "White".to_string(),
+        "0" | "1" | "" => "Green".to_string(),
         "2" => "Yellow".to_string(),
         "3" => "Red".to_string(),
         "4" => "Checkered".to_string(),
@@ -385,12 +428,6 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
         "green" => (
             "Green".to_string(),
             Color::Rgb(0, 153, 68),
-            Color::Black,
-            false,
-        ),
-        "white" => (
-            "White".to_string(),
-            Color::Rgb(245, 245, 245),
             Color::Black,
             false,
         ),
@@ -668,6 +705,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut transition_started_at = Instant::now();
     let mut view_mode = ViewMode::Overall;
     let mut demo_flag = DemoFlagState::default();
+    let mut show_help = false;
 
     loop {
         drain_messages(
@@ -785,7 +823,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
             }
 
-            header_spans.push(Span::styled(" | r test flag | 0 live | g cycle | o overview | q quit", header_style));
+            header_spans.push(Span::styled(" | h help | q quit", header_style));
 
             let status_widget = Paragraph::new(Line::from(header_spans))
                 .style(header_style)
@@ -845,25 +883,47 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 },
                 None => {
                     let waiting = Paragraph::new(
-                        "No timing data yet. Waiting for first successful IMSA snapshot... Press g to cycle views, o for overview.",
+                        "No timing data yet. Waiting for first successful IMSA snapshot... Press h for help.",
                     )
                     .block(Block::default().title("Overall").borders(Borders::ALL));
                     f.render_widget(waiting, chunks[1]);
                 }
+            }
+
+            if show_help {
+                let area = centered_rect(40, 38, size);
+                f.render_widget(Clear, area);
+                f.render_widget(help_popup(), area);
             }
         })?;
 
         if event::poll(tick_rate)? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Char('g') => {
+                    KeyCode::Char('h') => {
+                        show_help = !show_help;
+                    }
+                    KeyCode::Esc => {
+                        if show_help {
+                            show_help = false;
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                    KeyCode::Char('q') => {
+                        if show_help {
+                            show_help = false;
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                    KeyCode::Char('g') if !show_help => {
                         view_mode = next_view_mode(view_mode, current_groups.len());
                     }
-                    KeyCode::Char('o') => {
+                    KeyCode::Char('o') if !show_help => {
                         view_mode = ViewMode::Overall;
                     }
-                    KeyCode::Char('r') => {
+                    KeyCode::Char('r') if !show_help => {
                         if demo_flag.enabled {
                             demo_flag.idx = (demo_flag.idx + 1) % 5;
                         } else {
@@ -871,7 +931,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             demo_flag.idx = 0;
                         }
                     }
-                    KeyCode::Char('0') => {
+                    KeyCode::Char('0') if !show_help => {
                         demo_flag.enabled = false;
                     }
                     _ => {}
