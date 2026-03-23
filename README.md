@@ -6,7 +6,7 @@ A terminal user interface (TUI) for live IMSA timing data.
 
 ## Features
 
-- Live polling of IMSA timing feeds (default every 1.5 seconds).
+- Live polling of IMSA timing feeds (default every 5 seconds).
 - Overall leaderboard table with position, car number, class, driver, laps, gaps, lap times, and pit information.
 - Multiple viewing modes:
   - **Overall** (all cars)
