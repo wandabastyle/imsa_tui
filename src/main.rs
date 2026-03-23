@@ -27,6 +27,7 @@ const RACE_DATA_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceData_JSONP
 const RACE_DATA_CALLBACK: &str = "jsonpRaceData";
 const POLL_INTERVAL: Duration = Duration::from_millis(1500);
 
+/// A single timing row for one car in the IMSA leaderboard.
 #[derive(Debug, Clone)]
 struct Entry {
     position: u32,
@@ -47,6 +48,7 @@ struct Entry {
     fastest_driver: String,
 }
 
+/// Summary metadata shown in the TUI header bar.
 #[derive(Debug, Clone, Default)]
 struct HeaderInfo {
     session_name: String,
@@ -57,6 +59,7 @@ struct HeaderInfo {
     time_to_go: String,
 }
 
+/// Messages sent from the polling worker thread to the UI loop.
 #[derive(Debug, Clone)]
 enum UiMessage {
     Status(String),
@@ -67,6 +70,7 @@ enum UiMessage {
     },
 }
 
+/// Determines which leaderboard view is currently rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewMode {
     Overall,
@@ -74,12 +78,14 @@ enum ViewMode {
     Class(usize),
 }
 
+/// Stores optional demo-flag override state for local UI testing.
 #[derive(Debug, Clone, Default)]
 struct DemoFlagState {
     enabled: bool,
     idx: usize,
 }
 
+/// Returns a synthetic flag name for demo mode rotation.
 fn demo_flag_name(idx: usize) -> &'static str {
     match idx % 5 {
         0 => "Green",
@@ -90,6 +96,7 @@ fn demo_flag_name(idx: usize) -> &'static str {
     }
 }
 
+/// Builds a centered rectangle sized by percentages of the full area.
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -110,6 +117,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(vertical[1])[1]
 }
 
+/// Creates the keyboard-help popup paragraph widget.
 fn help_popup() -> Paragraph<'static> {
     let text = vec![
         Line::from(vec![Span::styled(
@@ -134,6 +142,7 @@ fn help_popup() -> Paragraph<'static> {
         .block(Block::default().title("Help").borders(Borders::ALL))
 }
 
+/// Restores the terminal to canonical mode before exiting.
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -141,6 +150,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     Ok(())
 }
 
+/// Returns current UNIX epoch time in milliseconds for cache-busting requests.
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -246,6 +256,7 @@ fn parse_entry(obj: &Value) -> Option<Entry> {
     })
 }
 
+/// Parses either raw JSON or JSONP payload text into a JSON value.
 fn parse_jsonp_body(text: &str, callback: &str) -> Result<Value, String> {
     let trimmed = text.trim();
 
@@ -382,6 +393,7 @@ fn fetch_url_text(client: &Client, url: &str) -> Result<String, String> {
         .map_err(|e| format!("body read failed: {e}"))
 }
 
+/// Combines race-results and race-data endpoints into one snapshot for rendering.
 fn fetch_snapshot(client: &Client) -> Result<(HeaderInfo, Vec<Entry>), String> {
     let results_url = format!(
         "{RESULTS_URL}?callback={RESULTS_CALLBACK}&_={}",
@@ -477,6 +489,7 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
     }
 }
 
+/// Produces the display theme for the current flag, including transition animation.
 fn animated_flag_theme(
     flag: &str,
     previous_flag: &str,
@@ -590,6 +603,7 @@ fn build_table<'a>(title: impl Into<String>, entries: &'a [Entry]) -> Table<'a> 
         .block(Block::default().title(title.into()).borders(Borders::ALL))
 }
 
+/// Groups entries by supported IMSA classes in display order.
 fn grouped_entries(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {
     let ordered = ["GTP", "LMP2", "GTDPRO", "GTD"];
     let mut groups: Vec<(String, Vec<Entry>)> = Vec::new();
@@ -633,6 +647,7 @@ fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
         }
     }
 }
+/// Worker loop that polls IMSA endpoints and streams snapshots to the UI.
 fn polling_worker(tx: Sender<UiMessage>) {
     let client = match Client::builder()
         .timeout(Duration::from_secs(12))
@@ -736,6 +751,7 @@ fn build_rows(entries: &[Entry]) -> Vec<Row<'static>> {
         .collect()
 }
 
+/// Draws the full terminal UI and handles keyboard events until exit.
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let (tx, rx) = mpsc::channel::<UiMessage>();
     thread::spawn(move || polling_worker(tx));
@@ -991,6 +1007,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     }
 }
 
+/// Initializes terminal state, runs the app loop, and ensures cleanup on exit.
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
