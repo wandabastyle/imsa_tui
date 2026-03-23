@@ -61,7 +61,10 @@ struct HeaderInfo {
 enum UiMessage {
     Status(String),
     Error(String),
-    Snapshot { header: HeaderInfo, entries: Vec<Entry> },
+    Snapshot {
+        header: HeaderInfo,
+        entries: Vec<Entry>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,7 +347,10 @@ fn parse_results_snapshot(root: &Value) -> Result<(HeaderInfo, Vec<Entry>), Stri
     if let Some(obj) = root.as_object() {
         let mut keys: Vec<String> = obj.keys().cloned().collect();
         keys.sort();
-        return Err(format!("unexpected JSON shape; top-level keys: {}", keys.join(", ")));
+        return Err(format!(
+            "unexpected JSON shape; top-level keys: {}",
+            keys.join(", ")
+        ));
     }
 
     Err("unexpected JSON shape; top-level value is not object/array".to_string())
@@ -371,16 +377,24 @@ fn fetch_url_text(client: &Client, url: &str) -> Result<String, String> {
         return Err(format!("http {status}"));
     }
 
-    response.text().map_err(|e| format!("body read failed: {e}"))
+    response
+        .text()
+        .map_err(|e| format!("body read failed: {e}"))
 }
 
 fn fetch_snapshot(client: &Client) -> Result<(HeaderInfo, Vec<Entry>), String> {
-    let results_url = format!("{RESULTS_URL}?callback={RESULTS_CALLBACK}&_={}", now_millis());
+    let results_url = format!(
+        "{RESULTS_URL}?callback={RESULTS_CALLBACK}&_={}",
+        now_millis()
+    );
     let results_text = fetch_url_text(client, &results_url)?;
     let results_root = parse_jsonp_body(&results_text, RESULTS_CALLBACK)?;
     let (mut header, entries) = parse_results_snapshot(&results_root)?;
 
-    let race_data_url = format!("{RACE_DATA_URL}?callback={RACE_DATA_CALLBACK}&_={}", now_millis());
+    let race_data_url = format!(
+        "{RACE_DATA_URL}?callback={RACE_DATA_CALLBACK}&_={}",
+        now_millis()
+    );
     let race_data_text = fetch_url_text(client, &race_data_url)?;
     let race_data_root = parse_jsonp_body(&race_data_text, RACE_DATA_CALLBACK)?;
     merge_race_data_into_header(&mut header, &race_data_root);
@@ -394,7 +408,6 @@ fn normalize_class_name(name: &str) -> String {
         .collect::<String>()
         .to_uppercase()
 }
-
 
 fn clean_time_to_go(raw: &str) -> String {
     let trimmed = raw.trim();
@@ -464,7 +477,11 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
     }
 }
 
-fn animated_flag_theme(flag: &str, previous_flag: &str, transition_started_at: Instant) -> (String, Style, Style) {
+fn animated_flag_theme(
+    flag: &str,
+    previous_flag: &str,
+    transition_started_at: Instant,
+) -> (String, Style, Style) {
     let (flag_text, target_bg, target_fg, _) = base_flag_colors(flag);
     let (_, previous_bg, _, _) = base_flag_colors(previous_flag);
 
@@ -479,10 +496,18 @@ fn animated_flag_theme(flag: &str, previous_flag: &str, transition_started_at: I
 
 fn class_style(class_name: &str) -> Style {
     match normalize_class_name(class_name).as_str() {
-        "GTP" => Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-        "LMP2" => Style::default().fg(Color::Rgb(63, 144, 218)).add_modifier(Modifier::BOLD),
-        "GTDPRO" => Style::default().fg(Color::Rgb(210, 38, 48)).add_modifier(Modifier::BOLD),
-        "GTD" => Style::default().fg(Color::Rgb(0, 166, 81)).add_modifier(Modifier::BOLD),
+        "GTP" => Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+        "LMP2" => Style::default()
+            .fg(Color::Rgb(63, 144, 218))
+            .add_modifier(Modifier::BOLD),
+        "GTDPRO" => Style::default()
+            .fg(Color::Rgb(210, 38, 48))
+            .add_modifier(Modifier::BOLD),
+        "GTD" => Style::default()
+            .fg(Color::Rgb(0, 166, 81))
+            .add_modifier(Modifier::BOLD),
         _ => Style::default(),
     }
 }
@@ -495,7 +520,11 @@ fn class_display_name(name: &str) -> String {
         "GTD" => "GTD".to_string(),
         _ => {
             let trimmed = clean_string(name);
-            if trimmed.is_empty() { "-".to_string() } else { trimmed }
+            if trimmed.is_empty() {
+                "-".to_string()
+            } else {
+                trimmed
+            }
         }
     }
 }
@@ -539,8 +568,22 @@ fn build_table<'a>(title: impl Into<String>, entries: &'a [Entry]) -> Table<'a> 
     Table::new(build_rows(entries), table_widths())
         .header(
             Row::new(vec![
-                "Pos", "#", "Class", "PIC", "Driver", "Vehicle", "Laps", "Gap O",
-                "Gap C", "Next C", "Last", "Best", "BL#", "Pit", "Stop", "Fastest Driver",
+                "Pos",
+                "#",
+                "Class",
+                "PIC",
+                "Driver",
+                "Vehicle",
+                "Laps",
+                "Gap O",
+                "Gap C",
+                "Next C",
+                "Last",
+                "Best",
+                "BL#",
+                "Pit",
+                "Stop",
+                "Fastest Driver",
             ])
             .style(Style::default().add_modifier(Modifier::BOLD)),
         )
@@ -569,8 +612,6 @@ fn grouped_entries(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {
 
     groups
 }
-
-
 
 fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
     if groups_len == 0 {
@@ -608,7 +649,9 @@ fn polling_worker(tx: Sender<UiMessage>) {
     };
 
     loop {
-        let _ = tx.send(UiMessage::Status("Fetching IMSA live timing...".to_string()));
+        let _ = tx.send(UiMessage::Status(
+            "Fetching IMSA live timing...".to_string(),
+        ));
 
         match fetch_snapshot(&client) {
             Ok((header, entries)) => {
@@ -635,7 +678,10 @@ fn drain_messages(
         match msg {
             UiMessage::Status(s) => *status = s,
             UiMessage::Error(err) => *last_error = Some(err),
-            UiMessage::Snapshot { header: new_header, entries: new_entries } => {
+            UiMessage::Snapshot {
+                header: new_header,
+                entries: new_entries,
+            } => {
                 if new_header.event_name != "-" {
                     header.event_name = new_header.event_name;
                 }
@@ -730,7 +776,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
         }
 
-        let live_flag = if header.flag.is_empty() { "-" } else { &header.flag };
+        let live_flag = if header.flag.is_empty() {
+            "-"
+        } else {
+            &header.flag
+        };
         let effective_flag = if demo_flag.enabled {
             demo_flag_name(demo_flag.idx)
         } else {
