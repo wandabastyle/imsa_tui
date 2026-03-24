@@ -126,7 +126,7 @@ fn help_popup() -> Paragraph<'static> {
         )]),
         Line::from(""),
         Line::from("h      toggle help"),
-        Line::from("/      search (CAR/DRIVER/TEAM)"),
+        Line::from("/      search CAR/DRIVER/TEAM"),
         Line::from("n / p  next / previous search result"),
         Line::from("g      cycle views"),
         Line::from("o      switch to overall view"),
@@ -558,76 +558,19 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct SearchQuery {
-    car: Option<String>,
-    driver: Option<String>,
-    team: Option<String>,
-    any: Vec<String>,
-}
-
 fn normalize_text_for_search(text: &str) -> String {
     clean_string(text).to_ascii_lowercase()
 }
 
-fn parse_search_query(raw: &str) -> SearchQuery {
-    let mut query = SearchQuery::default();
-
-    for token in raw.split_whitespace() {
-        let trimmed = token.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if let Some((lhs, rhs)) = trimmed.split_once(':').or_else(|| trimmed.split_once('=')) {
-            let key = lhs.trim().to_ascii_lowercase();
-            let value = rhs.trim().to_ascii_lowercase();
-            if value.is_empty() {
-                continue;
-            }
-            match key.as_str() {
-                "car" | "c" => query.car = Some(value),
-                "driver" | "d" => query.driver = Some(value),
-                "team" | "t" => query.team = Some(value),
-                _ => query.any.push(normalize_text_for_search(trimmed)),
-            }
-        } else {
-            query.any.push(normalize_text_for_search(trimmed));
-        }
-    }
-
-    query
-}
-
-fn search_entry_matches(entry: &Entry, query: &SearchQuery) -> bool {
+fn search_entry_matches(entry: &Entry, query: &str) -> bool {
     let car = normalize_text_for_search(&entry.car_number);
     let driver = normalize_text_for_search(&entry.driver);
     let team = normalize_text_for_search(&entry.vehicle);
-
-    if let Some(expected_car) = &query.car {
-        if !car.contains(expected_car) {
-            return false;
-        }
-    }
-    if let Some(expected_driver) = &query.driver {
-        if !driver.contains(expected_driver) {
-            return false;
-        }
-    }
-    if let Some(expected_team) = &query.team {
-        if !team.contains(expected_team) {
-            return false;
-        }
-    }
-
-    query
-        .any
-        .iter()
-        .all(|term| car.contains(term) || driver.contains(term) || team.contains(term))
+    car.contains(query) || driver.contains(query) || team.contains(query)
 }
 
 fn run_search(entries: &[Entry], raw_query: &str) -> Vec<usize> {
-    let parsed = parse_search_query(raw_query);
+    let query = normalize_text_for_search(raw_query);
     if raw_query.trim().is_empty() {
         return Vec::new();
     }
@@ -636,7 +579,7 @@ fn run_search(entries: &[Entry], raw_query: &str) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter_map(|(idx, entry)| {
-            if search_entry_matches(entry, &parsed) {
+            if search_entry_matches(entry, &query) {
                 Some(idx)
             } else {
                 None
