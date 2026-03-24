@@ -15,7 +15,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
     Terminal,
 };
 use reqwest::blocking::Client;
@@ -126,6 +126,8 @@ fn help_popup() -> Paragraph<'static> {
         )]),
         Line::from(""),
         Line::from("h      toggle help"),
+        Line::from("/      search CAR/DRIVER/TEAM"),
+        Line::from("n / p  next / previous search result"),
         Line::from("g      cycle views"),
         Line::from("o      switch to overall view"),
         Line::from("r      cycle demo flag"),
@@ -556,6 +558,36 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
     }
 }
 
+fn normalize_text_for_search(text: &str) -> String {
+    clean_string(text).to_ascii_lowercase()
+}
+
+fn search_entry_matches(entry: &Entry, query: &str) -> bool {
+    let car = normalize_text_for_search(&entry.car_number);
+    let driver = normalize_text_for_search(&entry.driver);
+    let team = normalize_text_for_search(&entry.vehicle);
+    car.contains(query) || driver.contains(query) || team.contains(query)
+}
+
+fn run_search(entries: &[Entry], raw_query: &str) -> Vec<usize> {
+    let query = normalize_text_for_search(raw_query);
+    if raw_query.trim().is_empty() {
+        return Vec::new();
+    }
+
+    entries
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, entry)| {
+            if search_entry_matches(entry, &query) {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 fn table_widths() -> [Constraint; 16] {
     [
         Constraint::Length(4),  // Pos
@@ -601,6 +633,12 @@ fn build_table<'a>(title: impl Into<String>, entries: &'a [Entry]) -> Table<'a> 
             .style(Style::default().add_modifier(Modifier::BOLD)),
         )
         .block(Block::default().title(title.into()).borders(Borders::ALL))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Rgb(255, 221, 0))
+                .add_modifier(Modifier::BOLD),
+        )
 }
 
 /// Groups entries by supported IMSA classes in display order.
@@ -768,6 +806,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut view_mode = ViewMode::Overall;
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
+    let mut search_input = String::new();
+    let mut search_mode = false;
+    let mut search_results: Vec<usize> = Vec::new();
+    let mut selected_search_result_idx: Option<usize> = None;
+    let mut selected_car_number: Option<String> = None;
 
     loop {
         drain_messages(
@@ -783,6 +826,36 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             .as_ref()
             .map(|all_entries| grouped_entries(all_entries))
             .unwrap_or_default();
+
+        if !search_mode && !search_input.trim().is_empty() {
+            if let Some(all_entries) = &entries {
+                let refreshed_results = run_search(all_entries, &search_input);
+                search_results = refreshed_results;
+
+                if search_results.is_empty() {
+                    selected_search_result_idx = None;
+                    selected_car_number = None;
+                } else if let Some(current_car) = &selected_car_number {
+                    if let Some((match_idx, _)) =
+                        search_results.iter().enumerate().find(|(_, row_idx)| {
+                            all_entries.get(**row_idx).map(|e| &e.car_number) == Some(current_car)
+                        })
+                    {
+                        selected_search_result_idx = Some(match_idx);
+                    } else {
+                        selected_search_result_idx = Some(0);
+                        if let Some(entry) = all_entries.get(search_results[0]) {
+                            selected_car_number = Some(entry.car_number.clone());
+                        }
+                    }
+                } else {
+                    selected_search_result_idx = Some(0);
+                    if let Some(entry) = all_entries.get(search_results[0]) {
+                        selected_car_number = Some(entry.car_number.clone());
+                    }
+                }
+            }
+        }
 
         if let ViewMode::Class(idx) = view_mode {
             if current_groups.is_empty() {
@@ -889,6 +962,21 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
             }
 
+            if search_mode {
+                header_spans.push(Span::styled(
+                    format!(" | Search: {}", search_input),
+                    header_style.add_modifier(Modifier::BOLD),
+                ));
+            } else if !search_results.is_empty() {
+                let selected_num = selected_search_result_idx
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                header_spans.push(Span::styled(
+                    format!(" | Search {selected_num}/{}", search_results.len()),
+                    header_style.add_modifier(Modifier::BOLD),
+                ));
+            }
+
             header_spans.push(Span::styled(" | h help | q quit", header_style));
 
             let status_widget = Paragraph::new(Line::from(header_spans))
@@ -901,7 +989,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 Some(all_entries) => match view_mode {
                     ViewMode::Overall => {
                         let table = build_table("Overall", all_entries);
-                        f.render_widget(table, chunks[1]);
+                        let mut table_state = TableState::default();
+                        if let Some(car) = &selected_car_number {
+                            let selected_row = all_entries.iter().position(|e| &e.car_number == car);
+                            table_state.select(selected_row);
+                        }
+                        f.render_stateful_widget(table, chunks[1], &mut table_state);
                     }
                     ViewMode::Grouped => {
                         let groups = grouped_entries(all_entries);
@@ -928,7 +1021,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                     .collect();
                                 let title = format!("{} ({} cars)", class_name, class_entries.len());
                                 let table = build_table(title, &visible_entries);
-                                f.render_widget(table, *area);
+                                let mut table_state = TableState::default();
+                                if let Some(car) = &selected_car_number {
+                                    let selected_row =
+                                        visible_entries.iter().position(|e| &e.car_number == car);
+                                    table_state.select(selected_row);
+                                }
+                                f.render_stateful_widget(table, *area, &mut table_state);
                             }
                         }
                     }
@@ -939,7 +1038,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 format!("{} ({} cars)", class_name, class_entries.len()),
                                 class_entries,
                             );
-                            f.render_widget(table, chunks[1]);
+                            let mut table_state = TableState::default();
+                            if let Some(car) = &selected_car_number {
+                                let selected_row =
+                                    class_entries.iter().position(|e| &e.car_number == car);
+                                table_state.select(selected_row);
+                            }
+                            f.render_stateful_widget(table, chunks[1], &mut table_state);
                         } else {
                             let waiting = Paragraph::new("No class data available yet.")
                                 .block(Block::default().title("Class").borders(Borders::ALL));
@@ -969,6 +1074,44 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     KeyCode::Char('h') => {
                         show_help = !show_help;
                     }
+                    KeyCode::Char('/') if !show_help => {
+                        search_mode = true;
+                        search_input.clear();
+                    }
+                    KeyCode::Enter if search_mode => {
+                        search_mode = false;
+                        search_results = entries
+                            .as_ref()
+                            .map(|all_entries| run_search(all_entries, &search_input))
+                            .unwrap_or_default();
+                        if search_results.is_empty() {
+                            selected_search_result_idx = None;
+                            selected_car_number = None;
+                            status = format!("No matches for \"{}\"", search_input.trim());
+                        } else if let Some(all_entries) = &entries {
+                            selected_search_result_idx = Some(0);
+                            if let Some(first_idx) = search_results.first() {
+                                if let Some(entry) = all_entries.get(*first_idx) {
+                                    selected_car_number = Some(entry.car_number.clone());
+                                    view_mode = ViewMode::Overall;
+                                    status = format!(
+                                        "Found {} matches for \"{}\"",
+                                        search_results.len(),
+                                        search_input.trim()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Backspace if search_mode => {
+                        search_input.pop();
+                    }
+                    KeyCode::Esc if search_mode => {
+                        search_mode = false;
+                    }
+                    KeyCode::Char(c) if search_mode => {
+                        search_input.push(c);
+                    }
                     KeyCode::Esc => {
                         if show_help {
                             show_help = false;
@@ -988,6 +1131,40 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     }
                     KeyCode::Char('o') if !show_help => {
                         view_mode = ViewMode::Overall;
+                    }
+                    KeyCode::Char('n') if !show_help && !search_mode => {
+                        if !search_results.is_empty() {
+                            let next = selected_search_result_idx
+                                .map(|idx| (idx + 1) % search_results.len())
+                                .unwrap_or(0);
+                            selected_search_result_idx = Some(next);
+                            if let Some(all_entries) = &entries {
+                                if let Some(entry) = all_entries.get(search_results[next]) {
+                                    selected_car_number = Some(entry.car_number.clone());
+                                    view_mode = ViewMode::Overall;
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char('p') if !show_help && !search_mode => {
+                        if !search_results.is_empty() {
+                            let prev = selected_search_result_idx
+                                .map(|idx| {
+                                    if idx == 0 {
+                                        search_results.len() - 1
+                                    } else {
+                                        idx - 1
+                                    }
+                                })
+                                .unwrap_or(0);
+                            selected_search_result_idx = Some(prev);
+                            if let Some(all_entries) = &entries {
+                                if let Some(entry) = all_entries.get(search_results[prev]) {
+                                    selected_car_number = Some(entry.car_number.clone());
+                                    view_mode = ViewMode::Overall;
+                                }
+                            }
+                        }
                     }
                     KeyCode::Char('r') if !show_help => {
                         if demo_flag.enabled {
