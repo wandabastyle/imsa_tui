@@ -194,7 +194,7 @@ fn negotiate(client: &Client) -> Result<SignalRConnection, String> {
         now_millis()
     );
 
-    let root: Value = client
+    let response_text = client
         .get(url)
         .header("User-Agent", "Mozilla/5.0")
         .header("Accept", "application/json")
@@ -203,7 +203,10 @@ fn negotiate(client: &Client) -> Result<SignalRConnection, String> {
         .map_err(|e| format!("negotiate request failed: {e}"))?
         .error_for_status()
         .map_err(|e| format!("negotiate http error: {e}"))?
-        .json()
+        .text()
+        .map_err(|e| format!("negotiate body read failed: {e}"))?;
+
+    let root: Value = serde_json::from_str(&response_text)
         .map_err(|e| format!("negotiate json parse failed: {e}"))?;
 
     let connection_token = root
