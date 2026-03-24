@@ -25,7 +25,7 @@ const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSON
 const RESULTS_CALLBACK: &str = "jsonpRaceResults";
 const RACE_DATA_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceData_JSONP.json";
 const RACE_DATA_CALLBACK: &str = "jsonpRaceData";
-const POLL_INTERVAL: Duration = Duration::from_millis(1500);
+const POLL_INTERVAL: Duration = Duration::from_millis(5000);
 
 /// A single timing row for one car in the IMSA leaderboard.
 #[derive(Debug, Clone)]
