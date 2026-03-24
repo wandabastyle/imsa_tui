@@ -8,6 +8,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 
 #[cfg(feature = "dev-mode")]
 mod demo;
+mod f1;
 mod imsa;
 mod nls;
 mod timing;
