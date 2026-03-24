@@ -19,13 +19,13 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "dev-mode")]
+use crate::demo;
 use crate::{
     imsa::{normalize_class_name, polling_worker},
     nls::websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
 };
-#[cfg(feature = "dev-mode")]
-use crate::demo;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AppConfig {
@@ -759,8 +759,8 @@ pub fn run_app(
                 .split(size);
 
             let age = match last_update {
-                Some(t) => format!("Last update: {}s ago", t.elapsed().as_secs()),
-                None => "Last update: -".to_string(),
+                Some(t) => format!("Upd {}s", t.elapsed().as_secs()),
+                None => "Upd -".to_string(),
             };
 
             let tte_text = if header.time_to_go.is_empty() { "-" } else { &header.time_to_go };
@@ -785,14 +785,13 @@ pub fn run_app(
 
             let header_lead = if track_text != "-" && track_text != event_text {
                 format!(
-                    "{} | {} | {} | {} | TTE {} | Mode {} | Series {} | ",
+                    "{} | {} | {} | {} | TTE {} | Mode {} | ",
                     status,
                     event_text,
                     session_text,
                     track_text,
                     tte_text,
                     mode_text,
-                    active_series.label(),
                 )
             } else {
                 format!(
@@ -827,13 +826,15 @@ pub fn run_app(
                 header_style,
             ));
 
+            let mut key_hint_spans = vec![Span::styled("Keys: h help | q quit", header_style)];
+
             if search.input_active {
-                header_spans.push(Span::styled(
+                key_hint_spans.push(Span::styled(
                     format!(" | Search: {}_", search.query),
                     header_style.add_modifier(Modifier::BOLD),
                 ));
             } else if !search.query.trim().is_empty() {
-                header_spans.push(Span::styled(
+                key_hint_spans.push(Span::styled(
                     format!(
                         " | Search: {} ({}/{})",
                         search.query,
@@ -845,12 +846,10 @@ pub fn run_app(
             }
 
             if let Some(err) = &last_error {
-                header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
+                key_hint_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
             }
 
-            header_spans.push(Span::styled(" | h help | q quit", header_style));
-
-            let status_widget = Paragraph::new(Line::from(header_spans))
+            let status_widget = Paragraph::new(vec![Line::from(header_spans), Line::from(key_hint_spans)])
                 .style(header_style)
                 .wrap(Wrap { trim: false })
                 .block(
