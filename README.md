@@ -1,12 +1,12 @@
 # imsa_tui
 
-A terminal user interface (TUI) for live IMSA timing data.
+A terminal user interface (TUI) for live IMSA and NLS timing data.
 
-`imsa_tui` is a Rust application that pulls IMSA live timing JSONP feeds and renders a continuously updating leaderboard in your terminal using `ratatui`.
+`imsa_tui` is a Rust application that pulls live timing feeds and renders a continuously updating leaderboard in your terminal using `ratatui`.
 
 ## Features
 
-- Live polling of IMSA timing feeds (default every 5 seconds).
+- Live IMSA polling (JSONP, default every 5 seconds) and NLS websocket streaming.
 - Overall leaderboard table with position, car number, class, driver, laps, gaps, lap times, and pit information.
 - Multiple viewing modes:
   - **Overall** (all cars)
@@ -57,6 +57,7 @@ Release run:
 - `h` — toggle help popup
 - `g` — cycle view modes (Overall → Grouped → each class)
 - `o` — jump to Overall view
+- `t` — switch series (IMSA ↔ NLS)
 - `r` — cycle demo flag (enables demo mode if disabled)
 - `0` — return to live flag (disable demo mode)
 - `q` — quit (or close help popup first)
@@ -73,19 +74,23 @@ The app stores configuration in a TOML file at:
 Current configuration fields:
 
 - `favourites`: list of car numbers to highlight and include in the **Favourites** view.
+- `selected_series`: the last active series (`imsa` or `nls`) restored on startup.
 
 Example `config.toml`:
 
 ```toml
-favourites = ["7", "31", "01", "79"]
+favourites = ["imsa|feed:7", "nls|stnr:911:SP9"]
+selected_series = "nls"
 ```
 
 ## Data sources
 
-The app polls these IMSA CloudFront JSONP endpoints:
-
+IMSA:
 - `RaceResults_JSONP.json`
 - `RaceData_JSONP.json`
+
+NLS:
+- `wss://livetiming.azurewebsites.net/` websocket feed (`eventId = 20`)
 
 If a payload is raw JSON instead of JSONP, the parser handles both formats.
 

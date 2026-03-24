@@ -1,11 +1,13 @@
 use std::{
+    sync::mpsc::{Receiver, Sender},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use reqwest::blocking::Client;
 use serde_json::Value;
-use std::sync::mpsc::Sender;
+
+use crate::timing::{TimingEntry, TimingHeader, TimingMessage};
 
 const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSONP.json";
 const RESULTS_CALLBACK: &str = "jsonpRaceResults";
@@ -13,52 +15,7 @@ const RACE_DATA_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceData_JSONP
 const RACE_DATA_CALLBACK: &str = "jsonpRaceData";
 pub const POLL_INTERVAL: Duration = Duration::from_millis(5000);
 
-/// A single timing row for one car in the IMSA leaderboard.
-#[derive(Debug, Clone)]
-pub struct Entry {
-    pub position: u32,
-    pub car_number: String,
-    pub class_name: String,
-    pub class_rank: String,
-    pub driver: String,
-    pub vehicle: String,
-    pub laps: String,
-    pub gap_overall: String,
-    pub gap_class: String,
-    pub gap_next_in_class: String,
-    pub last_lap: String,
-    pub best_lap: String,
-    pub best_lap_no: String,
-    pub pit: String,
-    pub pit_stops: String,
-    pub fastest_driver: String,
-    pub stable_id: String,
-}
-
-/// Summary metadata shown in the TUI header bar.
-#[derive(Debug, Clone, Default)]
-pub struct HeaderInfo {
-    pub session_name: String,
-    pub event_name: String,
-    pub track_name: String,
-    pub day_time: String,
-    pub flag: String,
-    pub time_to_go: String,
-}
-
-/// Messages sent from the polling worker thread to the UI loop.
-#[derive(Debug, Clone)]
-pub enum UiMessage {
-    Status(String),
-    Error(String),
-    Snapshot {
-        header: HeaderInfo,
-        entries: Vec<Entry>,
-    },
-}
-
-/// Worker loop that polls IMSA endpoints and streams snapshots to the UI.
-pub fn polling_worker(tx: Sender<UiMessage>) {
+pub fn polling_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
     let client = match Client::builder()
         .timeout(Duration::from_secs(12))
         .brotli(true)
@@ -68,26 +25,43 @@ pub fn polling_worker(tx: Sender<UiMessage>) {
     {
         Ok(c) => c,
         Err(e) => {
-            let _ = tx.send(UiMessage::Error(format!("client init failed: {e}")));
+            let _ = tx.send(TimingMessage::Error {
+                source_id,
+                text: format!("client init failed: {e}"),
+            });
             return;
         }
     };
 
     loop {
-        let _ = tx.send(UiMessage::Status(
-            "Fetching IMSA live timing...".to_string(),
-        ));
+        if stop_rx.try_recv().is_ok() {
+            break;
+        }
+
+        let _ = tx.send(TimingMessage::Status {
+            source_id,
+            text: "Fetching IMSA live timing...".to_string(),
+        });
 
         match fetch_snapshot(&client) {
             Ok((header, entries)) => {
-                let _ = tx.send(UiMessage::Snapshot { header, entries });
+                let _ = tx.send(TimingMessage::Snapshot {
+                    source_id,
+                    header,
+                    entries,
+                });
             }
             Err(err) => {
-                let _ = tx.send(UiMessage::Error(err));
+                let _ = tx.send(TimingMessage::Error {
+                    source_id,
+                    text: err,
+                });
             }
         }
 
-        thread::sleep(POLL_INTERVAL);
+        if stop_rx.recv_timeout(POLL_INTERVAL).is_ok() {
+            break;
+        }
     }
 }
 
@@ -173,13 +147,13 @@ fn parse_pit(obj: &Value) -> String {
     }
 }
 
-fn parse_entry(obj: &Value) -> Option<Entry> {
+fn parse_entry(obj: &Value) -> Option<TimingEntry> {
     let position = parse_position(obj)?;
     let car_number = as_string(obj, "N");
     let class_name = as_string(obj, "C");
     let stable_id = parse_stable_car_id(obj, &car_number, &class_name);
 
-    Some(Entry {
+    Some(TimingEntry {
         position,
         car_number,
         class_name,
@@ -196,6 +170,7 @@ fn parse_entry(obj: &Value) -> Option<Entry> {
         pit: parse_pit(obj),
         pit_stops: as_string(obj, "PS"),
         fastest_driver: as_string(obj, "FD"),
+        team: "-".to_string(),
         stable_id,
     })
 }
@@ -262,8 +237,8 @@ fn parse_flag_code(code: &str) -> String {
     }
 }
 
-fn build_results_header(root: &Value) -> HeaderInfo {
-    HeaderInfo {
+fn build_results_header(root: &Value) -> TimingHeader {
+    TimingHeader {
         session_name: first_present_string(root, &["S", "Session", "session", "sessionName"]),
         event_name: first_present_string(root, &["E", "Event", "event", "eventName"]),
         track_name: first_present_string(root, &["T", "Track", "track", "trackName"]),
@@ -273,7 +248,7 @@ fn build_results_header(root: &Value) -> HeaderInfo {
     }
 }
 
-fn merge_race_data_into_header(header: &mut HeaderInfo, race_data: &Value) {
+fn merge_race_data_into_header(header: &mut TimingHeader, race_data: &Value) {
     let day_time = first_present_string(race_data, &["A"]);
     if day_time != "-" {
         header.day_time = day_time;
@@ -297,21 +272,21 @@ fn merge_race_data_into_header(header: &mut HeaderInfo, race_data: &Value) {
     }
 }
 
-fn parse_results_snapshot(root: &Value) -> Result<(HeaderInfo, Vec<Entry>), String> {
+fn parse_results_snapshot(root: &Value) -> Result<(TimingHeader, Vec<TimingEntry>), String> {
     if let Some(cars) = root.get("B").and_then(|v| v.as_array()) {
-        let mut entries: Vec<Entry> = cars.iter().filter_map(parse_entry).collect();
+        let mut entries: Vec<TimingEntry> = cars.iter().filter_map(parse_entry).collect();
         entries.sort_by_key(|e| e.position);
         return Ok((build_results_header(root), entries));
     }
 
     if let Some(cars) = root.get("RaceResults").and_then(|v| v.as_array()) {
-        let mut entries: Vec<Entry> = cars.iter().filter_map(parse_entry).collect();
+        let mut entries: Vec<TimingEntry> = cars.iter().filter_map(parse_entry).collect();
         entries.sort_by_key(|e| e.position);
         return Ok((build_results_header(root), entries));
     }
 
     if let Some(cars) = root.as_array() {
-        let mut entries: Vec<Entry> = cars.iter().filter_map(parse_entry).collect();
+        let mut entries: Vec<TimingEntry> = cars.iter().filter_map(parse_entry).collect();
         entries.sort_by_key(|e| e.position);
         return Ok((build_results_header(root), entries));
     }
@@ -354,7 +329,7 @@ fn fetch_url_text(client: &Client, url: &str) -> Result<String, String> {
         .map_err(|e| format!("body read failed: {e}"))
 }
 
-fn fetch_snapshot(client: &Client) -> Result<(HeaderInfo, Vec<Entry>), String> {
+fn fetch_snapshot(client: &Client) -> Result<(TimingHeader, Vec<TimingEntry>), String> {
     let results_url = format!(
         "{RESULTS_URL}?callback={RESULTS_CALLBACK}&_={}",
         now_millis()
