@@ -773,6 +773,7 @@ pub fn run_app(
                     track_text,
                     tte_text,
                     mode_text,
+                    active_series.label(),
                 )
             } else {
                 format!(
