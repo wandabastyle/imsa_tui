@@ -1,5 +1,7 @@
 use std::{
-    io,
+    collections::HashSet,
+    fs, io,
+    path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -10,6 +12,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use directories::ProjectDirs;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -19,6 +22,7 @@ use ratatui::{
     Terminal,
 };
 use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSONP.json";
@@ -46,6 +50,12 @@ struct Entry {
     pit: String,
     pit_stops: String,
     fastest_driver: String,
+    stable_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AppConfig {
+    favourites: HashSet<String>,
 }
 
 /// Summary metadata shown in the TUI header bar.
@@ -76,6 +86,7 @@ enum ViewMode {
     Overall,
     Grouped,
     Class(usize),
+    Favourites,
 }
 
 /// Stores optional demo-flag override state for local UI testing.
@@ -128,6 +139,10 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("h      toggle help"),
         Line::from("g      cycle views"),
         Line::from("o      switch to overall view"),
+        Line::from("↑/↓    move selection"),
+        Line::from("PgUp/PgDn  fast scroll"),
+        Line::from("space  toggle favourite for selected car"),
+        Line::from("f      jump to next favourite in current view"),
         Line::from("r      cycle demo flag"),
         Line::from("0      return to live flag"),
         Line::from("q      quit"),
@@ -148,6 +163,37 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+fn config_path() -> Option<PathBuf> {
+    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
+    Some(dirs.config_dir().join("config.toml"))
+}
+
+fn load_config() -> AppConfig {
+    let Some(path) = config_path() else {
+        return AppConfig::default();
+    };
+
+    let Ok(text) = fs::read_to_string(path) else {
+        return AppConfig::default();
+    };
+
+    toml::from_str::<AppConfig>(&text).unwrap_or_default()
+}
+
+fn save_config(config: &AppConfig) -> Result<(), String> {
+    let Some(path) = config_path() else {
+        return Err("unable to resolve platform config directory".to_string());
+    };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create config directory failed: {e}"))?;
+    }
+
+    let encoded =
+        toml::to_string_pretty(config).map_err(|e| format!("encode config failed: {e}"))?;
+    fs::write(path, encoded).map_err(|e| format!("write config failed: {e}"))
 }
 
 /// Returns current UNIX epoch time in milliseconds for cache-busting requests.
@@ -235,11 +281,14 @@ fn parse_pit(obj: &Value) -> String {
 
 fn parse_entry(obj: &Value) -> Option<Entry> {
     let position = parse_position(obj)?;
+    let car_number = as_string(obj, "N");
+    let class_name = as_string(obj, "C");
+    let stable_id = parse_stable_car_id(obj, &car_number, &class_name);
 
     Some(Entry {
         position,
-        car_number: as_string(obj, "N"),
-        class_name: as_string(obj, "C"),
+        car_number,
+        class_name,
         class_rank: as_string(obj, "PIC"),
         driver: as_string(obj, "F"),
         vehicle: as_string(obj, "V"),
@@ -253,7 +302,26 @@ fn parse_entry(obj: &Value) -> Option<Entry> {
         pit: parse_pit(obj),
         pit_stops: as_string(obj, "PS"),
         fastest_driver: as_string(obj, "FD"),
+        stable_id,
     })
+}
+
+fn parse_stable_car_id(obj: &Value, car_number: &str, class_name: &str) -> String {
+    let unique_id_keys = ["ID", "Id", "id", "CID", "CarID", "EntryID", "UID"];
+    for key in unique_id_keys {
+        let v = as_string(obj, key);
+        if v != "-" && !v.trim().is_empty() {
+            return format!("feed:{v}");
+        }
+    }
+
+    let normalized_class = normalize_class_name(class_name);
+    let fallback_class = if normalized_class.is_empty() {
+        "UNKNOWN".to_string()
+    } else {
+        normalized_class
+    };
+    format!("fallback:{}:{}", car_number.trim(), fallback_class)
 }
 
 /// Parses either raw JSON or JSONP payload text into a JSON value.
@@ -546,6 +614,7 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
     match view_mode {
         ViewMode::Overall => "Overall".to_string(),
         ViewMode::Grouped => "Grouped".to_string(),
+        ViewMode::Favourites => "Favourites".to_string(),
         ViewMode::Class(idx) => {
             if let Some(name) = group_names.get(idx) {
                 format!("Class {name}")
@@ -577,8 +646,12 @@ fn table_widths() -> [Constraint; 16] {
     ]
 }
 
-fn build_table<'a>(title: impl Into<String>, entries: &'a [Entry]) -> Table<'a> {
-    Table::new(build_rows(entries), table_widths())
+fn build_table<'a>(
+    title: impl Into<String>,
+    entries: &'a [Entry],
+    favourites: &HashSet<String>,
+) -> Table<'a> {
+    Table::new(build_rows(entries, favourites), table_widths())
         .header(
             Row::new(vec![
                 "Pos",
@@ -600,6 +673,7 @@ fn build_table<'a>(title: impl Into<String>, entries: &'a [Entry]) -> Table<'a> 
             ])
             .style(Style::default().add_modifier(Modifier::BOLD)),
         )
+        .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
         .block(Block::default().title(title.into()).borders(Borders::ALL))
 }
 
@@ -631,6 +705,7 @@ fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
     if groups_len == 0 {
         return match current {
             ViewMode::Overall => ViewMode::Grouped,
+            ViewMode::Grouped => ViewMode::Favourites,
             _ => ViewMode::Overall,
         };
     }
@@ -642,9 +717,10 @@ fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
             if idx + 1 < groups_len {
                 ViewMode::Class(idx + 1)
             } else {
-                ViewMode::Overall
+                ViewMode::Favourites
             }
         }
+        ViewMode::Favourites => ViewMode::Overall,
     }
 }
 /// Worker loop that polls IMSA endpoints and streams snapshots to the UI.
@@ -724,13 +800,18 @@ fn drain_messages(
     }
 }
 
-fn build_rows(entries: &[Entry]) -> Vec<Row<'static>> {
+fn build_rows(entries: &[Entry], favourites: &HashSet<String>) -> Vec<Row<'static>> {
     entries
         .iter()
         .map(|e| {
+            let fav_marker = if favourites.contains(&e.stable_id) {
+                "★ "
+            } else {
+                ""
+            };
             Row::new(vec![
                 Cell::from(e.position.to_string()),
-                Cell::from(e.car_number.clone()),
+                Cell::from(format!("{fav_marker}{}", e.car_number)),
                 Cell::from(e.class_name.clone()),
                 Cell::from(e.class_rank.clone()),
                 Cell::from(e.driver.clone()),
@@ -751,6 +832,51 @@ fn build_rows(entries: &[Entry]) -> Vec<Row<'static>> {
         .collect()
 }
 
+fn visible_slice<'a>(
+    entries: &'a [Entry],
+    selected_idx: usize,
+    table_area_height: u16,
+) -> (&'a [Entry], usize) {
+    let visible_rows = table_area_height.saturating_sub(3) as usize;
+    let window = visible_rows.max(1);
+    if entries.is_empty() {
+        return (&entries[0..0], 0);
+    }
+
+    let max_start = entries.len().saturating_sub(window);
+    let start = selected_idx
+        .saturating_sub(window.saturating_sub(1))
+        .min(max_start);
+    let end = (start + window).min(entries.len());
+    (&entries[start..end], start)
+}
+
+fn step_selection(current: usize, len: usize, delta: isize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let max = (len - 1) as isize;
+    ((current as isize + delta).clamp(0, max)) as usize
+}
+
+fn cycle_to_next_favourite(
+    entries: &[Entry],
+    favourites: &HashSet<String>,
+    selected_idx: usize,
+) -> usize {
+    if entries.is_empty() || favourites.is_empty() {
+        return selected_idx.min(entries.len().saturating_sub(1));
+    }
+
+    for offset in 1..=entries.len() {
+        let idx = (selected_idx + offset) % entries.len();
+        if favourites.contains(&entries[idx].stable_id) {
+            return idx;
+        }
+    }
+    selected_idx
+}
+
 /// Draws the full terminal UI and handles keyboard events until exit.
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let (tx, rx) = mpsc::channel::<UiMessage>();
@@ -766,6 +892,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut previous_flag = "-".to_string();
     let mut transition_started_at = Instant::now();
     let mut view_mode = ViewMode::Overall;
+    let mut selected_row = 0usize;
+    let mut config = load_config();
+    let mut favourites: HashSet<String> = config.favourites.clone();
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
 
@@ -791,6 +920,21 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 view_mode = ViewMode::Class(current_groups.len() - 1);
             }
         }
+
+        let current_view_len = match (&entries, view_mode) {
+            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
+            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
+            (Some(_), ViewMode::Class(idx)) => current_groups
+                .get(idx)
+                .map(|(_, class_entries)| class_entries.len())
+                .unwrap_or(0),
+            (Some(all_entries), ViewMode::Favourites) => all_entries
+                .iter()
+                .filter(|entry| favourites.contains(&entry.stable_id))
+                .count(),
+            _ => 0,
+        };
+        selected_row = selected_row.min(current_view_len.saturating_sub(1));
 
         let live_flag = if header.flag.is_empty() {
             "-"
@@ -878,9 +1022,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
             header_spans.push(Span::styled(
                 format!(
-                    " | Day {} | {}",
+                    " | Day {} | {} | Favs {}",
                     if header.day_time.is_empty() { "-" } else { &header.day_time },
                     age,
+                    favourites.len(),
                 ),
                 header_style,
             ));
@@ -900,8 +1045,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             match &entries {
                 Some(all_entries) => match view_mode {
                     ViewMode::Overall => {
-                        let table = build_table("Overall", all_entries);
-                        f.render_widget(table, chunks[1]);
+                        let (visible_entries, start) = visible_slice(all_entries, selected_row, chunks[1].height);
+                        let mut state = ratatui::widgets::TableState::default();
+                        state.select(Some(selected_row.saturating_sub(start)));
+                        let table = build_table("Overall", visible_entries, &favourites);
+                        f.render_stateful_widget(table, chunks[1], &mut state);
                     }
                     ViewMode::Grouped => {
                         let groups = grouped_entries(all_entries);
@@ -919,31 +1067,66 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .constraints(constraints)
                                 .split(chunks[1]);
 
+                            let mut global_offset = 0usize;
                             for ((class_name, class_entries), area) in groups.iter().zip(group_chunks.iter()) {
-                                let visible_rows = area.height.saturating_sub(3) as usize;
-                                let visible_entries: Vec<Entry> = class_entries
-                                    .iter()
-                                    .take(visible_rows.max(1))
-                                    .cloned()
-                                    .collect();
+                                let local_selected = selected_row
+                                    .saturating_sub(global_offset)
+                                    .min(class_entries.len().saturating_sub(1));
+                                let (visible_entries, start) =
+                                    visible_slice(class_entries, local_selected, area.height);
+                                let mut state = ratatui::widgets::TableState::default();
+                                let highlight = if selected_row >= global_offset
+                                    && selected_row < global_offset + class_entries.len()
+                                {
+                                    Some(local_selected.saturating_sub(start))
+                                } else {
+                                    None
+                                };
+                                state.select(highlight);
                                 let title = format!("{} ({} cars)", class_name, class_entries.len());
-                                let table = build_table(title, &visible_entries);
-                                f.render_widget(table, *area);
+                                let table = build_table(title, visible_entries, &favourites);
+                                f.render_stateful_widget(table, *area, &mut state);
+                                global_offset += class_entries.len();
                             }
                         }
                     }
                     ViewMode::Class(idx) => {
                         let groups = grouped_entries(all_entries);
                         if let Some((class_name, class_entries)) = groups.get(idx) {
+                            let (visible_entries, start) =
+                                visible_slice(class_entries, selected_row, chunks[1].height);
+                            let mut state = ratatui::widgets::TableState::default();
+                            state.select(Some(selected_row.saturating_sub(start)));
                             let table = build_table(
                                 format!("{} ({} cars)", class_name, class_entries.len()),
-                                class_entries,
+                                visible_entries,
+                                &favourites,
                             );
-                            f.render_widget(table, chunks[1]);
+                            f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
                             let waiting = Paragraph::new("No class data available yet.")
                                 .block(Block::default().title("Class").borders(Borders::ALL));
                             f.render_widget(waiting, chunks[1]);
+                        }
+                    }
+                    ViewMode::Favourites => {
+                        let favourite_entries: Vec<Entry> = all_entries
+                            .iter()
+                            .filter(|entry| favourites.contains(&entry.stable_id))
+                            .cloned()
+                            .collect();
+                        if favourite_entries.is_empty() {
+                            let waiting = Paragraph::new("No favourites yet. Select a car and press space.")
+                                .block(Block::default().title("Favourites").borders(Borders::ALL));
+                            f.render_widget(waiting, chunks[1]);
+                        } else {
+                            let (visible_entries, start) =
+                                visible_slice(&favourite_entries, selected_row, chunks[1].height);
+                            let mut state = ratatui::widgets::TableState::default();
+                            state.select(Some(selected_row.saturating_sub(start)));
+                            let table =
+                                build_table(format!("Favourites ({} cars)", favourite_entries.len()), visible_entries, &favourites);
+                            f.render_stateful_widget(table, chunks[1], &mut state);
                         }
                     }
                 },
@@ -985,9 +1168,155 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     }
                     KeyCode::Char('g') if !show_help => {
                         view_mode = next_view_mode(view_mode, current_groups.len());
+                        selected_row = 0;
                     }
                     KeyCode::Char('o') if !show_help => {
                         view_mode = ViewMode::Overall;
+                        selected_row = 0;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') if !show_help => {
+                        let view_len = match (&entries, view_mode) {
+                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
+                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
+                            (Some(_), ViewMode::Class(idx)) => current_groups
+                                .get(idx)
+                                .map(|(_, class_entries)| class_entries.len())
+                                .unwrap_or(0),
+                            (Some(all_entries), ViewMode::Favourites) => all_entries
+                                .iter()
+                                .filter(|entry| favourites.contains(&entry.stable_id))
+                                .count(),
+                            _ => 0,
+                        };
+                        selected_row = step_selection(selected_row, view_len, 1);
+                    }
+                    KeyCode::Up | KeyCode::Char('k') if !show_help => {
+                        let view_len = match (&entries, view_mode) {
+                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
+                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
+                            (Some(_), ViewMode::Class(idx)) => current_groups
+                                .get(idx)
+                                .map(|(_, class_entries)| class_entries.len())
+                                .unwrap_or(0),
+                            (Some(all_entries), ViewMode::Favourites) => all_entries
+                                .iter()
+                                .filter(|entry| favourites.contains(&entry.stable_id))
+                                .count(),
+                            _ => 0,
+                        };
+                        selected_row = step_selection(selected_row, view_len, -1);
+                    }
+                    KeyCode::PageDown if !show_help => {
+                        let jump = 10;
+                        let view_len = match (&entries, view_mode) {
+                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
+                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
+                            (Some(_), ViewMode::Class(idx)) => current_groups
+                                .get(idx)
+                                .map(|(_, class_entries)| class_entries.len())
+                                .unwrap_or(0),
+                            (Some(all_entries), ViewMode::Favourites) => all_entries
+                                .iter()
+                                .filter(|entry| favourites.contains(&entry.stable_id))
+                                .count(),
+                            _ => 0,
+                        };
+                        selected_row = step_selection(selected_row, view_len, jump);
+                    }
+                    KeyCode::PageUp if !show_help => {
+                        let jump = -10;
+                        let view_len = match (&entries, view_mode) {
+                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
+                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
+                            (Some(_), ViewMode::Class(idx)) => current_groups
+                                .get(idx)
+                                .map(|(_, class_entries)| class_entries.len())
+                                .unwrap_or(0),
+                            (Some(all_entries), ViewMode::Favourites) => all_entries
+                                .iter()
+                                .filter(|entry| favourites.contains(&entry.stable_id))
+                                .count(),
+                            _ => 0,
+                        };
+                        selected_row = step_selection(selected_row, view_len, jump);
+                    }
+                    KeyCode::Home if !show_help => {
+                        selected_row = 0;
+                    }
+                    KeyCode::End if !show_help => {
+                        let view_len = match (&entries, view_mode) {
+                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
+                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
+                            (Some(_), ViewMode::Class(idx)) => current_groups
+                                .get(idx)
+                                .map(|(_, class_entries)| class_entries.len())
+                                .unwrap_or(0),
+                            (Some(all_entries), ViewMode::Favourites) => all_entries
+                                .iter()
+                                .filter(|entry| favourites.contains(&entry.stable_id))
+                                .count(),
+                            _ => 0,
+                        };
+                        selected_row = view_len.saturating_sub(1);
+                    }
+                    KeyCode::Char(' ') if !show_help => {
+                        if let Some(all_entries) = &entries {
+                            let selected = match view_mode {
+                                ViewMode::Overall | ViewMode::Grouped => {
+                                    all_entries.get(selected_row)
+                                }
+                                ViewMode::Class(idx) => current_groups
+                                    .get(idx)
+                                    .and_then(|(_, class_entries)| class_entries.get(selected_row)),
+                                ViewMode::Favourites => all_entries
+                                    .iter()
+                                    .filter(|entry| favourites.contains(&entry.stable_id))
+                                    .nth(selected_row),
+                            };
+                            if let Some(entry) = selected {
+                                if favourites.contains(&entry.stable_id) {
+                                    favourites.remove(&entry.stable_id);
+                                } else {
+                                    favourites.insert(entry.stable_id.clone());
+                                }
+                                config.favourites = favourites.clone();
+                                if let Err(err) = save_config(&config) {
+                                    last_error = Some(err);
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char('f') if !show_help => {
+                        if let Some(all_entries) = &entries {
+                            match view_mode {
+                                ViewMode::Overall | ViewMode::Grouped => {
+                                    selected_row = cycle_to_next_favourite(
+                                        all_entries,
+                                        &favourites,
+                                        selected_row,
+                                    );
+                                }
+                                ViewMode::Class(idx) => {
+                                    if let Some((_, class_entries)) = current_groups.get(idx) {
+                                        selected_row = cycle_to_next_favourite(
+                                            class_entries,
+                                            &favourites,
+                                            selected_row,
+                                        );
+                                    }
+                                }
+                                ViewMode::Favourites => {
+                                    let count = all_entries
+                                        .iter()
+                                        .filter(|entry| favourites.contains(&entry.stable_id))
+                                        .count();
+                                    selected_row = step_selection(selected_row, count, 1);
+                                    if count > 0 && selected_row >= count {
+                                        selected_row = 0;
+                                    }
+                                }
+                            }
+                        }
                     }
                     KeyCode::Char('r') if !show_help => {
                         if demo_flag.enabled {

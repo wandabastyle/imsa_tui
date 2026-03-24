@@ -62,6 +62,24 @@ Release run:
 - `q` — quit (or close help popup first)
 - `Esc` — close help popup / quit
 
+## Configuration
+
+The app stores configuration in a TOML file at:
+
+- Linux: `~/.config/imsa/imsa_tui/config.toml`
+- macOS: `~/Library/Application Support/com.imsa.imsa_tui/config.toml`
+- Windows: `%APPDATA%\\imsa\\imsa_tui\\config.toml`
+
+Current configuration fields:
+
+- `favourites`: list of car numbers to highlight and include in the **Favourites** view.
+
+Example `config.toml`:
+
+```toml
+favourites = ["7", "31", "01", "79"]
+```
+
 ## Data sources
 
 The app polls these IMSA CloudFront JSONP endpoints:
