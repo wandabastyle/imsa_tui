@@ -96,6 +96,15 @@ struct DemoFlagState {
     idx: usize,
 }
 
+/// Stores current search query and matched row indices for active view.
+#[derive(Debug, Clone, Default)]
+struct SearchState {
+    query: String,
+    matches: Vec<usize>,
+    current_match: usize,
+    input_active: bool,
+}
+
 /// Returns a synthetic flag name for demo mode rotation.
 fn demo_flag_name(idx: usize) -> &'static str {
     match idx % 5 {
@@ -143,6 +152,8 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("PgUp/PgDn  fast scroll"),
         Line::from("space  toggle favourite for selected car"),
         Line::from("f      jump to next favourite in current view"),
+        Line::from("s      search by car #, driver, or team"),
+        Line::from("n/p    next/prev search result"),
         Line::from("r      cycle demo flag"),
         Line::from("0      return to live flag"),
         Line::from("q      quit"),
@@ -650,31 +661,35 @@ fn build_table<'a>(
     title: impl Into<String>,
     entries: &'a [Entry],
     favourites: &HashSet<String>,
+    marked_stable_id: Option<&str>,
 ) -> Table<'a> {
-    Table::new(build_rows(entries, favourites), table_widths())
-        .header(
-            Row::new(vec![
-                "Pos",
-                "#",
-                "Class",
-                "PIC",
-                "Driver",
-                "Vehicle",
-                "Laps",
-                "Gap O",
-                "Gap C",
-                "Next C",
-                "Last",
-                "Best",
-                "BL#",
-                "Pit",
-                "Stop",
-                "Fastest Driver",
-            ])
-            .style(Style::default().add_modifier(Modifier::BOLD)),
-        )
-        .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
-        .block(Block::default().title(title.into()).borders(Borders::ALL))
+    Table::new(
+        build_rows(entries, favourites, marked_stable_id),
+        table_widths(),
+    )
+    .header(
+        Row::new(vec![
+            "Pos",
+            "#",
+            "Class",
+            "PIC",
+            "Driver",
+            "Vehicle",
+            "Laps",
+            "Gap O",
+            "Gap C",
+            "Next C",
+            "Last",
+            "Best",
+            "BL#",
+            "Pit",
+            "Stop",
+            "Fastest Driver",
+        ])
+        .style(Style::default().add_modifier(Modifier::BOLD)),
+    )
+    .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
+    .block(Block::default().title(title.into()).borders(Borders::ALL))
 }
 
 /// Groups entries by supported IMSA classes in display order.
@@ -800,7 +815,11 @@ fn drain_messages(
     }
 }
 
-fn build_rows(entries: &[Entry], favourites: &HashSet<String>) -> Vec<Row<'static>> {
+fn build_rows(
+    entries: &[Entry],
+    favourites: &HashSet<String>,
+    marked_stable_id: Option<&str>,
+) -> Vec<Row<'static>> {
     entries
         .iter()
         .map(|e| {
@@ -827,7 +846,13 @@ fn build_rows(entries: &[Entry], favourites: &HashSet<String>) -> Vec<Row<'stati
                 Cell::from(e.pit_stops.clone()),
                 Cell::from(e.fastest_driver.clone()),
             ])
-            .style(class_style(&e.class_name))
+            .style(if marked_stable_id == Some(e.stable_id.as_str()) {
+                class_style(&e.class_name)
+                    .bg(Color::Rgb(34, 70, 122))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                class_style(&e.class_name)
+            })
         })
         .collect()
 }
@@ -859,22 +884,63 @@ fn step_selection(current: usize, len: usize, delta: isize) -> usize {
     ((current as isize + delta).clamp(0, max)) as usize
 }
 
-fn cycle_to_next_favourite(
-    entries: &[Entry],
+fn view_entries_for_mode<'a>(
+    all_entries: &'a [Entry],
+    current_groups: &'a [(String, Vec<Entry>)],
+    view_mode: ViewMode,
     favourites: &HashSet<String>,
-    selected_idx: usize,
-) -> usize {
-    if entries.is_empty() || favourites.is_empty() {
-        return selected_idx.min(entries.len().saturating_sub(1));
+) -> Vec<&'a Entry> {
+    match view_mode {
+        ViewMode::Overall => all_entries.iter().collect(),
+        ViewMode::Grouped => current_groups
+            .iter()
+            .flat_map(|(_, class_entries)| class_entries.iter())
+            .collect(),
+        ViewMode::Class(idx) => current_groups
+            .get(idx)
+            .map(|(_, class_entries)| class_entries.iter().collect())
+            .unwrap_or_default(),
+        ViewMode::Favourites => all_entries
+            .iter()
+            .filter(|entry| favourites.contains(&entry.stable_id))
+            .collect(),
+    }
+}
+
+fn entry_matches_search(entry: &Entry, query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return false;
     }
 
-    for offset in 1..=entries.len() {
-        let idx = (selected_idx + offset) % entries.len();
-        if favourites.contains(&entries[idx].stable_id) {
-            return idx;
-        }
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return entry.car_number.trim() == trimmed;
     }
-    selected_idx
+
+    let needle = trimmed.to_ascii_lowercase();
+    entry.car_number.to_ascii_lowercase().contains(&needle)
+        || entry.driver.to_ascii_lowercase().contains(&needle)
+        || entry.vehicle.to_ascii_lowercase().contains(&needle)
+}
+
+fn refresh_search_matches(search: &mut SearchState, view_entries: &[&Entry]) {
+    if search.query.trim().is_empty() {
+        search.matches.clear();
+        search.current_match = 0;
+        return;
+    }
+
+    search.matches = view_entries
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, entry)| entry_matches_search(entry, &search.query).then_some(idx))
+        .collect();
+
+    if search.matches.is_empty() {
+        search.current_match = 0;
+    } else if search.current_match >= search.matches.len() {
+        search.current_match = 0;
+    }
 }
 
 /// Draws the full terminal UI and handles keyboard events until exit.
@@ -897,6 +963,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut favourites: HashSet<String> = config.favourites.clone();
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
+    let mut search = SearchState::default();
 
     loop {
         drain_messages(
@@ -921,20 +988,30 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
         }
 
-        let current_view_len = match (&entries, view_mode) {
-            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
-            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
-            (Some(_), ViewMode::Class(idx)) => current_groups
-                .get(idx)
-                .map(|(_, class_entries)| class_entries.len())
-                .unwrap_or(0),
-            (Some(all_entries), ViewMode::Favourites) => all_entries
-                .iter()
-                .filter(|entry| favourites.contains(&entry.stable_id))
-                .count(),
-            _ => 0,
-        };
+        let current_view_len = entries
+            .as_ref()
+            .map(|all_entries| {
+                view_entries_for_mode(all_entries, &current_groups, view_mode, &favourites).len()
+            })
+            .unwrap_or(0);
         selected_row = selected_row.min(current_view_len.saturating_sub(1));
+
+        let current_view_entries = entries
+            .as_ref()
+            .map(|all_entries| {
+                view_entries_for_mode(all_entries, &current_groups, view_mode, &favourites)
+            })
+            .unwrap_or_default();
+        refresh_search_matches(&mut search, &current_view_entries);
+        if !search.matches.is_empty() {
+            let idx = search.matches[search.current_match];
+            selected_row = idx.min(current_view_entries.len().saturating_sub(1));
+        }
+        let marked_stable_id = search
+            .matches
+            .get(search.current_match)
+            .and_then(|idx| current_view_entries.get(*idx))
+            .map(|entry| entry.stable_id.as_str());
 
         let live_flag = if header.flag.is_empty() {
             "-"
@@ -1029,6 +1106,26 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 ),
                 header_style,
             ));
+            if search.input_active {
+                header_spans.push(Span::styled(
+                    format!(" | Search: {}_", search.query),
+                    header_style.add_modifier(Modifier::BOLD),
+                ));
+            } else if !search.query.trim().is_empty() {
+                header_spans.push(Span::styled(
+                    format!(
+                        " | Search: {} ({}/{})",
+                        search.query,
+                        if search.matches.is_empty() {
+                            0
+                        } else {
+                            search.current_match + 1
+                        },
+                        search.matches.len()
+                    ),
+                    header_style,
+                ));
+            }
 
             if let Some(err) = &last_error {
                 header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
@@ -1048,7 +1145,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         let (visible_entries, start) = visible_slice(all_entries, selected_row, chunks[1].height);
                         let mut state = ratatui::widgets::TableState::default();
                         state.select(Some(selected_row.saturating_sub(start)));
-                        let table = build_table("Overall", visible_entries, &favourites);
+                        let table = build_table("Overall", visible_entries, &favourites, marked_stable_id);
                         f.render_stateful_widget(table, chunks[1], &mut state);
                     }
                     ViewMode::Grouped => {
@@ -1084,7 +1181,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 };
                                 state.select(highlight);
                                 let title = format!("{} ({} cars)", class_name, class_entries.len());
-                                let table = build_table(title, visible_entries, &favourites);
+                                let table = build_table(title, visible_entries, &favourites, marked_stable_id);
                                 f.render_stateful_widget(table, *area, &mut state);
                                 global_offset += class_entries.len();
                             }
@@ -1101,6 +1198,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 format!("{} ({} cars)", class_name, class_entries.len()),
                                 visible_entries,
                                 &favourites,
+                                marked_stable_id,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
@@ -1125,7 +1223,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             let mut state = ratatui::widgets::TableState::default();
                             state.select(Some(selected_row.saturating_sub(start)));
                             let table =
-                                build_table(format!("Favourites ({} cars)", favourite_entries.len()), visible_entries, &favourites);
+                                build_table(format!("Favourites ({} cars)", favourite_entries.len()), visible_entries, &favourites, marked_stable_id);
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         }
                     }
@@ -1148,6 +1246,31 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
         if event::poll(tick_rate)? {
             if let Event::Key(key) = event::read()? {
+                if search.input_active {
+                    match key.code {
+                        KeyCode::Esc => {
+                            search.input_active = false;
+                        }
+                        KeyCode::Enter => {
+                            search.input_active = false;
+                            refresh_search_matches(&mut search, &current_view_entries);
+                            if !search.matches.is_empty() {
+                                search.current_match = 0;
+                                selected_row = search.matches[0];
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            search.query.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            if !c.is_control() {
+                                search.query.push(c);
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
                 match key.code {
                     KeyCode::Char('h') => {
                         show_help = !show_help;
@@ -1175,147 +1298,72 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         selected_row = 0;
                     }
                     KeyCode::Down | KeyCode::Char('j') if !show_help => {
-                        let view_len = match (&entries, view_mode) {
-                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
-                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
-                            (Some(_), ViewMode::Class(idx)) => current_groups
-                                .get(idx)
-                                .map(|(_, class_entries)| class_entries.len())
-                                .unwrap_or(0),
-                            (Some(all_entries), ViewMode::Favourites) => all_entries
-                                .iter()
-                                .filter(|entry| favourites.contains(&entry.stable_id))
-                                .count(),
-                            _ => 0,
-                        };
+                        let view_len = current_view_entries.len();
                         selected_row = step_selection(selected_row, view_len, 1);
                     }
                     KeyCode::Up | KeyCode::Char('k') if !show_help => {
-                        let view_len = match (&entries, view_mode) {
-                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
-                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
-                            (Some(_), ViewMode::Class(idx)) => current_groups
-                                .get(idx)
-                                .map(|(_, class_entries)| class_entries.len())
-                                .unwrap_or(0),
-                            (Some(all_entries), ViewMode::Favourites) => all_entries
-                                .iter()
-                                .filter(|entry| favourites.contains(&entry.stable_id))
-                                .count(),
-                            _ => 0,
-                        };
+                        let view_len = current_view_entries.len();
                         selected_row = step_selection(selected_row, view_len, -1);
                     }
                     KeyCode::PageDown if !show_help => {
                         let jump = 10;
-                        let view_len = match (&entries, view_mode) {
-                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
-                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
-                            (Some(_), ViewMode::Class(idx)) => current_groups
-                                .get(idx)
-                                .map(|(_, class_entries)| class_entries.len())
-                                .unwrap_or(0),
-                            (Some(all_entries), ViewMode::Favourites) => all_entries
-                                .iter()
-                                .filter(|entry| favourites.contains(&entry.stable_id))
-                                .count(),
-                            _ => 0,
-                        };
+                        let view_len = current_view_entries.len();
                         selected_row = step_selection(selected_row, view_len, jump);
                     }
                     KeyCode::PageUp if !show_help => {
                         let jump = -10;
-                        let view_len = match (&entries, view_mode) {
-                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
-                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
-                            (Some(_), ViewMode::Class(idx)) => current_groups
-                                .get(idx)
-                                .map(|(_, class_entries)| class_entries.len())
-                                .unwrap_or(0),
-                            (Some(all_entries), ViewMode::Favourites) => all_entries
-                                .iter()
-                                .filter(|entry| favourites.contains(&entry.stable_id))
-                                .count(),
-                            _ => 0,
-                        };
+                        let view_len = current_view_entries.len();
                         selected_row = step_selection(selected_row, view_len, jump);
                     }
                     KeyCode::Home if !show_help => {
                         selected_row = 0;
                     }
                     KeyCode::End if !show_help => {
-                        let view_len = match (&entries, view_mode) {
-                            (Some(all_entries), ViewMode::Overall) => all_entries.len(),
-                            (Some(all_entries), ViewMode::Grouped) => all_entries.len(),
-                            (Some(_), ViewMode::Class(idx)) => current_groups
-                                .get(idx)
-                                .map(|(_, class_entries)| class_entries.len())
-                                .unwrap_or(0),
-                            (Some(all_entries), ViewMode::Favourites) => all_entries
-                                .iter()
-                                .filter(|entry| favourites.contains(&entry.stable_id))
-                                .count(),
-                            _ => 0,
-                        };
+                        let view_len = current_view_entries.len();
                         selected_row = view_len.saturating_sub(1);
                     }
                     KeyCode::Char(' ') if !show_help => {
-                        if let Some(all_entries) = &entries {
-                            let selected = match view_mode {
-                                ViewMode::Overall | ViewMode::Grouped => {
-                                    all_entries.get(selected_row)
-                                }
-                                ViewMode::Class(idx) => current_groups
-                                    .get(idx)
-                                    .and_then(|(_, class_entries)| class_entries.get(selected_row)),
-                                ViewMode::Favourites => all_entries
-                                    .iter()
-                                    .filter(|entry| favourites.contains(&entry.stable_id))
-                                    .nth(selected_row),
-                            };
-                            if let Some(entry) = selected {
-                                if favourites.contains(&entry.stable_id) {
-                                    favourites.remove(&entry.stable_id);
-                                } else {
-                                    favourites.insert(entry.stable_id.clone());
-                                }
-                                config.favourites = favourites.clone();
-                                if let Err(err) = save_config(&config) {
-                                    last_error = Some(err);
-                                }
+                        if let Some(entry) = current_view_entries.get(selected_row) {
+                            if favourites.contains(&entry.stable_id) {
+                                favourites.remove(&entry.stable_id);
+                            } else {
+                                favourites.insert(entry.stable_id.clone());
+                            }
+                            config.favourites = favourites.clone();
+                            if let Err(err) = save_config(&config) {
+                                last_error = Some(err);
                             }
                         }
                     }
                     KeyCode::Char('f') if !show_help => {
-                        if let Some(all_entries) = &entries {
-                            match view_mode {
-                                ViewMode::Overall | ViewMode::Grouped => {
-                                    selected_row = cycle_to_next_favourite(
-                                        all_entries,
-                                        &favourites,
-                                        selected_row,
-                                    );
-                                }
-                                ViewMode::Class(idx) => {
-                                    if let Some((_, class_entries)) = current_groups.get(idx) {
-                                        selected_row = cycle_to_next_favourite(
-                                            class_entries,
-                                            &favourites,
-                                            selected_row,
-                                        );
-                                    }
-                                }
-                                ViewMode::Favourites => {
-                                    let count = all_entries
-                                        .iter()
-                                        .filter(|entry| favourites.contains(&entry.stable_id))
-                                        .count();
-                                    selected_row = step_selection(selected_row, count, 1);
-                                    if count > 0 && selected_row >= count {
-                                        selected_row = 0;
-                                    }
+                        if !current_view_entries.is_empty() {
+                            for offset in 1..=current_view_entries.len() {
+                                let idx = (selected_row + offset) % current_view_entries.len();
+                                if favourites.contains(&current_view_entries[idx].stable_id) {
+                                    selected_row = idx;
+                                    break;
                                 }
                             }
+                        }
+                    }
+                    KeyCode::Char('s') if !show_help => {
+                        search.input_active = true;
+                    }
+                    KeyCode::Char('n') if !show_help => {
+                        if !search.matches.is_empty() {
+                            search.current_match =
+                                (search.current_match + 1) % search.matches.len();
+                            selected_row = search.matches[search.current_match];
+                        }
+                    }
+                    KeyCode::Char('p') if !show_help => {
+                        if !search.matches.is_empty() {
+                            if search.current_match == 0 {
+                                search.current_match = search.matches.len() - 1;
+                            } else {
+                                search.current_match -= 1;
+                            }
+                            selected_row = search.matches[search.current_match];
                         }
                     }
                     KeyCode::Char('r') if !show_help => {
