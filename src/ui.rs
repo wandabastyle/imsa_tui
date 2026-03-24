@@ -20,6 +20,7 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    demo,
     imsa::{normalize_class_name, polling_worker},
     nls::websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
@@ -488,6 +489,12 @@ fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> Acti
     ActiveFeed { source_id, stop_tx }
 }
 
+fn stop_feed(feed: &mut Option<ActiveFeed>) {
+    if let Some(active_feed) = feed.take() {
+        let _ = active_feed.stop_tx.send(());
+    }
+}
+
 fn drain_messages(
     rx: &Receiver<TimingMessage>,
     active_source_id: u64,
@@ -624,18 +631,32 @@ fn refresh_search_matches(search: &mut SearchState, view_entries: &[&TimingEntry
     }
 }
 
-pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+pub fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    dev_mode: bool,
+) -> io::Result<()> {
     let (tx, rx) = mpsc::channel::<TimingMessage>();
     let tick_rate = Duration::from_millis(250);
 
     let mut config = load_config();
     let mut active_series = config.selected_series;
     let mut source_id_ctr = 1_u64;
-    let mut feed = start_feed(active_series, tx.clone(), source_id_ctr);
+    let mut feed = if dev_mode {
+        None
+    } else {
+        Some(start_feed(active_series, tx.clone(), source_id_ctr))
+    };
 
-    let mut header = TimingHeader::default();
-    let mut entries: Vec<TimingEntry> = Vec::new();
-    let mut status = format!("Starting {} live timing...", active_series.label());
+    let (mut header, mut entries) = if dev_mode {
+        demo::demo_snapshot(active_series)
+    } else {
+        (TimingHeader::default(), Vec::new())
+    };
+    let mut status = if dev_mode {
+        format!("{} demo data", active_series.label())
+    } else {
+        format!("Starting {} live timing...", active_series.label())
+    };
     let mut last_error: Option<String> = None;
     let mut last_update: Option<Instant> = None;
     let mut previous_flag = "-".to_string();
@@ -643,20 +664,25 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut view_mode = ViewMode::Overall;
     let mut selected_row = 0usize;
     let mut favourites: HashSet<String> = config.favourites.clone();
+    if dev_mode {
+        demo::seed_demo_favourites(active_series, &mut favourites);
+    }
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
     let mut search = SearchState::default();
 
     loop {
-        drain_messages(
-            &rx,
-            feed.source_id,
-            &mut header,
-            &mut entries,
-            &mut status,
-            &mut last_error,
-            &mut last_update,
-        );
+        if let Some(active_feed) = &feed {
+            drain_messages(
+                &rx,
+                active_feed.source_id,
+                &mut header,
+                &mut entries,
+                &mut status,
+                &mut last_error,
+                &mut last_update,
+            );
+        }
 
         let current_groups = grouped_entries(&entries, active_series);
 
@@ -747,17 +773,15 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     track_text,
                     tte_text,
                     mode_text,
-                    active_series.label(),
                 )
             } else {
                 format!(
-                    "{} | {} | {} | TTE {} | Mode {} | Series {} | ",
+                    "{} | {} | {} | TTE {} | Mode {} | ",
                     status,
                     event_text,
                     session_text,
                     tte_text,
                     mode_text,
-                    active_series.label(),
                 )
             };
 
@@ -804,14 +828,14 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
             }
 
-            header_spans.push(Span::styled(" | t switch series | h help | q quit", header_style));
+            header_spans.push(Span::styled(" | h help | q quit", header_style));
 
             let status_widget = Paragraph::new(Line::from(header_spans))
                 .style(header_style)
                 .wrap(Wrap { trim: false })
                 .block(
                     Block::default()
-                        .title("IMSA / NLS TUI")
+                        .title(format!("{} TUI", active_series.label()))
                         .borders(Borders::ALL)
                         .style(header_style),
                 );
@@ -978,7 +1002,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         if show_help {
                             show_help = false;
                         } else {
-                            let _ = feed.stop_tx.send(());
+                            stop_feed(&mut feed);
                             return Ok(());
                         }
                     }
@@ -986,18 +1010,24 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         if show_help {
                             show_help = false;
                         } else {
-                            let _ = feed.stop_tx.send(());
+                            stop_feed(&mut feed);
                             return Ok(());
                         }
                     }
                     KeyCode::Char('t') if !show_help => {
-                        let _ = feed.stop_tx.send(());
+                        stop_feed(&mut feed);
                         active_series = active_series.toggle();
-                        source_id_ctr += 1;
-                        feed = start_feed(active_series, tx.clone(), source_id_ctr);
-                        header = TimingHeader::default();
-                        entries.clear();
-                        status = format!("Starting {} live timing...", active_series.label());
+                        if dev_mode {
+                            (header, entries) = demo::demo_snapshot(active_series);
+                            status = format!("{} demo data", active_series.label());
+                            demo::seed_demo_favourites(active_series, &mut favourites);
+                        } else {
+                            source_id_ctr += 1;
+                            feed = Some(start_feed(active_series, tx.clone(), source_id_ctr));
+                            header = TimingHeader::default();
+                            entries.clear();
+                            status = format!("Starting {} live timing...", active_series.label());
+                        }
                         last_error = None;
                         last_update = None;
                         selected_row = 0;

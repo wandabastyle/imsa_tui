@@ -46,6 +46,12 @@ Development run:
 cargo run
 ```
 
+Development run with static demo data (no live feed connections):
+
+```bash
+cargo run -- --dev
+```
+
 Release run:
 
 ```bash
