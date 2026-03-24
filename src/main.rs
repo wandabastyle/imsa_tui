@@ -21,12 +21,17 @@ struct Args {
 
 impl Args {
     fn parse() -> Self {
-        let mut args = Self::default();
         #[cfg(feature = "dev-mode")]
         {
+            let mut args = Self::default();
             args.dev = std::env::args().any(|arg| arg == "--dev");
+            args
         }
-        args
+
+        #[cfg(not(feature = "dev-mode"))]
+        {
+            Self::default()
+        }
     }
 }
 
@@ -38,18 +43,11 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
 }
 
 fn main() -> io::Result<()> {
-    let args = Args::parse();
-    let dev_mode = {
-        #[cfg(feature = "dev-mode")]
-        {
-            args.dev
-        }
+    #[cfg(feature = "dev-mode")]
+    let dev_mode = Args::parse().dev;
 
-        #[cfg(not(feature = "dev-mode"))]
-        {
-            false
-        }
-    };
+    #[cfg(not(feature = "dev-mode"))]
+    let dev_mode = false;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
