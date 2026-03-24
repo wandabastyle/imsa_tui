@@ -1,3 +1,5 @@
+#![cfg(feature = "dev-mode")]
+
 use std::collections::HashSet;
 
 use crate::timing::{Series, TimingEntry, TimingHeader};
