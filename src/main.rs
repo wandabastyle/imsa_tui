@@ -6,11 +6,29 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
+#[cfg(feature = "dev-mode")]
 mod demo;
 mod imsa;
 mod nls;
 mod timing;
 mod ui;
+
+#[derive(Debug, Default)]
+struct Args {
+    #[cfg(feature = "dev-mode")]
+    dev: bool,
+}
+
+impl Args {
+    fn parse() -> Self {
+        let mut args = Self::default();
+        #[cfg(feature = "dev-mode")]
+        {
+            args.dev = std::env::args().any(|arg| arg == "--dev");
+        }
+        args
+    }
+}
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     disable_raw_mode()?;
@@ -20,7 +38,18 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
 }
 
 fn main() -> io::Result<()> {
-    let dev_mode = std::env::args().any(|arg| arg == "--dev");
+    let args = Args::parse();
+    let dev_mode = {
+        #[cfg(feature = "dev-mode")]
+        {
+            args.dev
+        }
+
+        #[cfg(not(feature = "dev-mode"))]
+        {
+            false
+        }
+    };
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();

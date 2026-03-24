@@ -20,11 +20,12 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    demo,
     imsa::{normalize_class_name, polling_worker},
     nls::websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
 };
+#[cfg(feature = "dev-mode")]
+use crate::demo;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AppConfig {
@@ -74,6 +75,24 @@ fn demo_flag_name(idx: usize) -> &'static str {
         _ => "Checkered",
     }
 }
+
+#[cfg(feature = "dev-mode")]
+fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
+    demo::demo_snapshot(series)
+}
+
+#[cfg(not(feature = "dev-mode"))]
+fn demo_snapshot(_series: Series) -> (TimingHeader, Vec<TimingEntry>) {
+    (TimingHeader::default(), Vec::new())
+}
+
+#[cfg(feature = "dev-mode")]
+fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
+    demo::seed_demo_favourites(series, favourites);
+}
+
+#[cfg(not(feature = "dev-mode"))]
+fn seed_demo_favourites(_series: Series, _favourites: &mut HashSet<String>) {}
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
@@ -648,7 +667,7 @@ pub fn run_app(
     };
 
     let (mut header, mut entries) = if dev_mode {
-        demo::demo_snapshot(active_series)
+        demo_snapshot(active_series)
     } else {
         (TimingHeader::default(), Vec::new())
     };
@@ -665,7 +684,7 @@ pub fn run_app(
     let mut selected_row = 0usize;
     let mut favourites: HashSet<String> = config.favourites.clone();
     if dev_mode {
-        demo::seed_demo_favourites(active_series, &mut favourites);
+        seed_demo_favourites(active_series, &mut favourites);
     }
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
@@ -1019,9 +1038,9 @@ pub fn run_app(
                         stop_feed(&mut feed);
                         active_series = active_series.toggle();
                         if dev_mode {
-                            (header, entries) = demo::demo_snapshot(active_series);
+                            (header, entries) = demo_snapshot(active_series);
                             status = format!("{} demo data", active_series.label());
-                            demo::seed_demo_favourites(active_series, &mut favourites);
+                            seed_demo_favourites(active_series, &mut favourites);
                         } else {
                             source_id_ctr += 1;
                             feed = Some(start_feed(active_series, tx.clone(), source_id_ctr));
