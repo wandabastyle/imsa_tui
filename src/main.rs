@@ -1347,6 +1347,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         }
                     }
                     KeyCode::Char('s') if !show_help => {
+                        search.query.clear();
+                        search.matches.clear();
+                        search.current_match = 0;
                         search.input_active = true;
                     }
                     KeyCode::Char('n') if !show_help => {
