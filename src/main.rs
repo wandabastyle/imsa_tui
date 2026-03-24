@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
-    io,
+    fs, io,
+    path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -11,6 +12,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use directories::ProjectDirs;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -20,6 +22,7 @@ use ratatui::{
     Terminal,
 };
 use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSONP.json";
@@ -47,6 +50,12 @@ struct Entry {
     pit: String,
     pit_stops: String,
     fastest_driver: String,
+    stable_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AppConfig {
+    favourites: HashSet<String>,
 }
 
 /// Summary metadata shown in the TUI header bar.
@@ -156,6 +165,37 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     Ok(())
 }
 
+fn config_path() -> Option<PathBuf> {
+    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
+    Some(dirs.config_dir().join("config.toml"))
+}
+
+fn load_config() -> AppConfig {
+    let Some(path) = config_path() else {
+        return AppConfig::default();
+    };
+
+    let Ok(text) = fs::read_to_string(path) else {
+        return AppConfig::default();
+    };
+
+    toml::from_str::<AppConfig>(&text).unwrap_or_default()
+}
+
+fn save_config(config: &AppConfig) -> Result<(), String> {
+    let Some(path) = config_path() else {
+        return Err("unable to resolve platform config directory".to_string());
+    };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create config directory failed: {e}"))?;
+    }
+
+    let encoded =
+        toml::to_string_pretty(config).map_err(|e| format!("encode config failed: {e}"))?;
+    fs::write(path, encoded).map_err(|e| format!("write config failed: {e}"))
+}
+
 /// Returns current UNIX epoch time in milliseconds for cache-busting requests.
 fn now_millis() -> u128 {
     SystemTime::now()
@@ -241,11 +281,14 @@ fn parse_pit(obj: &Value) -> String {
 
 fn parse_entry(obj: &Value) -> Option<Entry> {
     let position = parse_position(obj)?;
+    let car_number = as_string(obj, "N");
+    let class_name = as_string(obj, "C");
+    let stable_id = parse_stable_car_id(obj, &car_number, &class_name);
 
     Some(Entry {
         position,
-        car_number: as_string(obj, "N"),
-        class_name: as_string(obj, "C"),
+        car_number,
+        class_name,
         class_rank: as_string(obj, "PIC"),
         driver: as_string(obj, "F"),
         vehicle: as_string(obj, "V"),
@@ -259,7 +302,26 @@ fn parse_entry(obj: &Value) -> Option<Entry> {
         pit: parse_pit(obj),
         pit_stops: as_string(obj, "PS"),
         fastest_driver: as_string(obj, "FD"),
+        stable_id,
     })
+}
+
+fn parse_stable_car_id(obj: &Value, car_number: &str, class_name: &str) -> String {
+    let unique_id_keys = ["ID", "Id", "id", "CID", "CarID", "EntryID", "UID"];
+    for key in unique_id_keys {
+        let v = as_string(obj, key);
+        if v != "-" && !v.trim().is_empty() {
+            return format!("feed:{v}");
+        }
+    }
+
+    let normalized_class = normalize_class_name(class_name);
+    let fallback_class = if normalized_class.is_empty() {
+        "UNKNOWN".to_string()
+    } else {
+        normalized_class
+    };
+    format!("fallback:{}:{}", car_number.trim(), fallback_class)
 }
 
 /// Parses either raw JSON or JSONP payload text into a JSON value.
@@ -742,7 +804,7 @@ fn build_rows(entries: &[Entry], favourites: &HashSet<String>) -> Vec<Row<'stati
     entries
         .iter()
         .map(|e| {
-            let fav_marker = if favourites.contains(&e.car_number) {
+            let fav_marker = if favourites.contains(&e.stable_id) {
                 "★ "
             } else {
                 ""
@@ -808,7 +870,7 @@ fn cycle_to_next_favourite(
 
     for offset in 1..=entries.len() {
         let idx = (selected_idx + offset) % entries.len();
-        if favourites.contains(&entries[idx].car_number) {
+        if favourites.contains(&entries[idx].stable_id) {
             return idx;
         }
     }
@@ -831,7 +893,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut transition_started_at = Instant::now();
     let mut view_mode = ViewMode::Overall;
     let mut selected_row = 0usize;
-    let mut favourites: HashSet<String> = HashSet::new();
+    let mut config = load_config();
+    let mut favourites: HashSet<String> = config.favourites.clone();
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
 
@@ -867,7 +930,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .unwrap_or(0),
             (Some(all_entries), ViewMode::Favourites) => all_entries
                 .iter()
-                .filter(|entry| favourites.contains(&entry.car_number))
+                .filter(|entry| favourites.contains(&entry.stable_id))
                 .count(),
             _ => 0,
         };
@@ -1049,7 +1112,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     ViewMode::Favourites => {
                         let favourite_entries: Vec<Entry> = all_entries
                             .iter()
-                            .filter(|entry| favourites.contains(&entry.car_number))
+                            .filter(|entry| favourites.contains(&entry.stable_id))
                             .cloned()
                             .collect();
                         if favourite_entries.is_empty() {
@@ -1121,7 +1184,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .unwrap_or(0),
                             (Some(all_entries), ViewMode::Favourites) => all_entries
                                 .iter()
-                                .filter(|entry| favourites.contains(&entry.car_number))
+                                .filter(|entry| favourites.contains(&entry.stable_id))
                                 .count(),
                             _ => 0,
                         };
@@ -1137,7 +1200,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .unwrap_or(0),
                             (Some(all_entries), ViewMode::Favourites) => all_entries
                                 .iter()
-                                .filter(|entry| favourites.contains(&entry.car_number))
+                                .filter(|entry| favourites.contains(&entry.stable_id))
                                 .count(),
                             _ => 0,
                         };
@@ -1154,7 +1217,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .unwrap_or(0),
                             (Some(all_entries), ViewMode::Favourites) => all_entries
                                 .iter()
-                                .filter(|entry| favourites.contains(&entry.car_number))
+                                .filter(|entry| favourites.contains(&entry.stable_id))
                                 .count(),
                             _ => 0,
                         };
@@ -1171,7 +1234,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .unwrap_or(0),
                             (Some(all_entries), ViewMode::Favourites) => all_entries
                                 .iter()
-                                .filter(|entry| favourites.contains(&entry.car_number))
+                                .filter(|entry| favourites.contains(&entry.stable_id))
                                 .count(),
                             _ => 0,
                         };
@@ -1190,7 +1253,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .unwrap_or(0),
                             (Some(all_entries), ViewMode::Favourites) => all_entries
                                 .iter()
-                                .filter(|entry| favourites.contains(&entry.car_number))
+                                .filter(|entry| favourites.contains(&entry.stable_id))
                                 .count(),
                             _ => 0,
                         };
@@ -1207,14 +1270,18 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                     .and_then(|(_, class_entries)| class_entries.get(selected_row)),
                                 ViewMode::Favourites => all_entries
                                     .iter()
-                                    .filter(|entry| favourites.contains(&entry.car_number))
+                                    .filter(|entry| favourites.contains(&entry.stable_id))
                                     .nth(selected_row),
                             };
                             if let Some(entry) = selected {
-                                if favourites.contains(&entry.car_number) {
-                                    favourites.remove(&entry.car_number);
+                                if favourites.contains(&entry.stable_id) {
+                                    favourites.remove(&entry.stable_id);
                                 } else {
-                                    favourites.insert(entry.car_number.clone());
+                                    favourites.insert(entry.stable_id.clone());
+                                }
+                                config.favourites = favourites.clone();
+                                if let Err(err) = save_config(&config) {
+                                    last_error = Some(err);
                                 }
                             }
                         }
@@ -1241,7 +1308,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 ViewMode::Favourites => {
                                     let count = all_entries
                                         .iter()
-                                        .filter(|entry| favourites.contains(&entry.car_number))
+                                        .filter(|entry| favourites.contains(&entry.stable_id))
                                         .count();
                                     selected_row = step_selection(selected_row, count, 1);
                                     if count > 0 && selected_row >= count {
