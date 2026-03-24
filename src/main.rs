@@ -13,25 +13,18 @@ mod nls;
 mod timing;
 mod ui;
 
+#[cfg(feature = "dev-mode")]
 #[derive(Debug, Default)]
 struct Args {
-    #[cfg(feature = "dev-mode")]
     dev: bool,
 }
 
+#[cfg(feature = "dev-mode")]
 impl Args {
     fn parse() -> Self {
-        #[cfg(feature = "dev-mode")]
-        {
-            let mut args = Self::default();
-            args.dev = std::env::args().any(|arg| arg == "--dev");
-            args
-        }
-
-        #[cfg(not(feature = "dev-mode"))]
-        {
-            Self::default()
-        }
+        let mut args = Self::default();
+        args.dev = std::env::args().any(|arg| arg == "--dev");
+        args
     }
 }
 
