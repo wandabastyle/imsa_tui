@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     fs, io,
     path::PathBuf,
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self, Receiver, Sender},
     thread,
     time::{Duration, Instant},
 };
@@ -19,11 +19,23 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::imsa::{normalize_class_name, polling_worker, Entry, HeaderInfo, UiMessage};
+use crate::{
+    imsa::{normalize_class_name, polling_worker},
+    nls::websocket_worker,
+    timing::{Series, TimingEntry, TimingHeader, TimingMessage},
+};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AppConfig {
     favourites: HashSet<String>,
+    #[serde(default)]
+    selected_series: Series,
+}
+
+#[derive(Debug)]
+struct ActiveFeed {
+    source_id: u64,
+    stop_tx: Sender<()>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +58,10 @@ struct SearchState {
     matches: Vec<usize>,
     current_match: usize,
     input_active: bool,
+}
+
+fn favourite_key(series: Series, stable_id: &str) -> String {
+    format!("{}|{}", series.as_key_prefix(), stable_id)
 }
 
 fn demo_flag_name(idx: usize) -> &'static str {
@@ -88,6 +104,7 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("h      toggle help"),
         Line::from("g      cycle views"),
         Line::from("o      switch to overall view"),
+        Line::from("t      switch series (IMSA/NLS)"),
         Line::from("↑/↓    move selection"),
         Line::from("PgUp/PgDn  fast scroll"),
         Line::from("space  toggle favourite for selected car"),
@@ -155,7 +172,7 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 
 fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
     match flag.trim().to_ascii_lowercase().as_str() {
-        "green" => (
+        "green" | "normal" => (
             "Green".to_string(),
             Color::Rgb(0, 153, 68),
             Color::Black,
@@ -225,12 +242,16 @@ fn class_style(class_name: &str) -> Style {
         "GTD" => Style::default()
             .fg(Color::Rgb(0, 166, 81))
             .add_modifier(Modifier::BOLD),
+        "SP9" => Style::default()
+            .fg(Color::Rgb(255, 140, 0))
+            .add_modifier(Modifier::BOLD),
         _ => Style::default(),
     }
 }
 
 fn class_display_name(name: &str) -> String {
-    match normalize_class_name(name).as_str() {
+    let normalized = normalize_class_name(name);
+    match normalized.as_str() {
         "GTP" => "GTP".to_string(),
         "LMP2" => "LMP2".to_string(),
         "GTDPRO" => "GTD PRO".to_string(),
@@ -261,7 +282,7 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
     }
 }
 
-fn table_widths() -> [Constraint; 16] {
+fn imsa_table_widths() -> [Constraint; 16] {
     [
         Constraint::Length(4),
         Constraint::Length(5),
@@ -282,38 +303,72 @@ fn table_widths() -> [Constraint; 16] {
     ]
 }
 
+fn nls_table_widths() -> [Constraint; 11] {
+    [
+        Constraint::Length(4),
+        Constraint::Length(5),
+        Constraint::Length(9),
+        Constraint::Length(5),
+        Constraint::Length(24),
+        Constraint::Min(14),
+        Constraint::Length(20),
+        Constraint::Length(7),
+        Constraint::Length(11),
+        Constraint::Length(10),
+        Constraint::Length(10),
+    ]
+}
+
 fn build_rows(
-    entries: &[Entry],
+    entries: &[TimingEntry],
     favourites: &HashSet<String>,
     marked_stable_id: Option<&str>,
+    active_series: Series,
 ) -> Vec<Row<'static>> {
     entries
         .iter()
         .map(|e| {
-            let fav_marker = if favourites.contains(&e.stable_id) {
+            let fav_key = favourite_key(active_series, &e.stable_id);
+            let fav_marker = if favourites.contains(&fav_key) {
                 "★ "
             } else {
                 ""
             };
-            Row::new(vec![
-                Cell::from(e.position.to_string()),
-                Cell::from(format!("{fav_marker}{}", e.car_number)),
-                Cell::from(e.class_name.clone()),
-                Cell::from(e.class_rank.clone()),
-                Cell::from(e.driver.clone()),
-                Cell::from(e.vehicle.clone()),
-                Cell::from(e.laps.clone()),
-                Cell::from(e.gap_overall.clone()),
-                Cell::from(e.gap_class.clone()),
-                Cell::from(e.gap_next_in_class.clone()),
-                Cell::from(e.last_lap.clone()),
-                Cell::from(e.best_lap.clone()),
-                Cell::from(e.best_lap_no.clone()),
-                Cell::from(e.pit.clone()),
-                Cell::from(e.pit_stops.clone()),
-                Cell::from(e.fastest_driver.clone()),
-            ])
-            .style(if marked_stable_id == Some(e.stable_id.as_str()) {
+            let row = match active_series {
+                Series::Imsa => Row::new(vec![
+                    Cell::from(e.position.to_string()),
+                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    Cell::from(e.class_name.clone()),
+                    Cell::from(e.class_rank.clone()),
+                    Cell::from(e.driver.clone()),
+                    Cell::from(e.vehicle.clone()),
+                    Cell::from(e.laps.clone()),
+                    Cell::from(e.gap_overall.clone()),
+                    Cell::from(e.gap_class.clone()),
+                    Cell::from(e.gap_next_in_class.clone()),
+                    Cell::from(e.last_lap.clone()),
+                    Cell::from(e.best_lap.clone()),
+                    Cell::from(e.best_lap_no.clone()),
+                    Cell::from(e.pit.clone()),
+                    Cell::from(e.pit_stops.clone()),
+                    Cell::from(e.fastest_driver.clone()),
+                ]),
+                Series::Nls => Row::new(vec![
+                    Cell::from(e.position.to_string()),
+                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    Cell::from(e.class_name.clone()),
+                    Cell::from(e.class_rank.clone()),
+                    Cell::from(e.driver.clone()),
+                    Cell::from(e.vehicle.clone()),
+                    Cell::from(e.team.clone()),
+                    Cell::from(e.laps.clone()),
+                    Cell::from(e.gap_overall.clone()),
+                    Cell::from(e.last_lap.clone()),
+                    Cell::from(e.best_lap.clone()),
+                ]),
+            };
+
+            row.style(if marked_stable_id == Some(e.stable_id.as_str()) {
                 class_style(&e.class_name)
                     .bg(Color::Rgb(34, 70, 122))
                     .add_modifier(Modifier::BOLD)
@@ -326,57 +381,75 @@ fn build_rows(
 
 fn build_table<'a>(
     title: impl Into<String>,
-    entries: &'a [Entry],
+    entries: &'a [TimingEntry],
     favourites: &HashSet<String>,
     marked_stable_id: Option<&str>,
+    active_series: Series,
 ) -> Table<'a> {
+    let (headers, widths): (Vec<&str>, Vec<Constraint>) = match active_series {
+        Series::Imsa => (
+            vec![
+                "Pos",
+                "#",
+                "Class",
+                "PIC",
+                "Driver",
+                "Vehicle",
+                "Laps",
+                "Gap O",
+                "Gap C",
+                "Next C",
+                "Last",
+                "Best",
+                "BL#",
+                "Pit",
+                "Stop",
+                "Fastest Driver",
+            ],
+            imsa_table_widths().to_vec(),
+        ),
+        Series::Nls => (
+            vec![
+                "Pos", "#", "Class", "PIC", "Driver", "Vehicle", "Team", "Laps", "Gap", "Last",
+                "Best",
+            ],
+            nls_table_widths().to_vec(),
+        ),
+    };
+
     Table::new(
-        build_rows(entries, favourites, marked_stable_id),
-        table_widths(),
+        build_rows(entries, favourites, marked_stable_id, active_series),
+        widths,
     )
-    .header(
-        Row::new(vec![
-            "Pos",
-            "#",
-            "Class",
-            "PIC",
-            "Driver",
-            "Vehicle",
-            "Laps",
-            "Gap O",
-            "Gap C",
-            "Next C",
-            "Last",
-            "Best",
-            "BL#",
-            "Pit",
-            "Stop",
-            "Fastest Driver",
-        ])
-        .style(Style::default().add_modifier(Modifier::BOLD)),
-    )
+    .header(Row::new(headers).style(Style::default().add_modifier(Modifier::BOLD)))
     .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
     .block(Block::default().title(title.into()).borders(Borders::ALL))
 }
 
-fn grouped_entries(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {
-    let ordered = ["GTP", "LMP2", "GTDPRO", "GTD"];
-    let mut groups: Vec<(String, Vec<Entry>)> = Vec::new();
+fn grouped_entries(
+    entries: &[TimingEntry],
+    active_series: Series,
+) -> Vec<(String, Vec<TimingEntry>)> {
+    let mut grouped = std::collections::BTreeMap::<String, Vec<TimingEntry>>::new();
+    for entry in entries {
+        grouped
+            .entry(class_display_name(&entry.class_name))
+            .or_default()
+            .push(entry.clone());
+    }
 
-    for class_key in ordered {
-        let mut group: Vec<Entry> = entries
-            .iter()
-            .filter(|e| normalize_class_name(&e.class_name) == class_key)
-            .cloned()
-            .collect();
-        if !group.is_empty() {
-            group.sort_by(|a, b| {
-                let ar = a.class_rank.parse::<u32>().unwrap_or(u32::MAX);
-                let br = b.class_rank.parse::<u32>().unwrap_or(u32::MAX);
-                ar.cmp(&br).then_with(|| a.position.cmp(&b.position))
-            });
-            groups.push((class_display_name(class_key), group));
-        }
+    let mut groups: Vec<(String, Vec<TimingEntry>)> = grouped.into_iter().collect();
+    if active_series == Series::Imsa {
+        let order = ["GTP", "LMP2", "GTD PRO", "GTD"];
+        groups.sort_by_key(|(name, _)| order.iter().position(|x| x == name).unwrap_or(order.len()));
+    }
+
+    for (_, entries) in &mut groups {
+        entries.sort_by(|a, b| {
+            let ar = a.class_rank.parse::<u32>().unwrap_or(u32::MAX);
+            let br = b.class_rank.parse::<u32>().unwrap_or(u32::MAX);
+            ar.cmp(&br).then_with(|| a.position.cmp(&b.position))
+        });
     }
 
     groups
@@ -405,22 +478,38 @@ fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
     }
 }
 
+fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    thread::spawn(move || match series {
+        Series::Imsa => polling_worker(tx, source_id, stop_rx),
+        Series::Nls => websocket_worker(tx, source_id, stop_rx),
+    });
+
+    ActiveFeed { source_id, stop_tx }
+}
+
 fn drain_messages(
-    rx: &Receiver<UiMessage>,
-    header: &mut HeaderInfo,
-    entries: &mut Option<Vec<Entry>>,
+    rx: &Receiver<TimingMessage>,
+    active_source_id: u64,
+    header: &mut TimingHeader,
+    entries: &mut Vec<TimingEntry>,
     status: &mut String,
     last_error: &mut Option<String>,
     last_update: &mut Option<Instant>,
 ) {
     while let Ok(msg) = rx.try_recv() {
         match msg {
-            UiMessage::Status(s) => *status = s,
-            UiMessage::Error(err) => *last_error = Some(err),
-            UiMessage::Snapshot {
+            TimingMessage::Status { source_id, text } if source_id == active_source_id => {
+                *status = text
+            }
+            TimingMessage::Error { source_id, text } if source_id == active_source_id => {
+                *last_error = Some(text)
+            }
+            TimingMessage::Snapshot {
+                source_id,
                 header: new_header,
                 entries: new_entries,
-            } => {
+            } if source_id == active_source_id => {
                 if new_header.event_name != "-" {
                     header.event_name = new_header.event_name;
                 }
@@ -439,20 +528,21 @@ fn drain_messages(
                 if new_header.time_to_go != "-" {
                     header.time_to_go = new_header.time_to_go;
                 }
-                *entries = Some(new_entries);
+                *entries = new_entries;
                 *status = "Live timing connected".to_string();
                 *last_error = None;
                 *last_update = Some(Instant::now());
             }
+            _ => {}
         }
     }
 }
 
 fn visible_slice<'a>(
-    entries: &'a [Entry],
+    entries: &'a [TimingEntry],
     selected_idx: usize,
     table_area_height: u16,
-) -> (&'a [Entry], usize) {
+) -> (&'a [TimingEntry], usize) {
     let visible_rows = table_area_height.saturating_sub(3) as usize;
     let window = visible_rows.max(1);
     if entries.is_empty() {
@@ -476,11 +566,12 @@ fn step_selection(current: usize, len: usize, delta: isize) -> usize {
 }
 
 fn view_entries_for_mode<'a>(
-    all_entries: &'a [Entry],
-    current_groups: &'a [(String, Vec<Entry>)],
+    all_entries: &'a [TimingEntry],
+    current_groups: &'a [(String, Vec<TimingEntry>)],
     view_mode: ViewMode,
     favourites: &HashSet<String>,
-) -> Vec<&'a Entry> {
+    active_series: Series,
+) -> Vec<&'a TimingEntry> {
     match view_mode {
         ViewMode::Overall => all_entries.iter().collect(),
         ViewMode::Grouped => current_groups
@@ -493,12 +584,12 @@ fn view_entries_for_mode<'a>(
             .unwrap_or_default(),
         ViewMode::Favourites => all_entries
             .iter()
-            .filter(|entry| favourites.contains(&entry.stable_id))
+            .filter(|entry| favourites.contains(&favourite_key(active_series, &entry.stable_id)))
             .collect(),
     }
 }
 
-fn entry_matches_search(entry: &Entry, query: &str) -> bool {
+fn entry_matches_search(entry: &TimingEntry, query: &str) -> bool {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return false;
@@ -512,9 +603,10 @@ fn entry_matches_search(entry: &Entry, query: &str) -> bool {
     entry.car_number.to_ascii_lowercase().contains(&needle)
         || entry.driver.to_ascii_lowercase().contains(&needle)
         || entry.vehicle.to_ascii_lowercase().contains(&needle)
+        || entry.team.to_ascii_lowercase().contains(&needle)
 }
 
-fn refresh_search_matches(search: &mut SearchState, view_entries: &[&Entry]) {
+fn refresh_search_matches(search: &mut SearchState, view_entries: &[&TimingEntry]) {
     if search.query.trim().is_empty() {
         search.matches.clear();
         search.current_match = 0;
@@ -533,21 +625,23 @@ fn refresh_search_matches(search: &mut SearchState, view_entries: &[&Entry]) {
 }
 
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let (tx, rx) = mpsc::channel::<UiMessage>();
-    thread::spawn(move || polling_worker(tx));
-
+    let (tx, rx) = mpsc::channel::<TimingMessage>();
     let tick_rate = Duration::from_millis(250);
 
-    let mut header = HeaderInfo::default();
-    let mut entries: Option<Vec<Entry>> = None;
-    let mut status = "Starting IMSA live timing...".to_string();
+    let mut config = load_config();
+    let mut active_series = config.selected_series;
+    let mut source_id_ctr = 1_u64;
+    let mut feed = start_feed(active_series, tx.clone(), source_id_ctr);
+
+    let mut header = TimingHeader::default();
+    let mut entries: Vec<TimingEntry> = Vec::new();
+    let mut status = format!("Starting {} live timing...", active_series.label());
     let mut last_error: Option<String> = None;
     let mut last_update: Option<Instant> = None;
     let mut previous_flag = "-".to_string();
     let mut transition_started_at = Instant::now();
     let mut view_mode = ViewMode::Overall;
     let mut selected_row = 0usize;
-    let mut config = load_config();
     let mut favourites: HashSet<String> = config.favourites.clone();
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
@@ -556,6 +650,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     loop {
         drain_messages(
             &rx,
+            feed.source_id,
             &mut header,
             &mut entries,
             &mut status,
@@ -563,10 +658,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             &mut last_update,
         );
 
-        let current_groups = entries
-            .as_ref()
-            .map(|all_entries| grouped_entries(all_entries))
-            .unwrap_or_default();
+        let current_groups = grouped_entries(&entries, active_series);
 
         if let ViewMode::Class(idx) = view_mode {
             if current_groups.is_empty() {
@@ -576,25 +668,21 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             }
         }
 
-        let current_view_len = entries
-            .as_ref()
-            .map(|all_entries| {
-                view_entries_for_mode(all_entries, &current_groups, view_mode, &favourites).len()
-            })
-            .unwrap_or(0);
-        selected_row = selected_row.min(current_view_len.saturating_sub(1));
+        let current_view_entries = view_entries_for_mode(
+            &entries,
+            &current_groups,
+            view_mode,
+            &favourites,
+            active_series,
+        );
+        selected_row = selected_row.min(current_view_entries.len().saturating_sub(1));
 
-        let current_view_entries = entries
-            .as_ref()
-            .map(|all_entries| {
-                view_entries_for_mode(all_entries, &current_groups, view_mode, &favourites)
-            })
-            .unwrap_or_default();
         refresh_search_matches(&mut search, &current_view_entries);
         if !search.matches.is_empty() {
             let idx = search.matches[search.current_match];
             selected_row = idx.min(current_view_entries.len().saturating_sub(1));
         }
+
         let marked_stable_id = search
             .matches
             .get(search.current_match)
@@ -630,14 +718,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 None => "Last update: -".to_string(),
             };
 
-            let tte_text = if header.time_to_go.is_empty() {
-                "-"
-            } else {
-                &header.time_to_go
-            };
-            let flag_raw = effective_flag;
+            let tte_text = if header.time_to_go.is_empty() { "-" } else { &header.time_to_go };
             let (flag_text, flag_span_style, header_style) =
-                animated_flag_theme(flag_raw, &transition_from_flag, transition_started_at);
+                animated_flag_theme(effective_flag, &transition_from_flag, transition_started_at);
 
             let mode_text = view_mode_text(
                 view_mode,
@@ -647,31 +730,34 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     .collect::<Vec<_>>(),
             );
 
-            let event_text = if header.event_name.is_empty() {
-                "-"
-            } else {
-                &header.event_name
-            };
+            let event_text = if header.event_name.is_empty() { "-" } else { &header.event_name };
             let session_text = if header.session_name.is_empty() {
                 "-"
             } else {
                 &header.session_name
             };
-            let track_text = if header.track_name.is_empty() {
-                "-"
-            } else {
-                &header.track_name
-            };
+            let track_text = if header.track_name.is_empty() { "-" } else { &header.track_name };
 
             let header_lead = if track_text != "-" && track_text != event_text {
                 format!(
-                    "{} | {} | {} | {} | TTE {} | Mode {} | ",
-                    status, event_text, session_text, track_text, tte_text, mode_text,
+                    "{} | {} | {} | {} | TTE {} | Mode {} | Series {} | ",
+                    status,
+                    event_text,
+                    session_text,
+                    track_text,
+                    tte_text,
+                    mode_text,
+                    active_series.label(),
                 )
             } else {
                 format!(
-                    "{} | {} | {} | TTE {} | Mode {} | ",
-                    status, event_text, session_text, tte_text, mode_text,
+                    "{} | {} | {} | TTE {} | Mode {} | Series {} | ",
+                    status,
+                    event_text,
+                    session_text,
+                    tte_text,
+                    mode_text,
+                    active_series.label(),
                 )
             };
 
@@ -690,16 +776,13 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             header_spans.push(Span::styled(
                 format!(
                     " | Day {} | {} | Favs {}",
-                    if header.day_time.is_empty() {
-                        "-"
-                    } else {
-                        &header.day_time
-                    },
+                    if header.day_time.is_empty() { "-" } else { &header.day_time },
                     age,
                     favourites.len(),
                 ),
                 header_style,
             ));
+
             if search.input_active {
                 header_spans.push(Span::styled(
                     format!(" | Search: {}_", search.query),
@@ -710,11 +793,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     format!(
                         " | Search: {} ({}/{})",
                         search.query,
-                        if search.matches.is_empty() {
-                            0
-                        } else {
-                            search.current_match + 1
-                        },
+                        if search.matches.is_empty() { 0 } else { search.current_match + 1 },
                         search.matches.len(),
                     ),
                     header_style,
@@ -725,40 +804,51 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 header_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
             }
 
-            header_spans.push(Span::styled(" | h help | q quit", header_style));
+            header_spans.push(Span::styled(" | t switch series | h help | q quit", header_style));
 
             let status_widget = Paragraph::new(Line::from(header_spans))
                 .style(header_style)
                 .wrap(Wrap { trim: false })
                 .block(
                     Block::default()
-                        .title("IMSA TUI")
+                        .title("IMSA / NLS TUI")
                         .borders(Borders::ALL)
                         .style(header_style),
                 );
             f.render_widget(status_widget, chunks[0]);
 
-            match &entries {
-                Some(all_entries) => match view_mode {
+            if entries.is_empty() {
+                let waiting = Paragraph::new(format!(
+                    "No timing data yet. Waiting for first successful {} snapshot... Press h for help.",
+                    active_series.label(),
+                ))
+                .block(Block::default().title("Overall").borders(Borders::ALL));
+                f.render_widget(waiting, chunks[1]);
+            } else {
+                match view_mode {
                     ViewMode::Overall => {
                         let (visible_entries, start) =
-                            visible_slice(all_entries, selected_row, chunks[1].height);
+                            visible_slice(&entries, selected_row, chunks[1].height);
                         let mut state = ratatui::widgets::TableState::default();
                         state.select(Some(selected_row.saturating_sub(start)));
-                        let table =
-                            build_table("Overall", visible_entries, &favourites, marked_stable_id);
+                        let table = build_table(
+                            "Overall",
+                            visible_entries,
+                            &favourites,
+                            marked_stable_id,
+                            active_series,
+                        );
                         f.render_stateful_widget(table, chunks[1], &mut state);
                     }
                     ViewMode::Grouped => {
-                        let groups = grouped_entries(all_entries);
-                        if groups.is_empty() {
+                        if current_groups.is_empty() {
                             let waiting = Paragraph::new("No grouped class data available yet.")
                                 .block(Block::default().title("Grouped").borders(Borders::ALL));
                             f.render_widget(waiting, chunks[1]);
                         } else {
-                            let constraints: Vec<Constraint> = groups
+                            let constraints: Vec<Constraint> = current_groups
                                 .iter()
-                                .map(|_| Constraint::Ratio(1, groups.len() as u32))
+                                .map(|_| Constraint::Ratio(1, current_groups.len() as u32))
                                 .collect();
                             let group_chunks = Layout::default()
                                 .direction(Direction::Vertical)
@@ -767,7 +857,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
 
                             let mut global_offset = 0usize;
                             for ((class_name, class_entries), area) in
-                                groups.iter().zip(group_chunks.iter())
+                                current_groups.iter().zip(group_chunks.iter())
                             {
                                 let local_selected = selected_row
                                     .saturating_sub(global_offset)
@@ -789,6 +879,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                     visible_entries,
                                     &favourites,
                                     marked_stable_id,
+                                    active_series,
                                 );
                                 f.render_stateful_widget(table, *area, &mut state);
                                 global_offset += class_entries.len();
@@ -796,8 +887,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         }
                     }
                     ViewMode::Class(idx) => {
-                        let groups = grouped_entries(all_entries);
-                        if let Some((class_name, class_entries)) = groups.get(idx) {
+                        if let Some((class_name, class_entries)) = current_groups.get(idx) {
                             let (visible_entries, start) =
                                 visible_slice(class_entries, selected_row, chunks[1].height);
                             let mut state = ratatui::widgets::TableState::default();
@@ -807,6 +897,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 visible_entries,
                                 &favourites,
                                 marked_stable_id,
+                                active_series,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
@@ -816,9 +907,11 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         }
                     }
                     ViewMode::Favourites => {
-                        let favourite_entries: Vec<Entry> = all_entries
+                        let favourite_entries: Vec<TimingEntry> = entries
                             .iter()
-                            .filter(|entry| favourites.contains(&entry.stable_id))
+                            .filter(|entry| {
+                                favourites.contains(&favourite_key(active_series, &entry.stable_id))
+                            })
                             .cloned()
                             .collect();
                         if favourite_entries.is_empty() {
@@ -838,22 +931,16 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 visible_entries,
                                 &favourites,
                                 marked_stable_id,
+                                active_series,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         }
                     }
-                },
-                None => {
-                    let waiting = Paragraph::new(
-                        "No timing data yet. Waiting for first successful IMSA snapshot... Press h for help.",
-                    )
-                    .block(Block::default().title("Overall").borders(Borders::ALL));
-                    f.render_widget(waiting, chunks[1]);
                 }
             }
 
             if show_help {
-                let area = centered_rect(40, 38, size);
+                let area = centered_rect(40, 40, size);
                 f.render_widget(Clear, area);
                 f.render_widget(help_popup(), area);
             }
@@ -863,9 +950,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             if let Event::Key(key) = event::read()? {
                 if search.input_active {
                     match key.code {
-                        KeyCode::Esc => {
-                            search.input_active = false;
-                        }
+                        KeyCode::Esc => search.input_active = false,
                         KeyCode::Enter => {
                             search.input_active = false;
                             refresh_search_matches(&mut search, &current_view_entries);
@@ -886,14 +971,14 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     }
                     continue;
                 }
+
                 match key.code {
-                    KeyCode::Char('h') => {
-                        show_help = !show_help;
-                    }
+                    KeyCode::Char('h') => show_help = !show_help,
                     KeyCode::Esc => {
                         if show_help {
                             show_help = false;
                         } else {
+                            let _ = feed.stop_tx.send(());
                             return Ok(());
                         }
                     }
@@ -901,7 +986,28 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         if show_help {
                             show_help = false;
                         } else {
+                            let _ = feed.stop_tx.send(());
                             return Ok(());
+                        }
+                    }
+                    KeyCode::Char('t') if !show_help => {
+                        let _ = feed.stop_tx.send(());
+                        active_series = active_series.toggle();
+                        source_id_ctr += 1;
+                        feed = start_feed(active_series, tx.clone(), source_id_ctr);
+                        header = TimingHeader::default();
+                        entries.clear();
+                        status = format!("Starting {} live timing...", active_series.label());
+                        last_error = None;
+                        last_update = None;
+                        selected_row = 0;
+                        view_mode = ViewMode::Overall;
+                        search = SearchState::default();
+                        demo_flag.enabled = false;
+
+                        config.selected_series = active_series;
+                        if let Err(err) = save_config(&config) {
+                            last_error = Some(err);
                         }
                     }
                     KeyCode::Char('g') if !show_help => {
@@ -913,36 +1019,29 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         selected_row = 0;
                     }
                     KeyCode::Down | KeyCode::Char('j') if !show_help => {
-                        let view_len = current_view_entries.len();
-                        selected_row = step_selection(selected_row, view_len, 1);
+                        selected_row = step_selection(selected_row, current_view_entries.len(), 1);
                     }
                     KeyCode::Up | KeyCode::Char('k') if !show_help => {
-                        let view_len = current_view_entries.len();
-                        selected_row = step_selection(selected_row, view_len, -1);
+                        selected_row = step_selection(selected_row, current_view_entries.len(), -1);
                     }
                     KeyCode::PageDown if !show_help => {
-                        let jump = 10;
-                        let view_len = current_view_entries.len();
-                        selected_row = step_selection(selected_row, view_len, jump);
+                        selected_row = step_selection(selected_row, current_view_entries.len(), 10);
                     }
                     KeyCode::PageUp if !show_help => {
-                        let jump = -10;
-                        let view_len = current_view_entries.len();
-                        selected_row = step_selection(selected_row, view_len, jump);
+                        selected_row =
+                            step_selection(selected_row, current_view_entries.len(), -10);
                     }
-                    KeyCode::Home if !show_help => {
-                        selected_row = 0;
-                    }
+                    KeyCode::Home if !show_help => selected_row = 0,
                     KeyCode::End if !show_help => {
-                        let view_len = current_view_entries.len();
-                        selected_row = view_len.saturating_sub(1);
+                        selected_row = current_view_entries.len().saturating_sub(1)
                     }
                     KeyCode::Char(' ') if !show_help => {
                         if let Some(entry) = current_view_entries.get(selected_row) {
-                            if favourites.contains(&entry.stable_id) {
-                                favourites.remove(&entry.stable_id);
+                            let fav_key = favourite_key(active_series, &entry.stable_id);
+                            if favourites.contains(&fav_key) {
+                                favourites.remove(&fav_key);
                             } else {
-                                favourites.insert(entry.stable_id.clone());
+                                favourites.insert(fav_key);
                             }
                             config.favourites = favourites.clone();
                             if let Err(err) = save_config(&config) {
@@ -954,7 +1053,11 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         if !current_view_entries.is_empty() {
                             for offset in 1..=current_view_entries.len() {
                                 let idx = (selected_row + offset) % current_view_entries.len();
-                                if favourites.contains(&current_view_entries[idx].stable_id) {
+                                let fav_key = favourite_key(
+                                    active_series,
+                                    &current_view_entries[idx].stable_id,
+                                );
+                                if favourites.contains(&fav_key) {
                                     selected_row = idx;
                                     break;
                                 }
@@ -992,9 +1095,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             demo_flag.idx = 0;
                         }
                     }
-                    KeyCode::Char('0') if !show_help => {
-                        demo_flag.enabled = false;
-                    }
+                    KeyCode::Char('0') if !show_help => demo_flag.enabled = false,
                     _ => {}
                 }
             }

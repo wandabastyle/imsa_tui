@@ -7,6 +7,8 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 mod imsa;
+mod nls;
+mod timing;
 mod ui;
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
