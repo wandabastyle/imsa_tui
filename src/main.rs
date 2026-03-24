@@ -6,6 +6,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
+mod demo;
 mod imsa;
 mod nls;
 mod timing;
@@ -19,6 +20,8 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
 }
 
 fn main() -> io::Result<()> {
+    let dev_mode = std::env::args().any(|arg| arg == "--dev");
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -27,7 +30,7 @@ fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let app_result = ui::run_app(&mut terminal);
+    let app_result = ui::run_app(&mut terminal, dev_mode);
     let restore_result = restore_terminal(&mut terminal);
 
     match (app_result, restore_result) {
