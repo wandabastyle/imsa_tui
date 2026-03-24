@@ -1,12 +1,12 @@
 # imsa_tui
 
-A terminal user interface (TUI) for live IMSA and NLS timing data.
+A terminal user interface (TUI) for live IMSA, NLS, and F1 timing data.
 
 `imsa_tui` is a Rust application that pulls live timing feeds and renders a continuously updating leaderboard in your terminal using `ratatui`.
 
 ## Features
 
-- Live IMSA polling (JSONP, default every 5 seconds) and NLS websocket streaming.
+- Live IMSA polling (JSONP), NLS websocket streaming, and F1 SignalR-style live streaming.
 - Overall leaderboard table with position, car number, class, driver, laps, gaps, lap times, and pit information.
 - Multiple viewing modes:
   - **Overall** (all cars)
@@ -66,7 +66,7 @@ Release run:
 - `h` — toggle help popup
 - `g` — cycle view modes (Overall → Grouped → each class → Favourites)
 - `o` — jump to Overall view
-- `t` — switch series (IMSA ↔ NLS)
+- `t` — switch series (IMSA → NLS → F1)
 - `r` — cycle demo flag (enables demo mode if disabled)
 - `0` — return to live flag (disable demo mode)
 - `space` — toggle favourite for selected row
@@ -89,7 +89,7 @@ The app stores configuration in a TOML file at:
 Current configuration fields:
 
 - `favourites`: list of stable per-series car IDs used for highlighting and the **Favourites** view.
-- `selected_series`: the last active series (`imsa` or `nls`) restored on startup.
+- `selected_series`: the last active series (`imsa`, `nls`, or `f1`) restored on startup.
 
 Example `config.toml`:
 
@@ -106,6 +106,10 @@ IMSA:
 
 NLS:
 - `wss://livetiming.azurewebsites.net/` websocket feed (`eventId = 20`)
+
+F1:
+- `https://livetiming.formula1.com/signalr/*` negotiate/start endpoints
+- `wss://livetiming.formula1.com/signalr/connect` live stream feed
 
 If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
