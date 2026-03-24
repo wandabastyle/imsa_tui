@@ -13,6 +13,7 @@ A terminal user interface (TUI) for live IMSA and NLS timing data.
   - **Grouped** (separate class sections)
   - **Class** (single class focus)
 - Header with event/session metadata, track, time-to-go, flag state, and update age.
+- Row selection, favourites, and in-table search (car, driver, or team).
 - Animated flag color transitions.
 - Demo flag mode for UI testing without live flag changes.
 - Built-in help popup with keybindings.
@@ -49,8 +50,10 @@ cargo run
 Development run with static demo data (no live feed connections):
 
 ```bash
-cargo run -- --dev
+cargo run --features dev-mode -- --dev
 ```
+
+> `--dev` is only available when built with the `dev-mode` feature.
 
 Release run:
 
@@ -61,11 +64,17 @@ Release run:
 ## Controls
 
 - `h` — toggle help popup
-- `g` — cycle view modes (Overall → Grouped → each class)
+- `g` — cycle view modes (Overall → Grouped → each class → Favourites)
 - `o` — jump to Overall view
 - `t` — switch series (IMSA ↔ NLS)
 - `r` — cycle demo flag (enables demo mode if disabled)
 - `0` — return to live flag (disable demo mode)
+- `space` — toggle favourite for selected row
+- `f` — jump to next favourite in current view
+- `s` — start search mode (car #, driver, or team), `Enter` to apply, `Esc` to cancel
+- `n` / `p` — next / previous search match
+- `↑` / `↓` (`k` / `j`) — move selection
+- `PgUp` / `PgDn`, `Home` / `End` — faster navigation
 - `q` — quit (or close help popup first)
 - `Esc` — close help popup / quit
 
@@ -79,7 +88,7 @@ The app stores configuration in a TOML file at:
 
 Current configuration fields:
 
-- `favourites`: list of car numbers to highlight and include in the **Favourites** view.
+- `favourites`: list of stable per-series car IDs used for highlighting and the **Favourites** view.
 - `selected_series`: the last active series (`imsa` or `nls`) restored on startup.
 
 Example `config.toml`:
