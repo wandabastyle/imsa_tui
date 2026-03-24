@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "dev-mode")]
 use crate::demo;
 use crate::{
+    f1::signalr_worker,
     imsa::{normalize_class_name, polling_worker},
     nls::websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
@@ -124,7 +125,7 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("h      toggle help"),
         Line::from("g      cycle views"),
         Line::from("o      switch to overall view"),
-        Line::from("t      switch series (IMSA/NLS)"),
+        Line::from("t      switch series (IMSA/NLS/F1)"),
         Line::from("↑/↓    move selection"),
         Line::from("PgUp/PgDn  fast scroll"),
         Line::from("space  toggle favourite for selected car"),
@@ -339,6 +340,23 @@ fn nls_table_widths() -> [Constraint; 11] {
     ]
 }
 
+fn f1_table_widths() -> [Constraint; 12] {
+    [
+        Constraint::Length(4),
+        Constraint::Length(5),
+        Constraint::Length(26),
+        Constraint::Length(16),
+        Constraint::Length(7),
+        Constraint::Length(11),
+        Constraint::Length(11),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(5),
+        Constraint::Length(5),
+        Constraint::Length(7),
+    ]
+}
+
 fn build_rows(
     entries: &[TimingEntry],
     favourites: &HashSet<String>,
@@ -385,6 +403,20 @@ fn build_rows(
                     Cell::from(e.gap_overall.clone()),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
+                ]),
+                Series::F1 => Row::new(vec![
+                    Cell::from(e.position.to_string()),
+                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    Cell::from(e.driver.clone()),
+                    Cell::from(e.team.clone()),
+                    Cell::from(e.laps.clone()),
+                    Cell::from(e.gap_overall.clone()),
+                    Cell::from(e.gap_class.clone()),
+                    Cell::from(e.last_lap.clone()),
+                    Cell::from(e.best_lap.clone()),
+                    Cell::from(e.pit.clone()),
+                    Cell::from(e.pit_stops.clone()),
+                    Cell::from(e.class_rank.clone()),
                 ]),
             };
 
@@ -434,6 +466,13 @@ fn build_table<'a>(
                 "Best",
             ],
             nls_table_widths().to_vec(),
+        ),
+        Series::F1 => (
+            vec![
+                "Pos", "#", "Driver", "Team", "Laps", "Gap", "Int", "Last", "Best", "Pit", "Stops",
+                "PIC",
+            ],
+            f1_table_widths().to_vec(),
         ),
     };
 
@@ -503,6 +542,7 @@ fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> Acti
     thread::spawn(move || match series {
         Series::Imsa => polling_worker(tx, source_id, stop_rx),
         Series::Nls => websocket_worker(tx, source_id, stop_rx),
+        Series::F1 => signalr_worker(tx, source_id, stop_rx),
     });
 
     ActiveFeed { source_id, stop_tx }

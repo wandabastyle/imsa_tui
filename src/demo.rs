@@ -8,6 +8,7 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
     match series {
         Series::Imsa => (imsa_header(), imsa_entries()),
         Series::Nls => (nls_header(), nls_entries()),
+        Series::F1 => (f1_header(), f1_entries()),
     }
 }
 
@@ -21,6 +22,7 @@ fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
     match series {
         Series::Imsa => &["imsa:7", "imsa:31", "imsa:77"],
         Series::Nls => &["nls:911", "nls:27", "nls:18"],
+        Series::F1 => &["f1:driver:1", "f1:driver:16", "f1:driver:4"],
     }
 }
 
@@ -106,6 +108,81 @@ fn nls_header() -> TimingHeader {
     )
 }
 
+fn f1_header() -> TimingHeader {
+    header(
+        "FORMULA 1 GRAND PRIX (Demo)",
+        "Race",
+        "Bahrain International Circuit",
+        "Lap 34/57",
+        "Green",
+        "00:28:14",
+    )
+}
+
+fn f1_entries() -> Vec<TimingEntry> {
+    vec![
+        entry(
+            1,
+            "1",
+            "F1",
+            "1",
+            "VER (Max Verstappen)",
+            "-",
+            "Red Bull Racing",
+            "34",
+            "-",
+            "-",
+            "-",
+            "1:35.221",
+            "1:34.882",
+            "-",
+            "No",
+            "1",
+            "-",
+            "f1:driver:1",
+        ),
+        entry(
+            2,
+            "16",
+            "F1",
+            "2",
+            "LEC (Charles Leclerc)",
+            "-",
+            "Ferrari",
+            "34",
+            "+3.201",
+            "+3.201",
+            "-",
+            "1:35.608",
+            "1:35.144",
+            "-",
+            "No",
+            "1",
+            "-",
+            "f1:driver:16",
+        ),
+        entry(
+            3,
+            "4",
+            "F1",
+            "3",
+            "NOR (Lando Norris)",
+            "-",
+            "McLaren",
+            "34",
+            "+7.991",
+            "+4.790",
+            "-",
+            "1:35.844",
+            "1:35.337",
+            "-",
+            "No",
+            "1",
+            "-",
+            "f1:driver:4",
+        ),
+    ]
+}
 fn imsa_entries() -> Vec<TimingEntry> {
     vec![
         entry(

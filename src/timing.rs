@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum Series {
     Imsa,
     Nls,
+    F1,
 }
 
 impl Default for Series {
@@ -18,13 +19,15 @@ impl Series {
         match self {
             Series::Imsa => "IMSA",
             Series::Nls => "NLS",
+            Series::F1 => "F1",
         }
     }
 
     pub fn toggle(self) -> Self {
         match self {
             Series::Imsa => Series::Nls,
-            Series::Nls => Series::Imsa,
+            Series::Nls => Series::F1,
+            Series::F1 => Series::Imsa,
         }
     }
 
@@ -32,6 +35,7 @@ impl Series {
         match self {
             Series::Imsa => "imsa",
             Series::Nls => "nls",
+            Series::F1 => "f1",
         }
     }
 }
