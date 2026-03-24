@@ -1,7 +1,6 @@
 use std::{
     io,
     sync::mpsc::{Receiver, Sender},
-    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -173,11 +172,6 @@ fn set_socket_timeout(socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::ne
     match socket.get_mut() {
         MaybeTlsStream::Plain(stream) => {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-        }
-        MaybeTlsStream::NativeTls(stream) => {
-            let _ = stream
-                .get_ref()
-                .set_read_timeout(Some(Duration::from_secs(2)));
         }
         _ => {}
     }

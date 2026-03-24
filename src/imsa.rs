@@ -1,6 +1,5 @@
 use std::{
     sync::mpsc::{Receiver, Sender},
-    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
