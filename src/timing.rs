@@ -15,19 +15,15 @@ impl Default for Series {
 }
 
 impl Series {
+    pub const fn all() -> [Series; 3] {
+        [Series::Imsa, Series::Nls, Series::F1]
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Series::Imsa => "IMSA",
             Series::Nls => "NLS",
             Series::F1 => "F1",
-        }
-    }
-
-    pub fn toggle(self) -> Self {
-        match self {
-            Series::Imsa => Series::Nls,
-            Series::Nls => Series::F1,
-            Series::F1 => Series::Imsa,
         }
     }
 

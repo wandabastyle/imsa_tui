@@ -63,6 +63,21 @@ struct SearchState {
     input_active: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SeriesPickerState {
+    is_open: bool,
+    selected_idx: usize,
+}
+
+impl SeriesPickerState {
+    fn closed() -> Self {
+        Self {
+            is_open: false,
+            selected_idx: 0,
+        }
+    }
+}
+
 fn favourite_key(series: Series, stable_id: &str) -> String {
     format!("{}|{}", series.as_key_prefix(), stable_id)
 }
@@ -125,7 +140,7 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("h      toggle help"),
         Line::from("g      cycle views"),
         Line::from("o      switch to overall view"),
-        Line::from("t      switch series (IMSA/NLS/F1)"),
+        Line::from("t      open series selector popup"),
         Line::from("↑/↓    move selection"),
         Line::from("PgUp/PgDn  fast scroll"),
         Line::from("space  toggle favourite for selected car"),
@@ -135,7 +150,8 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("r      cycle demo flag"),
         Line::from("0      return to live flag"),
         Line::from("q      quit"),
-        Line::from("Esc    close help / quit app"),
+        Line::from("Enter  confirm popup selection"),
+        Line::from("Esc    close popup/help / quit app"),
         Line::from(""),
         Line::from("Press h or Esc to close this popup."),
     ];
@@ -144,6 +160,46 @@ fn help_popup() -> Paragraph<'static> {
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Help").borders(Borders::ALL))
+}
+
+fn series_picker_popup(active_series: Series, selected_idx: usize) -> Paragraph<'static> {
+    let mut lines = vec![
+        Line::from(vec![Span::styled(
+            "Select Series",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+    ];
+
+    for (idx, series) in Series::all().iter().copied().enumerate() {
+        let marker = if idx == selected_idx { ">" } else { " " };
+        let current = if series == active_series {
+            " (current)"
+        } else {
+            ""
+        };
+        let style = if idx == selected_idx {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(vec![Span::styled(
+            format!("{marker} {}{current}", series.label()),
+            style,
+        )]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "Use ↑/↓ to choose, Enter to switch, Esc to cancel.",
+    ));
+
+    Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("Series").borders(Borders::ALL))
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -690,6 +746,66 @@ fn refresh_search_matches(search: &mut SearchState, view_entries: &[&TimingEntry
     }
 }
 
+fn selected_series_index(series: Series) -> usize {
+    Series::all()
+        .iter()
+        .position(|candidate| *candidate == series)
+        .unwrap_or(0)
+}
+
+// Switching feeds is centralized so both keyboard shortcuts and popup confirmation
+// run the exact same state-reset flow as more series are added.
+fn apply_series_change(
+    next_series: Series,
+    active_series: &mut Series,
+    feed: &mut Option<ActiveFeed>,
+    tx: &Sender<TimingMessage>,
+    source_id_ctr: &mut u64,
+    dev_mode: bool,
+    header: &mut TimingHeader,
+    entries: &mut Vec<TimingEntry>,
+    status: &mut String,
+    favourites: &mut HashSet<String>,
+    last_error: &mut Option<String>,
+    last_update: &mut Option<Instant>,
+    selected_row: &mut usize,
+    view_mode: &mut ViewMode,
+    search: &mut SearchState,
+    demo_flag: &mut DemoFlagState,
+    config: &mut AppConfig,
+) {
+    if *active_series == next_series {
+        return;
+    }
+
+    stop_feed(feed);
+    *active_series = next_series;
+
+    if dev_mode {
+        (*header, *entries) = demo_snapshot(*active_series);
+        *status = format!("{} demo data", active_series.label());
+        seed_demo_favourites(*active_series, favourites);
+    } else {
+        *source_id_ctr += 1;
+        *feed = Some(start_feed(*active_series, tx.clone(), *source_id_ctr));
+        *header = TimingHeader::default();
+        entries.clear();
+        *status = format!("Starting {} live timing...", active_series.label());
+    }
+
+    *last_error = None;
+    *last_update = None;
+    *selected_row = 0;
+    *view_mode = ViewMode::Overall;
+    *search = SearchState::default();
+    demo_flag.enabled = false;
+
+    config.selected_series = *active_series;
+    if let Err(err) = save_config(config) {
+        *last_error = Some(err);
+    }
+}
+
 pub fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     dev_mode: bool,
@@ -729,8 +845,11 @@ pub fn run_app(
     let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
     let mut search = SearchState::default();
+    let mut series_picker = SeriesPickerState::closed();
 
     loop {
+        // This loop drives the app like a tiny state machine:
+        // 1) pull feed updates, 2) compute derived view data, 3) render, 4) process one key event.
         if let Some(active_feed) = &feed {
             drain_messages(
                 &rx,
@@ -1027,6 +1146,15 @@ pub fn run_app(
                 f.render_widget(Clear, area);
                 f.render_widget(help_popup(), area);
             }
+
+            if series_picker.is_open {
+                let area = centered_rect(35, 35, size);
+                f.render_widget(Clear, area);
+                f.render_widget(
+                    series_picker_popup(active_series, series_picker.selected_idx),
+                    area,
+                );
+            }
         })?;
 
         if event::poll(tick_rate)? {
@@ -1055,6 +1183,49 @@ pub fn run_app(
                     continue;
                 }
 
+                if series_picker.is_open {
+                    let series_list = Series::all();
+                    match key.code {
+                        KeyCode::Esc => series_picker.is_open = false,
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            series_picker.selected_idx =
+                                (series_picker.selected_idx + 1) % series_list.len();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if series_picker.selected_idx == 0 {
+                                series_picker.selected_idx = series_list.len() - 1;
+                            } else {
+                                series_picker.selected_idx -= 1;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let next_series = series_list[series_picker.selected_idx];
+                            apply_series_change(
+                                next_series,
+                                &mut active_series,
+                                &mut feed,
+                                &tx,
+                                &mut source_id_ctr,
+                                dev_mode,
+                                &mut header,
+                                &mut entries,
+                                &mut status,
+                                &mut favourites,
+                                &mut last_error,
+                                &mut last_update,
+                                &mut selected_row,
+                                &mut view_mode,
+                                &mut search,
+                                &mut demo_flag,
+                                &mut config,
+                            );
+                            series_picker.is_open = false;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                     KeyCode::Char('h') => show_help = !show_help,
                     KeyCode::Esc => {
@@ -1074,30 +1245,8 @@ pub fn run_app(
                         }
                     }
                     KeyCode::Char('t') if !show_help => {
-                        stop_feed(&mut feed);
-                        active_series = active_series.toggle();
-                        if dev_mode {
-                            (header, entries) = demo_snapshot(active_series);
-                            status = format!("{} demo data", active_series.label());
-                            seed_demo_favourites(active_series, &mut favourites);
-                        } else {
-                            source_id_ctr += 1;
-                            feed = Some(start_feed(active_series, tx.clone(), source_id_ctr));
-                            header = TimingHeader::default();
-                            entries.clear();
-                            status = format!("Starting {} live timing...", active_series.label());
-                        }
-                        last_error = None;
-                        last_update = None;
-                        selected_row = 0;
-                        view_mode = ViewMode::Overall;
-                        search = SearchState::default();
-                        demo_flag.enabled = false;
-
-                        config.selected_series = active_series;
-                        if let Err(err) = save_config(&config) {
-                            last_error = Some(err);
-                        }
+                        series_picker.is_open = true;
+                        series_picker.selected_idx = selected_series_index(active_series);
                     }
                     KeyCode::Char('g') if !show_help => {
                         view_mode = next_view_mode(view_mode, current_groups.len());
