@@ -16,6 +16,13 @@ toml = "0.8"
 directories = "5"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip", "brotli", "deflate"] }
 tungstenite = { version = "0.23", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.5", features = ["fs", "trace"] }
+mime_guess = "2"
+base64 = "0.22"
+rand = "0.8"
 
 [profile.release]
 opt-level = "z"

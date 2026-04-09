@@ -61,6 +61,34 @@ Release run:
 ./target/release/imsa_tui
 ```
 
+Web UI run (served by Rust backend):
+
+```bash
+cd web
+pnpm install
+pnpm run build
+cd ..
+
+cargo run --bin web_server
+```
+
+Notes:
+
+- On first start, the server auto-generates a strong shared password, saves it, and prints it.
+- On later starts, the saved password is reused automatically.
+- Set `WEBUI_ROTATE_PASSWORD=1` to generate and persist a new password on startup.
+- Username defaults to `friends`; override with `WEBUI_AUTH_USER`.
+- `/healthz` and `/readyz` are intentionally public for probes.
+- `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
+
+Manual Tailscale Funnel commands (new CLI):
+
+```bash
+tailscale funnel --bg http://127.0.0.1:8080
+tailscale funnel status
+tailscale funnel reset
+```
+
 ## Controls
 
 - `h` — toggle help popup
