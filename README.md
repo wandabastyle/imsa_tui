@@ -72,6 +72,27 @@ cd ..
 cargo run --bin web_server
 ```
 
+Web UI daemon commands:
+
+```bash
+# start in background and return shell
+cargo run --bin web_server -- --daemon
+
+# check daemon state and URLs
+cargo run --bin web_server -- --status
+
+# stop daemon
+cargo run --bin web_server -- --stop
+```
+
+Release binary commands:
+
+```bash
+./target/release/web_server --daemon
+./target/release/web_server --status
+./target/release/web_server --stop
+```
+
 Notes:
 
 - On first start, the server auto-generates a strong shared access code, saves it, and prints it.
