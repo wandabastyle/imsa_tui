@@ -7,17 +7,18 @@
   export let searchLabel = '';
   export let demoLabel = '';
   export let errorText = '';
+  export let displayFlag = '-';
 
   $: ageText = snapshot?.last_update_unix_ms
     ? `Upd ${Math.max(0, Math.floor((Date.now() - snapshot.last_update_unix_ms) / 1000))}s`
     : 'Upd -';
 </script>
 
-<section class="header" data-flag={(snapshot?.header.flag || '-').toLowerCase()}>
+<section class="header" data-flag={displayFlag.toLowerCase()}>
   <div class="line">
-    {snapshot?.status || 'Starting live timing...'} | {snapshot?.header.event_name || '-'} | {snapshot?.header.session_name || '-'} | {snapshot?.header.track_name || '-'} | TTE {snapshot?.header.time_to_go || '-'} | Mode {viewModeLabel} | <strong>{snapshot?.header.flag || '-'}</strong> | Day {snapshot?.header.day_time || '-'} | {ageText} | Favs {favCount}
+    {snapshot?.status || 'Starting live timing...'} | {snapshot?.header.event_name || '-'} | {snapshot?.header.session_name || '-'} | {snapshot?.header.track_name || '-'} | TTE {snapshot?.header.time_to_go || '-'} | Mode {viewModeLabel} | <strong>{displayFlag}</strong> | Day {snapshot?.header.day_time || '-'} | {ageText} | Favs {favCount}
   </div>
-  <div class="line dim">Keys: h help | q quit | {searchLabel || 'Search: -'} {demoLabel}{errorText ? ` | Error: ${errorText}` : ''}</div>
+  <div class="line dim">Keys: h help | {searchLabel || 'Search: -'} {demoLabel}{errorText ? ` | Error: ${errorText}` : ''}</div>
 </section>
 
 <style>
@@ -26,7 +27,7 @@
     border-radius: 6px;
     padding: 0.28rem 0.48rem;
     background: #10243a;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0;
     overflow: hidden;
   }
 

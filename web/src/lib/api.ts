@@ -1,11 +1,40 @@
 import type { Preferences, Series, SnapshotResponse } from './types';
 
+interface SessionStateResponse {
+  authenticated: boolean;
+}
+
 export async function fetchSnapshot(series: Series): Promise<SnapshotResponse> {
   const response = await fetch(`/api/snapshot/${series}`);
   if (!response.ok) {
     throw new Error(`snapshot request failed (${response.status})`);
   }
   return response.json();
+}
+
+export async function fetchSessionState(): Promise<boolean> {
+  const response = await fetch('/auth/session');
+  if (!response.ok) {
+    throw new Error(`session request failed (${response.status})`);
+  }
+  const payload = (await response.json()) as SessionStateResponse;
+  return payload.authenticated;
+}
+
+export async function loginWithAccessCode(accessCode: string): Promise<boolean> {
+  const response = await fetch('/auth/login', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ access_code: accessCode })
+  });
+
+  return response.ok;
+}
+
+export async function logoutSession(): Promise<void> {
+  await fetch('/auth/logout', { method: 'POST' });
 }
 
 export async function fetchPreferences(): Promise<Preferences> {

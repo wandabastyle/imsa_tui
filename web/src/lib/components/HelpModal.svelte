@@ -19,7 +19,7 @@ s search mode (type, Enter apply, Esc cancel)
 n/p next/prev match
 r demo flag
 0 live flag
-Esc close popup / quit</pre>
+Esc close popup</pre>
     </section>
   </div>
 {/if}

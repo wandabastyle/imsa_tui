@@ -17,7 +17,7 @@ use imsa_tui::web::{
 
 #[derive(Debug, Clone)]
 struct ResolvedAuth {
-    config: WebAuthConfig,
+    access_code: String,
     state: PasswordState,
 }
 
@@ -40,13 +40,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         root_dir: static_root,
     };
 
-    let protected_routes = Router::new()
+    let auth_config = WebAuthConfig::new(resolved_auth.access_code.clone());
+
+    let protected_api_routes = Router::new()
         .route("/api/snapshot/:series", get(api::get_snapshot))
         .route("/api/stream/:series", get(sse::stream_series))
         .route(
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),
         )
+        .layer(middleware::from_fn_with_state(
+            auth_config.clone(),
+            auth::require_session_middleware,
+        ));
+
+    let auth_routes = Router::new()
+        .route("/auth/session", get(auth::session_status))
+        .route("/auth/login", axum::routing::post(auth::login))
+        .route("/auth/logout", axum::routing::post(auth::logout))
+        .with_state(auth_config.clone());
+
+    let app_routes = Router::new()
         .route(
             "/",
             get({
@@ -66,18 +80,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     async move { static_files::asset_or_index(static_config, &path).await }
                 }
             }),
-        )
-        .layer(middleware::from_fn_with_state(
-            resolved_auth.config.clone(),
-            auth::basic_auth_middleware,
-        ));
+        );
 
     let public_routes = Router::new()
         .route("/healthz", get(api::healthz))
         .route("/readyz", get(api::readyz));
 
     let app = public_routes
-        .merge(protected_routes)
+        .merge(protected_api_routes)
+        .merge(auth_routes)
+        .merge(app_routes)
         .with_state(app_state);
 
     let addr = format!("{bind_addr}:{bind_port}").parse::<SocketAddr>()?;
@@ -85,21 +97,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("web server listening on http://{}", listener.local_addr()?);
     match resolved_auth.state {
         PasswordState::Loaded => println!(
-            "web auth enabled for user '{}' (loaded saved password).",
-            resolved_auth.config.username
+            "web auth enabled (loaded saved access code)."
         ),
-        PasswordState::GeneratedPersisted => println!(
-            "web auth enabled for user '{}' (generated and saved new password).",
-            resolved_auth.config.username
-        ),
-        PasswordState::GeneratedEphemeral => println!(
-            "web auth enabled for user '{}' (generated password but could not save).",
-            resolved_auth.config.username
-        ),
+        PasswordState::GeneratedPersisted => {
+            println!("web auth enabled (generated and saved new access code).")
+        }
+        PasswordState::GeneratedEphemeral => {
+            println!("web auth enabled (generated access code but could not save).")
+        }
     }
-    if let Some(password) = resolved_auth.config.password.as_ref() {
-        println!("shared web password: {password}");
-    }
+    println!("shared access code: {}", resolved_auth.access_code);
     if let Some(path) = auth::stored_auth_path() {
         println!("web auth file: {}", path.display());
     }
@@ -123,14 +130,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn resolve_auth() -> ResolvedAuth {
-    let username = env::var("WEBUI_AUTH_USER").unwrap_or_else(|_| "friends".to_string());
     let rotate = env_flag("WEBUI_ROTATE_PASSWORD", false);
-    let (password, state) = auth::load_or_initialize_password(&username, rotate);
+    let (access_code, state) = auth::load_or_initialize_password(rotate);
     ResolvedAuth {
-        config: WebAuthConfig {
-            username,
-            password: Some(password),
-        },
+        access_code,
         state,
     }
 }

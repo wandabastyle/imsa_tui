@@ -6,25 +6,42 @@
   import GroupModal from '$lib/components/GroupModal.svelte';
   import SeriesModal from '$lib/components/SeriesModal.svelte';
   import TimingTable from '$lib/components/TimingTable.svelte';
+  import { fetchSessionState, loginWithAccessCode, logoutSession } from '$lib/api';
   import { appState, destroyStreams, favouriteKey, initializeAppState, persistPreferences } from '$lib/stores/app';
   import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from '$lib/types';
 
   let loading = true;
   let loadError = '';
+  let authenticated = false;
+  let authChecking = true;
+  let loginCode = '';
+  let loginError = '';
 
   let cleanupKeys = () => {};
 
   onMount(async () => {
     try {
-      await initializeAppState();
-      loading = false;
+      authenticated = await fetchSessionState();
+      authChecking = false;
+
+      if (authenticated) {
+        await initializeAppState();
+        loading = false;
+      } else {
+        loading = false;
+      }
     } catch (error) {
+      authChecking = false;
       loading = false;
       loadError = error instanceof Error ? error.message : 'initialization failed';
       return;
     }
 
     const handler = (event: KeyboardEvent) => {
+      if (!authenticated) {
+        return;
+      }
+
       if ($appState.search.inputActive) {
         if (event.key === 'Escape') {
           appState.update((state) => ({ ...state, search: { ...state.search, inputActive: false } }));
@@ -221,6 +238,34 @@
     destroyStreams();
   });
 
+  async function submitLogin(): Promise<void> {
+    loginError = '';
+    const ok = await loginWithAccessCode(loginCode.trim());
+    if (!ok) {
+      loginError = 'Invalid access code';
+      return;
+    }
+
+    authenticated = true;
+    loginCode = '';
+    await initializeAppState();
+  }
+
+  async function signOut(): Promise<void> {
+    await logoutSession();
+    destroyStreams();
+    authenticated = false;
+    appState.update((state) => ({
+      ...state,
+      snapshots: {},
+      selectedRow: 0,
+      showHelp: false,
+      showSeriesPicker: false,
+      showGroupPicker: false,
+      search: { query: '', matches: [], currentMatch: 0, inputActive: false }
+    }));
+  }
+
   function normalizeClassName(value: string): string {
     return value.replaceAll(' ', '').replaceAll('_', '').toUpperCase();
   }
@@ -410,6 +455,13 @@
   $: searchLabel = $appState.search.query
     ? `Search: ${$appState.search.query}${$appState.search.inputActive ? '_' : ''} (${searchMatches.length === 0 ? 0 : searchCurrentMatch + 1}/${searchMatches.length})`
     : '';
+  $: demoFlagName = (() => {
+    const names = ['Green', 'Yellow', 'Red', 'White', 'Checkered'];
+    return names[$appState.demoFlag.index % names.length];
+  })();
+  $: effectiveFlag = $appState.demoFlag.enabled
+    ? demoFlagName
+    : (activeSnapshot?.header.flag && activeSnapshot.header.flag.trim()) || '-';
   $: demoLabel = $appState.demoFlag.enabled ? `| DEMO ${$appState.demoFlag.index}` : '';
   $: favCountForSeries = Array.from($appState.favourites).filter((value) =>
     value.startsWith(`${$appState.activeSeries}|`)
@@ -417,19 +469,48 @@
 </script>
 
 <main>
-  {#if loading}
+  {#if authChecking}
+    <p>Checking access...</p>
+  {:else if !authenticated}
+    <section class="login-wrap">
+      <div class="login-card">
+        <h1>Live Timing Access</h1>
+        <p>Enter the shared access code to open the timing dashboard.</p>
+        <form
+          on:submit|preventDefault={() => {
+            void submitLogin();
+          }}
+        >
+          <input
+            placeholder="Access code"
+            bind:value={loginCode}
+            type="password"
+            autocomplete="current-password"
+          />
+          <button type="submit">Enter</button>
+        </form>
+        {#if loginError}
+          <p class="login-error">{loginError}</p>
+        {/if}
+      </div>
+    </section>
+  {:else if loading}
     <p>Loading web UI...</p>
   {:else if loadError}
     <p>Failed to initialize: {loadError}</p>
   {:else}
-    <HeaderBar
-      snapshot={activeSnapshot}
-      viewModeLabel={viewModeLabel}
-      favCount={favCountForSeries}
-      searchLabel={searchLabel}
-      demoLabel={demoLabel}
-      errorText={activeSnapshot?.last_error ?? ''}
-    />
+    <div class="header-row">
+      <HeaderBar
+        snapshot={activeSnapshot}
+        viewModeLabel={viewModeLabel}
+        favCount={favCountForSeries}
+        searchLabel={searchLabel}
+        demoLabel={demoLabel}
+        errorText={activeSnapshot?.last_error ?? ''}
+        displayFlag={effectiveFlag}
+      />
+      <button class="logout-btn" on:click={() => void signOut()}>Logout</button>
+    </div>
 
     <TimingTable
       title={viewModeLabel}
@@ -470,6 +551,81 @@
 
   p {
     color: var(--text-dim);
+  }
+
+  .login-wrap {
+    flex: 1;
+    display: grid;
+    place-items: center;
+  }
+
+  .login-card {
+    width: min(28rem, 92vw);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0d1b2c;
+    padding: 1rem;
+  }
+
+  .login-card h1 {
+    margin: 0 0 0.45rem;
+    font-size: 1.1rem;
+  }
+
+  .login-card p {
+    margin: 0 0 0.75rem;
+  }
+
+  .login-card form {
+    display: flex;
+    gap: 0.45rem;
+  }
+
+  .login-card input,
+  .login-card button,
+  .logout-btn {
+    font-family: inherit;
+    background: #13263a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 0.45rem 0.6rem;
+  }
+
+  .login-card input {
+    flex: 1;
+  }
+
+  .login-error {
+    color: #ff8a8a;
+    margin-top: 0.55rem;
+  }
+
+  .header-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.45rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .header-row :global(.header) {
+    flex: 1;
+  }
+
+  .logout-btn {
+    white-space: nowrap;
+    align-self: center;
+    height: 2rem;
+  }
+
+  @media (max-width: 768px) {
+    .header-row {
+      flex-direction: column;
+    }
+
+    .logout-btn {
+      align-self: flex-start;
+    }
   }
 
   @media (max-width: 768px) {

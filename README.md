@@ -74,10 +74,10 @@ cargo run --bin web_server
 
 Notes:
 
-- On first start, the server auto-generates a strong shared password, saves it, and prints it.
-- On later starts, the saved password is reused automatically.
-- Set `WEBUI_ROTATE_PASSWORD=1` to generate and persist a new password on startup.
-- Username defaults to `friends`; override with `WEBUI_AUTH_USER`.
+- On first start, the server auto-generates a strong shared access code, saves it, and prints it.
+- On later starts, the saved access code is reused automatically.
+- Set `WEBUI_ROTATE_PASSWORD=1` to generate and persist a new access code on startup.
+- The web app shows a login screen first; enter the shared access code to continue.
 - `/healthz` and `/readyz` are intentionally public for probes.
 - `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
 
