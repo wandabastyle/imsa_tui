@@ -614,8 +614,10 @@
 
   .logout-btn {
     white-space: nowrap;
-    align-self: center;
-    height: 2rem;
+    align-self: stretch;
+    height: auto;
+    display: flex;
+    align-items: center;
   }
 
   @media (max-width: 768px) {
