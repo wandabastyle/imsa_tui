@@ -137,6 +137,7 @@ async fn auth_login_session_logout_and_protected_routes() {
     assert!(set_cookie.contains("imsa_session="));
     assert!(set_cookie.contains("HttpOnly"));
     assert!(set_cookie.contains("SameSite=Lax"));
+    assert!(!set_cookie.contains("Max-Age="));
 
     let session_cookie = session_cookie_pair(&set_cookie);
 

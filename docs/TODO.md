@@ -28,13 +28,12 @@
   - Switched web preferences to per-profile files in `data_local_dir/profiles/<profile_id>.toml`
   - Kept login-code auth flow unchanged while separating settings by browser profile
   - Added regression coverage for per-profile preference isolation
+- Completed: **Phase C2.5** on branch `feat/web-storage-profiles`
+  - Changed `imsa_session` to a browser-session cookie so login is required after browser restart
+  - Kept persistent `imsa_profile` storage for per-browser preferences after re-login
+  - Verified logout still clears the auth cookie (`Max-Age=0`)
 
 ## Next Phases (Planned)
-
-- Planned: **Phase C2.5 - Session-only auth cookie hardening (recommended)**
-  - Make `imsa_session` a browser-session cookie (no `Max-Age`/`Expires`) so login is required after browser restart.
-  - Keep `imsa_profile` persistent so per-browser WebUI preferences remain available after re-login.
-  - Verify logout still clears auth cookie immediately.
 
 - Planned: **Phase C3 - Validation and regression coverage**
   - Add backend tests for new web path resolution (`data_local_dir` locations).

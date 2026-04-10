@@ -129,6 +129,7 @@ Notes:
 - On later starts, the saved access code is reused automatically.
 - Set `WEBUI_ROTATE_PASSWORD=1` to generate and persist a new access code on startup.
 - The web app shows a login screen first; enter the shared access code to continue.
+- Auth uses a browser-session cookie, so restarting the browser requires login again.
 - Login attempts are rate-limited per client address to reduce brute-force retries.
 - Cookie security defaults to `Secure` when `WEBUI_AUTO_FUNNEL` is enabled; override with `WEBUI_COOKIE_SECURE=1` or `WEBUI_COOKIE_SECURE=0`.
 - `/healthz` and `/readyz` are intentionally public for probes.
