@@ -50,6 +50,12 @@
 
 ## Next Phases (Planned)
 
+- Planned: **Phase D2.x - Simplify favourite keys (post-normalization)**
+  - Drop legacy-format support entirely; keep only new classless format (`imsa|fallback:7`, `nls|stnr:632`).
+  - Simplify normalized key generation to passthrough; remove normalization-on-read hooks.
+  - Update tests to expect only new format.
+  - Intended for after D2 migration is complete and all configs are known-clean.
+
 - Planned: **Phase D3 - Observability improvements**
   - Add structured logs for auth outcomes and profile creation events (without secrets).
   - Add a minimal troubleshooting checklist covering:
