@@ -34,7 +34,28 @@
   };
 
   function favouriteFlag(entry: TimingEntry): string {
-    return favourites.has(`${series}|${entry.stable_id}`) ? '★ ' : '';
+    return favourites.has(`${series}|${normalizeStableId(entry.stable_id)}`) ? '★ ' : '';
+  }
+
+  function normalizeStableId(stableId: string): string {
+    if (series === 'imsa') {
+      return trimLegacyClassSuffix(stableId, 'fallback');
+    }
+    if (series === 'nls') {
+      return trimLegacyClassSuffix(stableId, 'stnr');
+    }
+    return stableId;
+  }
+
+  function trimLegacyClassSuffix(stableId: string, expectedPrefix: string): string {
+    if (!stableId.startsWith(`${expectedPrefix}:`)) {
+      return stableId;
+    }
+    const parts = stableId.split(':');
+    if (parts.length < 3) {
+      return stableId;
+    }
+    return `${parts[0]}:${parts[1]}`;
   }
 
   function cells(entry: TimingEntry): string[] {

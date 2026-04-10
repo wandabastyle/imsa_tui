@@ -2,7 +2,7 @@
 // latest snapshot per series, per-profile preferences, and broadcast channels for SSE fanout.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -12,7 +12,9 @@ use tokio::sync::broadcast;
 
 use crate::timing::{Series, TimingEntry, TimingHeader, TimingMessage};
 
-use super::prefs::{load_preferences, save_preferences, Preferences};
+use crate::favourites;
+
+use super::prefs::{load_preferences, reset_preferences, save_preferences, Preferences};
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SeriesSnapshot {
@@ -148,11 +150,7 @@ impl WebAppState {
         mut next: Preferences,
     ) -> Result<Preferences, String> {
         // Keep only well-formed favourite keys so stale garbage does not spread.
-        next.favourites = next
-            .favourites
-            .into_iter()
-            .filter(|value| value.contains('|'))
-            .collect::<HashSet<_>>();
+        next.favourites = favourites::normalize_favourites(next.favourites.into_iter());
 
         save_preferences(profile_id, &next)?;
 
@@ -162,6 +160,16 @@ impl WebAppState {
             .map_err(|_| "preferences lock poisoned".to_string())?;
         guard.insert(profile_id.to_string(), next.clone());
         Ok(next)
+    }
+
+    pub fn reset_preferences_for(&self, profile_id: &str) -> Result<Preferences, String> {
+        let defaults = reset_preferences(profile_id)?;
+        let mut guard = self
+            .preferences
+            .write()
+            .map_err(|_| "preferences lock poisoned".to_string())?;
+        guard.insert(profile_id.to_string(), defaults.clone());
+        Ok(defaults)
     }
 }
 

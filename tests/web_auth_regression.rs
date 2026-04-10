@@ -25,6 +25,7 @@ fn test_app() -> Router {
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),
         )
+        .route("/api/preferences/reset", post(api::reset_preferences))
         .layer(middleware::from_fn_with_state(
             auth_config.clone(),
             auth::require_session_middleware,
@@ -233,6 +234,7 @@ async fn protected_api_and_sse_require_authentication() {
         (Method::GET, "/api/snapshot/imsa"),
         (Method::GET, "/api/stream/imsa"),
         (Method::PUT, "/api/preferences"),
+        (Method::POST, "/api/preferences/reset"),
     ] {
         let body = if method == Method::PUT {
             Body::from(
@@ -329,7 +331,7 @@ async fn preferences_are_isolated_per_profile_cookie() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&serde_json::json!({
-                        "favourites": ["imsa|feed:7"],
+                        "favourites": ["imsa|fallback:7:GTP"],
                         "selected_series": "nls"
                     }))
                     .expect("put payload"),
@@ -358,7 +360,8 @@ async fn preferences_are_isolated_per_profile_cookie() {
     assert_eq!(first_profile_read.status(), StatusCode::OK);
     let first_body = response_body_text(first_profile_read).await;
     assert!(first_body.contains("\"selected_series\":\"nls\""));
-    assert!(first_body.contains("imsa|feed:7"));
+    assert!(first_body.contains("imsa|fallback:7"));
+    assert!(!first_body.contains("imsa|fallback:7:GTP"));
 
     let second_get = app
         .clone()
@@ -385,6 +388,7 @@ async fn preferences_are_isolated_per_profile_cookie() {
     assert_ne!(first_profile_cookie, second_profile_cookie);
 
     let second_profile_read = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method(Method::GET)
@@ -401,7 +405,44 @@ async fn preferences_are_isolated_per_profile_cookie() {
     assert_eq!(second_profile_read.status(), StatusCode::OK);
     let second_body = response_body_text(second_profile_read).await;
     assert!(second_body.contains("\"selected_series\":\"imsa\""));
-    assert!(!second_body.contains("imsa|feed:7"));
+    assert!(!second_body.contains("imsa|fallback:7"));
+
+    let reset = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/preferences/reset")
+                .header(
+                    header::COOKIE,
+                    cookie_header(&session_cookie, &first_profile_cookie),
+                )
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("reset preferences request");
+    assert_eq!(reset.status(), StatusCode::OK);
+
+    let reset_read = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/preferences")
+                .header(
+                    header::COOKIE,
+                    cookie_header(&session_cookie, &first_profile_cookie),
+                )
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get reset profile preferences");
+    assert_eq!(reset_read.status(), StatusCode::OK);
+    let reset_body = response_body_text(reset_read).await;
+    assert!(reset_body.contains("\"selected_series\":\"imsa\""));
+    assert!(!reset_body.contains("imsa|fallback:7"));
 
     if let Some(path) = profile_path(&first_profile_cookie) {
         let _ = std::fs::remove_file(path);

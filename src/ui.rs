@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::demo;
 use crate::{
     f1::signalr_worker,
+    favourites,
     imsa::{normalize_class_name, polling_worker},
     nls::websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
@@ -100,7 +101,7 @@ impl GroupPickerState {
 }
 
 fn favourite_key(series: Series, stable_id: &str) -> String {
-    format!("{}|{}", series.as_key_prefix(), stable_id)
+    favourites::favourite_key(series, stable_id)
 }
 
 fn demo_flag_name(idx: usize) -> &'static str {
@@ -277,7 +278,9 @@ fn load_config() -> AppConfig {
         return AppConfig::default();
     };
 
-    toml::from_str::<AppConfig>(&text).unwrap_or_default()
+    let mut config = toml::from_str::<AppConfig>(&text).unwrap_or_default();
+    config.favourites = favourites::normalize_favourites(config.favourites.into_iter());
+    config
 }
 
 fn save_config(config: &AppConfig) -> Result<(), String> {
@@ -289,8 +292,10 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| format!("create config directory failed: {e}"))?;
     }
 
+    let mut normalized = config.clone();
+    normalized.favourites = favourites::normalize_favourites(normalized.favourites.into_iter());
     let encoded =
-        toml::to_string_pretty(config).map_err(|e| format!("encode config failed: {e}"))?;
+        toml::to_string_pretty(&normalized).map_err(|e| format!("encode config failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write config failed: {e}"))
 }
 
@@ -1604,5 +1609,15 @@ mod tests {
             display_session_name(Series::Nls, "  ADAC NLS  "),
             "  ADAC NLS  "
         );
+    }
+
+    #[test]
+    fn favourite_key_normalizes_legacy_class_suffix_for_imsa_and_nls() {
+        assert_eq!(
+            favourite_key(Series::Imsa, "fallback:7:GTP"),
+            "imsa|fallback:7"
+        );
+        assert_eq!(favourite_key(Series::Nls, "stnr:632:AT2"), "nls|stnr:632");
+        assert_eq!(favourite_key(Series::F1, "f1:driver:12"), "f1|f1:driver:12");
     }
 }

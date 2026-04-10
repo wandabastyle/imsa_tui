@@ -21,7 +21,7 @@ use imsa_tui::web::{
     api,
     auth::{self, PasswordState, WebAuthConfig},
     bridge::start_feed_bridge,
-    sse,
+    prefs, sse,
     state::WebAppState,
     static_files::{self, StaticConfig, StaticSource},
 };
@@ -101,6 +101,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("web/build"));
     cleanup_legacy_config_artifacts();
+    cleanup_stale_profile_artifacts();
     let resolved_auth = resolve_auth();
     let auth_options = resolve_auth_options();
 
@@ -121,6 +122,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),
         )
+        .route("/api/preferences/reset", post(api::reset_preferences))
         .layer(middleware::from_fn_with_state(
             auth_config.clone(),
             auth::require_session_middleware,
@@ -672,6 +674,18 @@ fn cleanup_legacy_config_artifacts() {
                 "failed to remove legacy web artifact {}: {err}",
                 path.display()
             ),
+        }
+    }
+}
+
+fn cleanup_stale_profile_artifacts() {
+    match prefs::cleanup_stale_profiles_default() {
+        Ok(removed) if removed > 0 => {
+            println!("removed {removed} stale profile file(s) from data-local storage");
+        }
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("failed to clean up stale profile files: {err}");
         }
     }
 }

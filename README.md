@@ -137,6 +137,8 @@ Notes:
 - `WEBUI_EMBED_UI=1`/`0` toggles embedded vs disk mode only when binaries are compiled with the `embed-ui` feature (enabled by default on this branch).
 - Web auth/runtime artifacts are stored in the app data-local directory (Linux: `~/.local/share/imsa_tui/`): `web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`.
 - WebUI preferences are profile-scoped and stored at `~/.local/share/imsa_tui/profiles/<profile_id>.toml` (profile id is an opaque cookie value).
+- Stale WebUI profile files older than 180 days are cleaned up automatically on server startup.
+- `POST /api/preferences/reset` resets the active browser profile preferences to defaults (authentication required).
 
 Auth defaults:
 
@@ -190,9 +192,13 @@ Current configuration fields:
 Example `config.toml`:
 
 ```toml
-favourites = ["imsa|feed:7", "nls|stnr:911:SP9"]
+favourites = ["imsa|feed:7", "nls|stnr:911"]
 selected_series = "nls"
 ```
+
+Favourite-key note:
+
+- IMSA/NLS favourites are stored without class suffix to remain stable if class mapping changes (for example `imsa|fallback:7` and `nls|stnr:632`).
 
 ## Data sources
 

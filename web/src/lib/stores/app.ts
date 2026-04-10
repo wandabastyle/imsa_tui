@@ -116,7 +116,29 @@ export function destroyStreams(): void {
 }
 
 export function favouriteKey(series: Series, stableId: string): string {
-  return `${series}|${stableId}`;
+  const normalizedStableId = normalizeStableIdForSeries(series, stableId);
+  return `${series}|${normalizedStableId}`;
+}
+
+function normalizeStableIdForSeries(series: Series, stableId: string): string {
+  if (series === 'imsa') {
+    return trimLegacyClassSuffix(stableId, 'fallback');
+  }
+  if (series === 'nls') {
+    return trimLegacyClassSuffix(stableId, 'stnr');
+  }
+  return stableId;
+}
+
+function trimLegacyClassSuffix(stableId: string, expectedPrefix: string): string {
+  if (!stableId.startsWith(`${expectedPrefix}:`)) {
+    return stableId;
+  }
+  const parts = stableId.split(':');
+  if (parts.length < 3) {
+    return stableId;
+  }
+  return `${parts[0]}:${parts[1]}`;
 }
 
 export async function persistPreferences(): Promise<void> {

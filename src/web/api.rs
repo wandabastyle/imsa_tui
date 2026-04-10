@@ -84,6 +84,24 @@ pub async fn put_preferences(
     }
 }
 
+pub async fn reset_preferences(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
+    let (profile_id, set_cookie) = profile_context(&state, &headers);
+
+    match state.reset_preferences_for(&profile_id) {
+        Ok(defaults) => {
+            with_profile_cookie(set_cookie, (StatusCode::OK, Json(defaults)).into_response())
+        }
+        Err(err) => with_profile_cookie(
+            set_cookie,
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: err }),
+            )
+                .into_response(),
+        ),
+    }
+}
+
 pub async fn healthz() -> impl IntoResponse {
     StatusCode::OK
 }

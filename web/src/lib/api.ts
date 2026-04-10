@@ -83,6 +83,16 @@ export async function updatePreferences(preferences: Preferences): Promise<Prefe
   return response.json();
 }
 
+export async function resetPreferences(): Promise<Preferences> {
+  const response = await fetch('/api/preferences/reset', {
+    method: 'POST'
+  });
+  if (!response.ok) {
+    throw new Error(`preferences reset failed (${response.status})`);
+  }
+  return response.json();
+}
+
 export function openSeriesStream(series: Series, onSnapshot: (payload: SnapshotResponse) => void): EventSource {
   const eventSource = new EventSource(`/api/stream/${series}`);
   eventSource.addEventListener('snapshot', (event) => {
