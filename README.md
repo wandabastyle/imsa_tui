@@ -75,19 +75,19 @@ cargo run --bin web_server
 Frontend asset modes:
 
 - Default mode is disk-served assets from `web/build` (or `WEB_DIST_DIR`).
-- Optional embedded mode is compile-time bundled assets behind the `embed-ui` feature.
+- Embedded mode support is compiled in by default on this branch (`embed-ui` default feature).
 
 Build/run matrix:
 
 ```bash
-# disk-served mode (default)
+# disk-served mode (runtime default)
 cargo run --bin web_server
 
-# embedded-capable binary (still defaults to disk-served)
-cargo run --features embed-ui --bin web_server
-
 # embedded assets mode at runtime
-WEBUI_EMBED_UI=1 cargo run --features embed-ui --bin web_server
+WEBUI_EMBED_UI=1 cargo run --bin web_server
+
+# build without embedded assets capability
+cargo run --no-default-features --bin web_server
 
 # custom disk asset path override
 WEB_DIST_DIR=/path/to/web/build cargo run --bin web_server
@@ -133,7 +133,7 @@ Notes:
 - Cookie security defaults to `Secure` when `WEBUI_AUTO_FUNNEL` is enabled; override with `WEBUI_COOKIE_SECURE=1` or `WEBUI_COOKIE_SECURE=0`.
 - `/healthz` and `/readyz` are intentionally public for probes.
 - `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
-- `WEBUI_EMBED_UI=1` only takes effect for binaries compiled with `--features embed-ui`; otherwise disk assets are used.
+- `WEBUI_EMBED_UI=1` only takes effect for binaries compiled with the `embed-ui` feature (enabled by default on this branch).
 
 Manual Tailscale Funnel commands (new CLI):
 
