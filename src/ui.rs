@@ -1525,3 +1525,84 @@ pub fn run_app(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_entry(
+        position: u32,
+        class_name: &str,
+        class_rank: &str,
+        stable_id: &str,
+    ) -> TimingEntry {
+        TimingEntry {
+            position,
+            class_name: class_name.to_string(),
+            class_rank: class_rank.to_string(),
+            stable_id: stable_id.to_string(),
+            ..TimingEntry::default()
+        }
+    }
+
+    #[test]
+    fn grouped_entries_orders_classes_by_best_position() {
+        let entries = vec![
+            test_entry(5, "GTD", "2", "car-gtd-2"),
+            test_entry(1, "GTP", "1", "car-gtp-1"),
+            test_entry(3, "GTD", "1", "car-gtd-1"),
+        ];
+
+        let grouped = grouped_entries(&entries, Series::Imsa);
+
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].0, "GTP");
+        assert_eq!(grouped[1].0, "GTD");
+        assert_eq!(grouped[1].1[0].stable_id, "car-gtd-1");
+        assert_eq!(grouped[1].1[1].stable_id, "car-gtd-2");
+    }
+
+    #[test]
+    fn favourites_count_is_scoped_per_series_prefix() {
+        let favourites = HashSet::from([
+            "imsa|car-1".to_string(),
+            "imsa|car-2".to_string(),
+            "nls|car-7".to_string(),
+            "f1|car-44".to_string(),
+            "imsaX|car-invalid".to_string(),
+        ]);
+
+        assert_eq!(favourites_count_for_series(Series::Imsa, &favourites), 2);
+        assert_eq!(favourites_count_for_series(Series::Nls, &favourites), 1);
+        assert_eq!(favourites_count_for_series(Series::F1, &favourites), 1);
+    }
+
+    #[test]
+    fn header_formatting_normalizes_imsa_labels_and_fallbacks() {
+        assert_eq!(
+            display_event_name(Series::Imsa, "  Twelve Hours of Sebring  "),
+            "Twelve Hours of Sebring"
+        );
+        assert_eq!(display_event_name(Series::Imsa, "-"), "-");
+        assert_eq!(display_session_name(Series::Imsa, "-"), "-");
+
+        assert_eq!(
+            display_session_name(
+                Series::Imsa,
+                "IMSA WeatherTech SportsCar Championship - Qualifying"
+            ),
+            "Qualifying"
+        );
+        assert_eq!(
+            display_session_name(
+                Series::Imsa,
+                "IMSA WeatherTech SportsCar Championship — Race"
+            ),
+            "Race"
+        );
+        assert_eq!(
+            display_session_name(Series::Nls, "  ADAC NLS  "),
+            "  ADAC NLS  "
+        );
+    }
+}
