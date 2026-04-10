@@ -1,4 +1,4 @@
-// Persistence for shared web preferences (global favourites + default series).
+// Persistence for per-profile web preferences.
 
 use std::{collections::HashSet, fs, path::PathBuf};
 
@@ -15,8 +15,8 @@ pub struct Preferences {
     pub selected_series: Series,
 }
 
-pub fn load_preferences() -> Preferences {
-    let Some(path) = preferences_path() else {
+pub fn load_preferences(profile_id: &str) -> Preferences {
+    let Some(path) = preferences_path(profile_id) else {
         return Preferences::default();
     };
     let Ok(text) = fs::read_to_string(path) else {
@@ -26,8 +26,8 @@ pub fn load_preferences() -> Preferences {
     toml::from_str::<Preferences>(&text).unwrap_or_default()
 }
 
-pub fn save_preferences(preferences: &Preferences) -> Result<(), String> {
-    let Some(path) = preferences_path() else {
+pub fn save_preferences(profile_id: &str, preferences: &Preferences) -> Result<(), String> {
+    let Some(path) = preferences_path(profile_id) else {
         return Err("unable to resolve config directory".to_string());
     };
 
@@ -40,7 +40,25 @@ pub fn save_preferences(preferences: &Preferences) -> Result<(), String> {
     fs::write(path, encoded).map_err(|e| format!("write preferences failed: {e}"))
 }
 
-fn preferences_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
-    Some(dirs.config_dir().join("config.toml"))
+fn preferences_path(profile_id: &str) -> Option<PathBuf> {
+    if !valid_profile_id(profile_id) {
+        return None;
+    }
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
+    Some(
+        dirs.data_local_dir()
+            .join("profiles")
+            .join(format!("{profile_id}.toml")),
+    )
+}
+
+fn valid_profile_id(value: &str) -> bool {
+    let len = value.len();
+    if !(8..=128).contains(&len) {
+        return false;
+    }
+
+    value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }

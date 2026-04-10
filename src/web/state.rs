@@ -1,5 +1,5 @@
 // In-memory web app state:
-// latest snapshot per series, shared preferences, and broadcast channels for SSE fanout.
+// latest snapshot per series, per-profile preferences, and broadcast channels for SSE fanout.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -32,12 +32,17 @@ pub struct SnapshotResponse {
 #[derive(Clone)]
 pub struct WebAppState {
     snapshots: Arc<RwLock<HashMap<Series, SeriesSnapshot>>>,
-    preferences: Arc<RwLock<Preferences>>,
+    preferences: Arc<RwLock<HashMap<String, Preferences>>>,
+    profile_cookie_secure: bool,
     streams: Arc<HashMap<Series, broadcast::Sender<()>>>,
 }
 
 impl WebAppState {
     pub fn new() -> Self {
+        Self::with_profile_cookie_secure(false)
+    }
+
+    pub fn with_profile_cookie_secure(profile_cookie_secure: bool) -> Self {
         let mut snapshots = HashMap::new();
         for series in Series::all() {
             snapshots.insert(
@@ -49,7 +54,6 @@ impl WebAppState {
             );
         }
 
-        let preferences = load_preferences();
         let mut streams = HashMap::new();
         for series in Series::all() {
             let (tx, _) = broadcast::channel(64);
@@ -58,7 +62,8 @@ impl WebAppState {
 
         Self {
             snapshots: Arc::new(RwLock::new(snapshots)),
-            preferences: Arc::new(RwLock::new(preferences)),
+            preferences: Arc::new(RwLock::new(HashMap::new())),
+            profile_cookie_secure,
             streams: Arc::new(streams),
         }
     }
@@ -113,11 +118,35 @@ impl WebAppState {
         self.streams.get(&series).map(|tx| tx.subscribe())
     }
 
-    pub fn current_preferences(&self) -> Option<Preferences> {
-        self.preferences.read().ok().map(|prefs| (*prefs).clone())
+    pub fn profile_cookie_secure(&self) -> bool {
+        self.profile_cookie_secure
     }
 
-    pub fn update_preferences(&self, mut next: Preferences) -> Result<Preferences, String> {
+    pub fn current_preferences_for(&self, profile_id: &str) -> Result<Preferences, String> {
+        {
+            let guard = self
+                .preferences
+                .read()
+                .map_err(|_| "preferences lock poisoned".to_string())?;
+            if let Some(prefs) = guard.get(profile_id) {
+                return Ok(prefs.clone());
+            }
+        }
+
+        let loaded = load_preferences(profile_id);
+        let mut guard = self
+            .preferences
+            .write()
+            .map_err(|_| "preferences lock poisoned".to_string())?;
+        guard.insert(profile_id.to_string(), loaded.clone());
+        Ok(loaded)
+    }
+
+    pub fn update_preferences_for(
+        &self,
+        profile_id: &str,
+        mut next: Preferences,
+    ) -> Result<Preferences, String> {
         // Keep only well-formed favourite keys so stale garbage does not spread.
         next.favourites = next
             .favourites
@@ -125,13 +154,13 @@ impl WebAppState {
             .filter(|value| value.contains('|'))
             .collect::<HashSet<_>>();
 
-        save_preferences(&next)?;
+        save_preferences(profile_id, &next)?;
 
         let mut guard = self
             .preferences
             .write()
             .map_err(|_| "preferences lock poisoned".to_string())?;
-        *guard = next.clone();
+        guard.insert(profile_id.to_string(), next.clone());
         Ok(next)
     }
 }

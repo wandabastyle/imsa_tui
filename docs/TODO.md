@@ -17,31 +17,26 @@
   - Added feature-gated embedded frontend assets mode (`embed-ui`)
   - Kept disk-served frontend as default behavior
   - Documented build/run matrix for disk and embedded modes
+- Completed: **Phase C1** on branch `feat/web-storage-profiles`
+  - Standardized `ProjectDirs` to `ProjectDirs::from("", "", "imsa_tui")`
+  - Moved web runtime/auth artifacts to `data_local_dir` (`~/.local/share/imsa_tui` on Linux)
+  - Kept TUI config in `config_dir` (`~/.config/imsa_tui/config.toml` on Linux)
+  - Added startup cleanup for legacy web artifacts in the config directory
+  - Updated README storage-path documentation
+- Completed: **Phase C2** on branch `feat/web-storage-profiles`
+  - Added persistent profile cookie handling for authenticated preference requests
+  - Switched web preferences to per-profile files in `data_local_dir/profiles/<profile_id>.toml`
+  - Kept login-code auth flow unchanged while separating settings by browser profile
+  - Added regression coverage for per-profile preference isolation
+- Completed: **Phase C2.5** on branch `feat/web-storage-profiles`
+  - Changed `imsa_session` to a browser-session cookie so login is required after browser restart
+  - Kept persistent `imsa_profile` storage for per-browser preferences after re-login
+  - Verified logout still clears the auth cookie (`Max-Age=0`)
+- Completed: **Phase C3** on branch `feat/web-storage-profiles`
+  - Added backend path-resolution tests for `data_local_dir` web auth/runtime files
+  - Kept auth guard verification in regression tests for protected API/SSE routes
+  - Updated troubleshooting docs with the new storage locations
 
 ## Next Phases (Planned)
 
-- Planned: **Phase C1 - Web runtime/data directory split**
-  - Standardize `ProjectDirs` usage to `ProjectDirs::from("", "", "imsa_tui")` so Linux paths resolve to `~/.config/imsa_tui` and `~/.local/share/imsa_tui`.
-  - Move web server runtime artifacts from `config_dir` to `data_local_dir`:
-    - `web_auth.toml`
-    - `web_server.pid`
-    - `web_server.info.toml`
-    - `web_server.log`
-  - Store files directly under `data_local_dir` root for naming consistency (`~/.local/share/imsa_tui`).
-  - Keep TUI/operator configuration in `config_dir` only.
-  - Do not implement legacy-path fallback (intentional hard move).
-  - Remove old web artifacts from prior config locations after cutover (do not remove TUI config files).
-  - Update startup/status output and README paths accordingly.
-
-- Planned: **Phase C2 - Per-browser WebUI profiles**
-  - Introduce a persistent profile cookie (opaque random id) separate from auth concerns.
-  - Store profile preferences server-side in `data_local_dir/profiles/<profile_id>.toml`.
-  - Update `/api/preferences` to load/save by profile id instead of one shared global file.
-  - Keep current login-code flow; no separate account system.
-  - Ensure profile creation and persistence are transparent to the frontend.
-
-- Planned: **Phase C3 - Validation and regression coverage**
-  - Add backend tests for new web path resolution (`data_local_dir` locations).
-  - Add tests for per-profile preference isolation across different profile cookies.
-  - Verify unauthenticated access is still blocked for protected API/SSE routes.
-  - Update operational docs/troubleshooting for new storage layout.
+- None currently planned

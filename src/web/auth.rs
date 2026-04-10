@@ -156,9 +156,11 @@ impl WebAuthConfig {
         }
     }
 
-    fn build_cookie(&self, name: &str, value: &str, max_age: u64) -> String {
-        let mut cookie =
-            format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}");
+    fn build_cookie(&self, name: &str, value: &str, max_age: Option<u64>) -> String {
+        let mut cookie = format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax");
+        if let Some(max_age) = max_age {
+            cookie.push_str(&format!("; Max-Age={max_age}"));
+        }
         if self.cookie_secure {
             cookie.push_str("; Secure");
         }
@@ -212,7 +214,7 @@ pub async fn login(
         );
     };
 
-    let cookie = config.build_cookie(&config.cookie_name, &token, config.session_ttl_secs);
+    let cookie = config.build_cookie(&config.cookie_name, &token, None);
 
     let mut response = (
         StatusCode::OK,
@@ -230,7 +232,7 @@ pub async fn login(
 pub async fn logout(State(config): State<WebAuthConfig>, request: Request) -> Response {
     config.revoke_from_headers(request.headers());
 
-    let clear_cookie = config.build_cookie(&config.cookie_name, "", 0);
+    let clear_cookie = config.build_cookie(&config.cookie_name, "", Some(0));
     let mut response = (
         StatusCode::OK,
         Json(SessionStateResponse {
@@ -307,8 +309,8 @@ pub fn load_or_initialize_password(rotate: bool) -> (String, PasswordState) {
 }
 
 pub fn stored_auth_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
-    Some(dirs.config_dir().join("web_auth.toml"))
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
+    Some(dirs.data_local_dir().join("web_auth.toml"))
 }
 
 fn generate_password(length: usize) -> String {
@@ -383,4 +385,16 @@ fn now_unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_auth_path_uses_data_local_dir() {
+        let path = stored_auth_path().expect("stored auth path");
+        let dirs = ProjectDirs::from("", "", "imsa_tui").expect("project dirs");
+        assert_eq!(path, dirs.data_local_dir().join("web_auth.toml"));
+    }
 }

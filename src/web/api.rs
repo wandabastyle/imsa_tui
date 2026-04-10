@@ -4,10 +4,11 @@ use std::str::FromStr;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
+use rand::{distributions::Alphanumeric, Rng};
 use serde::Serialize;
 
 use crate::timing::Series;
@@ -42,30 +43,44 @@ pub async fn get_snapshot(
     }
 }
 
-pub async fn get_preferences(State(state): State<WebAppState>) -> impl IntoResponse {
-    match state.current_preferences() {
-        Some(preferences) => (StatusCode::OK, Json(preferences)).into_response(),
-        None => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "preferences unavailable".to_string(),
-            }),
-        )
-            .into_response(),
+pub async fn get_preferences(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
+    let (profile_id, set_cookie) = profile_context(&state, &headers);
+
+    match state.current_preferences_for(&profile_id) {
+        Ok(preferences) => with_profile_cookie(
+            set_cookie,
+            (StatusCode::OK, Json(preferences)).into_response(),
+        ),
+        Err(err) => with_profile_cookie(
+            set_cookie,
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: err }),
+            )
+                .into_response(),
+        ),
     }
 }
 
 pub async fn put_preferences(
     State(state): State<WebAppState>,
+    headers: HeaderMap,
     Json(next): Json<Preferences>,
-) -> impl IntoResponse {
-    match state.update_preferences(next) {
-        Ok(updated) => (StatusCode::OK, Json(updated)).into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: err }),
-        )
-            .into_response(),
+) -> Response {
+    let (profile_id, set_cookie) = profile_context(&state, &headers);
+
+    match state.update_preferences_for(&profile_id, next) {
+        Ok(updated) => {
+            with_profile_cookie(set_cookie, (StatusCode::OK, Json(updated)).into_response())
+        }
+        Err(err) => with_profile_cookie(
+            set_cookie,
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: err }),
+            )
+                .into_response(),
+        ),
     }
 }
 
@@ -83,4 +98,72 @@ pub async fn readyz(State(state): State<WebAppState>) -> impl IntoResponse {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     }
+}
+
+const PROFILE_COOKIE_NAME: &str = "imsa_profile";
+const PROFILE_COOKIE_MAX_AGE_SECS: u64 = 60 * 60 * 24 * 365;
+
+fn profile_context(
+    state: &WebAppState,
+    headers: &axum::http::HeaderMap,
+) -> (String, Option<String>) {
+    if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
+        if valid_profile_id(profile_id) {
+            return (profile_id.to_string(), None);
+        }
+    }
+
+    let generated = generate_profile_id();
+    let cookie = build_profile_cookie(state.profile_cookie_secure(), &generated);
+    (generated, Some(cookie))
+}
+
+fn with_profile_cookie(cookie: Option<String>, mut response: Response) -> Response {
+    if let Some(cookie) = cookie {
+        if let Ok(value) = HeaderValue::from_str(&cookie) {
+            response.headers_mut().insert(header::SET_COOKIE, value);
+        }
+    }
+    response
+}
+
+fn build_profile_cookie(secure: bool, profile_id: &str) -> String {
+    let mut cookie = format!(
+        "{PROFILE_COOKIE_NAME}={profile_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={PROFILE_COOKIE_MAX_AGE_SECS}"
+    );
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+fn generate_profile_id() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(48)
+        .map(char::from)
+        .collect()
+}
+
+fn cookie_value<'a>(headers: &'a axum::http::HeaderMap, cookie_name: &str) -> Option<&'a str> {
+    let raw_cookie = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw_cookie.split(';').find_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        if name == cookie_name {
+            Some(value)
+        } else {
+            None
+        }
+    })
+}
+
+fn valid_profile_id(value: &str) -> bool {
+    let len = value.len();
+    if !(8..=128).contains(&len) {
+        return false;
+    }
+
+    value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }

@@ -264,7 +264,7 @@ fn group_picker_popup(groups: &[String], selected_idx: usize) -> Paragraph<'stat
 }
 
 fn config_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
     Some(dirs.config_dir().join("config.toml"))
 }
 
