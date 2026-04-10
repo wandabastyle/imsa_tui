@@ -138,6 +138,19 @@ Notes:
 - Web auth/runtime artifacts are stored in the app data-local directory (Linux: `~/.local/share/imsa_tui/`): `web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`.
 - WebUI preferences are profile-scoped and stored at `~/.local/share/imsa_tui/profiles/<profile_id>.toml` (profile id is an opaque cookie value).
 
+Auth defaults:
+
+- Access control uses one shared access code stored in `~/.local/share/imsa_tui/web_auth.toml`.
+- Successful login sets `imsa_session` as a browser-session cookie (`HttpOnly`, `SameSite=Lax`, optional `Secure`), so browser restart requires login again.
+- Server-side session entries are in-memory with a `30d` TTL and are cleared on web server restart.
+- Login retry protection is enabled by default per client key (`X-Forwarded-For`, then `X-Real-IP`, fallback `unknown-client`): `6` attempts per `60s`, then block for `300s`.
+
+Operator notes:
+
+- Private network / personal use: current defaults are usually sufficient.
+- Public exposure (for example with Funnel): keep defaults or tighten them; keep `WEBUI_COOKIE_SECURE=1`.
+- If repeatedly locked out while testing, wait 5 minutes or rotate/restart and retry once lockout expires.
+
 Manual Tailscale Funnel commands (new CLI):
 
 ```bash
@@ -204,6 +217,7 @@ If a payload is raw JSON instead of JSONP, the parser handles both formats.
 - If `--status` reports stale pid/runtime files, run `web_server --stop` once to clean them, then `web_server --daemon` or `web_server --restart`.
 - If daemon startup info is delayed, check `web_server --logs` (or `web_server --logs=<n>` for more history).
 - If you cannot find web artifacts, check `~/.local/share/imsa_tui/` (`web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`) and `~/.local/share/imsa_tui/profiles/` for WebUI preference files.
+- If login returns "too many login attempts", wait for lockout expiry (`300s` default) and retry with the correct access code.
 
 ## Development
 

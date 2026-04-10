@@ -36,14 +36,13 @@
   - Added backend path-resolution tests for `data_local_dir` web auth/runtime files
   - Kept auth guard verification in regression tests for protected API/SSE routes
   - Updated troubleshooting docs with the new storage locations
+- Completed: **Phase D1** on branch `main`
+  - Documented auth/session/rate-limit defaults in README.
+  - Added operator notes for private-network and public-exposure deployments.
+  - Added lockout troubleshooting guidance and default timing references.
+  - Deferred CSRF hardening as optional follow-up if risk/usage changes.
 
 ## Next Phases (Planned)
-
-- Planned: **Phase D1 - Auth defaults documentation**
-  - Document current auth/session/rate-limit defaults in README.
-  - Add short operator notes for common deployment profiles (private network vs public exposure).
-  - Include lockout troubleshooting guidance.
-  - Optional hardening follow-up: review CSRF risk on mutating endpoints (`/auth/logout`, `/api/preferences`) and implement protection only if needed.
 
 - Planned: **Phase D2 - Profile lifecycle tooling**
   - Add automatic server-side cleanup for stale profile files in `data_local_dir/profiles/` (default retention: 180 days).
