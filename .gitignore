@@ -4,3 +4,4 @@
 /web/.svelte-kit
 /web/build
 session-*.md
+/docs
