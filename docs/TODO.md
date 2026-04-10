@@ -39,4 +39,29 @@
 
 ## Next Phases (Planned)
 
-- None currently planned
+- Planned: **Phase D1 - Auth defaults documentation**
+  - Document current auth/session/rate-limit defaults in README.
+  - Add short operator notes for common deployment profiles (private network vs public exposure).
+  - Include lockout troubleshooting guidance.
+  - Optional hardening follow-up: review CSRF risk on mutating endpoints (`/auth/logout`, `/api/preferences`) and implement protection only if needed.
+
+- Planned: **Phase D2 - Profile lifecycle tooling**
+  - Add automatic server-side cleanup for stale profile files in `data_local_dir/profiles/` (default retention: 180 days).
+  - Add optional reset flow for the active browser profile preferences.
+  - Document profile retention and cleanup behavior.
+  - Normalize favourite key shape for IMSA/NLS in both local TUI config and server profile storage: drop class suffix from stored keys so class changes do not break favourites.
+  - Favourite-key migration draft:
+    - Current examples: `imsa|fallback:7:GTP`, `nls|stnr:632:AT2`.
+    - Target examples: `imsa|fallback:7`, `nls|stnr:632` (class removed); F1 format remains unchanged.
+    - On load: accept both legacy and target formats, normalize in-memory to target format.
+    - On save: write only target format to `~/.config/imsa_tui/config.toml` and `~/.local/share/imsa_tui/profiles/*.toml`.
+    - Add one-time cleanup/dedup pass to avoid duplicate favourites when legacy and normalized keys both exist.
+
+- Planned: **Phase D3 - Observability improvements**
+  - Add structured logs for auth outcomes and profile creation events (without secrets).
+  - Add a minimal troubleshooting checklist covering:
+    - storage paths (`~/.config/imsa_tui` vs `~/.local/share/imsa_tui`),
+    - session-cookie re-login behavior after browser restart,
+    - profile preference file location,
+    - login lockout behavior,
+    - first-line daemon checks (`web_server --status`, `web_server --logs`).
