@@ -506,6 +506,7 @@
   {:else}
     <div class="header-row">
       <HeaderBar
+        series={$appState.activeSeries}
         snapshot={activeSnapshot}
         viewModeLabel={viewModeLabel}
         favCount={favCountForSeries}

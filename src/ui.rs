@@ -825,6 +825,43 @@ fn favourites_count_for_series(series: Series, favourites: &HashSet<String>) -> 
         .count()
 }
 
+fn display_event_name(_series: Series, raw: &str) -> String {
+    if raw.trim().is_empty() || raw == "-" {
+        return "-".to_string();
+    }
+
+    raw.trim().to_string()
+}
+
+fn display_session_name(series: Series, raw: &str) -> String {
+    if raw.trim().is_empty() || raw == "-" {
+        return "-".to_string();
+    }
+
+    if series == Series::Imsa {
+        let cleaned = normalize_imsa_label(raw);
+        if !cleaned.is_empty() {
+            return cleaned;
+        }
+    }
+
+    raw.to_string()
+}
+
+fn normalize_imsa_label(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    if lower.contains("weathertech") {
+        if let Some((idx, ch)) = raw
+            .char_indices()
+            .rev()
+            .find(|(_, ch)| matches!(ch, '-' | '–' | '—'))
+        {
+            return raw[idx + ch.len_utf8()..].trim().to_string();
+        }
+    }
+    raw.trim().to_string()
+}
+
 // Switching feeds is centralized so both keyboard shortcuts and popup confirmation
 // run the exact same state-reset flow as more series are added.
 fn apply_series_change(
@@ -1007,34 +1044,27 @@ pub fn run_app(
                     .collect::<Vec<_>>(),
             );
 
-            let event_text = if header.event_name.is_empty() { "-" } else { &header.event_name };
-            let session_text = if header.session_name.is_empty() {
-                "-"
-            } else {
-                &header.session_name
-            };
-            let track_text = if header.track_name.is_empty() { "-" } else { &header.track_name };
+            let event_text = display_event_name(
+                active_series,
+                if header.event_name.is_empty() { "-" } else { &header.event_name },
+            );
+            let session_display = display_session_name(
+                active_series,
+                if header.session_name.is_empty() {
+                    "-"
+                } else {
+                    &header.session_name
+                },
+            );
 
-            let header_lead = if track_text != "-" && track_text != event_text {
-                format!(
-                    "{} | {} | {} | {} | TTE {} | Mode {} | ",
-                    status,
-                    event_text,
-                    session_text,
-                    track_text,
-                    tte_text,
-                    mode_text,
-                )
-            } else {
-                format!(
-                    "{} | {} | {} | TTE {} | Mode {} | ",
-                    status,
-                    event_text,
-                    session_text,
-                    tte_text,
-                    mode_text,
-                )
-            };
+            let header_lead = format!(
+                "{} | {} | {} | TTE {} | Mode {} | ",
+                status,
+                event_text,
+                session_display,
+                tte_text,
+                mode_text,
+            );
 
             let mut header_spans = vec![
                 Span::styled(header_lead, header_style),
@@ -1050,8 +1080,7 @@ pub fn run_app(
 
             header_spans.push(Span::styled(
                 format!(
-                    " | Day {} | {} | Favs {}",
-                    if header.day_time.is_empty() { "-" } else { &header.day_time },
+                    " | {} | Favs {}",
                     age,
                     favourites_count_for_series(active_series, &favourites),
                 ),

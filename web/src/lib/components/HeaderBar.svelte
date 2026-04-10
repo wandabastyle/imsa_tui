@@ -1,8 +1,9 @@
 <script lang="ts">
   // Compact status header matching TUI metadata order and flag-driven theming.
 
-  import type { SeriesSnapshot } from '$lib/types';
+  import type { Series, SeriesSnapshot } from '$lib/types';
 
+  export let series: Series;
   export let snapshot: SeriesSnapshot | null;
   export let viewModeLabel = 'Overall';
   export let favCount = 0;
@@ -14,11 +15,44 @@
   $: ageText = snapshot?.last_update_unix_ms
     ? `Upd ${Math.max(0, Math.floor((Date.now() - snapshot.last_update_unix_ms) / 1000))}s`
     : 'Upd -';
+  function displayEventName(raw: string): string {
+    if (!raw || raw.trim() === '') {
+      return '-';
+    }
+    return raw.trim();
+  }
+
+  function displaySessionName(activeSeries: Series, raw: string): string {
+    if (!raw || raw.trim() === '') {
+      return '-';
+    }
+    if (activeSeries === 'imsa') {
+      const cleaned = normalizeImsaLabel(raw);
+      return cleaned || raw;
+    }
+    return raw;
+  }
+
+  function normalizeImsaLabel(raw: string): string {
+    const lower = raw.toLowerCase();
+    let cleaned = raw.trim();
+    if (lower.includes('weathertech')) {
+      const idx = Math.max(raw.lastIndexOf('-'), raw.lastIndexOf('–'), raw.lastIndexOf('—'));
+      if (idx >= 0) {
+        cleaned = raw.slice(idx + 1).trim();
+      }
+    }
+    return cleaned;
+  }
+
+  $: eventText = displayEventName(snapshot?.header.event_name || '-');
+  $: sessionText = displaySessionName(series, snapshot?.header.session_name || '-');
+  $: sessionDisplay = sessionText;
 </script>
 
 <section class="header" data-flag={displayFlag.toLowerCase()}>
   <div class="line">
-    {snapshot?.status || 'Starting live timing...'} | {snapshot?.header.event_name || '-'} | {snapshot?.header.session_name || '-'} | {snapshot?.header.track_name || '-'} | TTE {snapshot?.header.time_to_go || '-'} | Mode {viewModeLabel} | <strong>{displayFlag}</strong> | Day {snapshot?.header.day_time || '-'} | {ageText} | Favs {favCount}
+    {snapshot?.status || 'Starting live timing...'} | {eventText} | {sessionDisplay} | TTE {snapshot?.header.time_to_go || '-'} | Mode {viewModeLabel} | <strong>{displayFlag}</strong> | {ageText} | Favs {favCount}
   </div>
   <div class="line dim">Keys: h help | {searchLabel || 'Search: -'} {demoLabel}{errorText ? ` | Error: ${errorText}` : ''}</div>
 </section>
