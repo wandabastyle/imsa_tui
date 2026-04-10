@@ -135,6 +135,7 @@ Notes:
 - `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
 - `WEBUI_EMBED_UI=1`/`0` toggles embedded vs disk mode only when binaries are compiled with the `embed-ui` feature (enabled by default on this branch).
 - Web auth/runtime artifacts are stored in the app data-local directory (Linux: `~/.local/share/imsa_tui/`): `web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`.
+- WebUI preferences are profile-scoped and stored at `~/.local/share/imsa_tui/profiles/<profile_id>.toml` (profile id is an opaque cookie value).
 
 Manual Tailscale Funnel commands (new CLI):
 

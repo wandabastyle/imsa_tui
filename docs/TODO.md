@@ -23,15 +23,13 @@
   - Kept TUI config in `config_dir` (`~/.config/imsa_tui/config.toml` on Linux)
   - Added startup cleanup for legacy web artifacts in the config directory
   - Updated README storage-path documentation
+- Completed: **Phase C2** on branch `feat/web-storage-profiles`
+  - Added persistent profile cookie handling for authenticated preference requests
+  - Switched web preferences to per-profile files in `data_local_dir/profiles/<profile_id>.toml`
+  - Kept login-code auth flow unchanged while separating settings by browser profile
+  - Added regression coverage for per-profile preference isolation
 
 ## Next Phases (Planned)
-
-- Planned: **Phase C2 - Per-browser WebUI profiles**
-  - Introduce a persistent profile cookie (opaque random id) separate from auth concerns.
-  - Store profile preferences server-side in `data_local_dir/profiles/<profile_id>.toml`.
-  - Update `/api/preferences` to load/save by profile id instead of one shared global file.
-  - Keep current login-code flow; no separate account system.
-  - Ensure profile creation and persistence are transparent to the frontend.
 
 - Planned: **Phase C2.5 - Session-only auth cookie hardening (recommended)**
   - Make `imsa_session` a browser-session cookie (no `Max-Age`/`Expires`) so login is required after browser restart.
@@ -40,6 +38,5 @@
 
 - Planned: **Phase C3 - Validation and regression coverage**
   - Add backend tests for new web path resolution (`data_local_dir` locations).
-  - Add tests for per-profile preference isolation across different profile cookies.
   - Verify unauthenticated access is still blocked for protected API/SSE routes.
   - Update operational docs/troubleshooting for new storage layout.

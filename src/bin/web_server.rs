@@ -104,7 +104,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
     let resolved_auth = resolve_auth();
     let auth_options = resolve_auth_options();
 
-    let app_state = WebAppState::new();
+    let app_state = WebAppState::with_profile_cookie_secure(auth_options.cookie_secure);
     let feed_controller = start_feed_bridge(app_state.clone());
 
     let static_config = resolve_static_config(static_root);

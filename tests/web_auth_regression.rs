@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use directories::ProjectDirs;
 use imsa_tui::web::{
     api,
     auth::{self, WebAuthConfig},
@@ -42,6 +43,29 @@ fn test_app() -> Router {
 
 fn session_cookie_pair(set_cookie: &str) -> String {
     set_cookie.split(';').next().unwrap_or_default().to_string()
+}
+
+fn profile_cookie_pair(set_cookie: &str) -> Option<String> {
+    let pair = set_cookie.split(';').next()?.to_string();
+    if pair.starts_with("imsa_profile=") {
+        Some(pair)
+    } else {
+        None
+    }
+}
+
+fn cookie_header(session_cookie: &str, profile_cookie: &str) -> String {
+    format!("{session_cookie}; {profile_cookie}")
+}
+
+fn profile_path(profile_cookie: &str) -> Option<std::path::PathBuf> {
+    let (_, profile_id) = profile_cookie.split_once('=')?;
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
+    Some(
+        dirs.data_local_dir()
+            .join("profiles")
+            .join(format!("{profile_id}.toml")),
+    )
 }
 
 async fn response_body_text(response: axum::response::Response) -> String {
@@ -236,5 +260,152 @@ async fn protected_api_and_sse_require_authentication() {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "uri={uri}");
         let body = response_body_text(response).await;
         assert!(body.contains("authentication required"), "uri={uri}");
+    }
+}
+
+#[tokio::test]
+async fn preferences_are_isolated_per_profile_cookie() {
+    let app = test_app();
+
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({ "access_code": "secret-code" }))
+                        .expect("login payload"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("login request");
+    assert_eq!(login.status(), StatusCode::OK);
+    let session_cookie = session_cookie_pair(
+        login
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("session set-cookie present")
+            .to_str()
+            .expect("set-cookie utf8"),
+    );
+
+    let first_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/preferences")
+                .header(header::COOKIE, &session_cookie)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get preferences request");
+    assert_eq!(first_get.status(), StatusCode::OK);
+    let first_profile_cookie = profile_cookie_pair(
+        first_get
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("profile set-cookie present")
+            .to_str()
+            .expect("set-cookie utf8"),
+    )
+    .expect("profile cookie pair");
+
+    let update = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/api/preferences")
+                .header(
+                    header::COOKIE,
+                    cookie_header(&session_cookie, &first_profile_cookie),
+                )
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "favourites": ["imsa|feed:7"],
+                        "selected_series": "nls"
+                    }))
+                    .expect("put payload"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("put preferences request");
+    assert_eq!(update.status(), StatusCode::OK);
+
+    let first_profile_read = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/preferences")
+                .header(
+                    header::COOKIE,
+                    cookie_header(&session_cookie, &first_profile_cookie),
+                )
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get profile 1 preferences");
+    assert_eq!(first_profile_read.status(), StatusCode::OK);
+    let first_body = response_body_text(first_profile_read).await;
+    assert!(first_body.contains("\"selected_series\":\"nls\""));
+    assert!(first_body.contains("imsa|feed:7"));
+
+    let second_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/preferences")
+                .header(header::COOKIE, &session_cookie)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get preferences request");
+    assert_eq!(second_get.status(), StatusCode::OK);
+    let second_profile_cookie = profile_cookie_pair(
+        second_get
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("second profile set-cookie present")
+            .to_str()
+            .expect("set-cookie utf8"),
+    )
+    .expect("second profile cookie pair");
+    assert_ne!(first_profile_cookie, second_profile_cookie);
+
+    let second_profile_read = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/preferences")
+                .header(
+                    header::COOKIE,
+                    cookie_header(&session_cookie, &second_profile_cookie),
+                )
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get profile 2 preferences");
+    assert_eq!(second_profile_read.status(), StatusCode::OK);
+    let second_body = response_body_text(second_profile_read).await;
+    assert!(second_body.contains("\"selected_series\":\"imsa\""));
+    assert!(!second_body.contains("imsa|feed:7"));
+
+    if let Some(path) = profile_path(&first_profile_cookie) {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(path) = profile_path(&second_profile_cookie) {
+        let _ = std::fs::remove_file(path);
     }
 }
