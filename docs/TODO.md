@@ -7,16 +7,12 @@
 - Completed: **Phase A2** on branch `webui`
   - Added backend auth/session and protected-route regression coverage
   - Added parity regressions for grouped ordering, favourites counting, and header formatting
+- Completed: **Phase A3** on branch `webui`
+  - Added daemon lifecycle commands `--restart` and `--logs` (default tail view)
+  - Improved stale PID/runtime diagnostics in `--status` and `--stop`
+  - Updated README ops docs for daemon lifecycle and troubleshooting
 
 ## Next Phases (Planned)
-
-### Phase A3 (current branch: `webui`, non-systemd only)
-
-- Daemon lifecycle polish:
-  - add `--restart`
-  - add `--logs` (tail last ~100 lines by default)
-  - improve stale PID/status diagnostics and messaging
-- Update README ops docs for daemon lifecycle and troubleshooting
 
 ### Phase B (new branch from latest `webui`: `feat/systemd-service`)
 

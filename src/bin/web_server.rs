@@ -45,6 +45,8 @@ enum RunMode {
     DaemonChild,
     Stop,
     Status,
+    Restart,
+    Logs { lines: usize },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +71,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         RunMode::Status => {
             print_status()?;
+            return Ok(());
+        }
+        RunMode::Restart => {
+            restart_daemon()?;
+            return Ok(());
+        }
+        RunMode::Logs { lines } => {
+            print_logs(lines)?;
             return Ok(());
         }
         RunMode::DaemonParent => {
@@ -100,7 +110,10 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         root_dir: static_root,
     };
 
-    let auth_config = WebAuthConfig::new(resolved_auth.access_code.clone(), auth_options.cookie_secure);
+    let auth_config = WebAuthConfig::new(
+        resolved_auth.access_code.clone(),
+        auth_options.cookie_secure,
+    );
 
     let protected_api_routes = Router::new()
         .route("/api/snapshot/:series", get(api::get_snapshot))
@@ -197,24 +210,71 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn parse_mode() -> Result<RunMode, Box<dyn std::error::Error>> {
-    let mut mode = RunMode::Foreground;
-    for arg in env::args().skip(1) {
-        let next = match arg.as_str() {
-            "--daemon" => RunMode::DaemonParent,
-            "--run-daemon" => RunMode::DaemonChild,
-            "--stop" => RunMode::Stop,
-            "--status" => RunMode::Status,
-            other => {
-                return Err(format!("unknown argument: {other}").into());
-            }
-        };
+    let args: Vec<String> = env::args().skip(1).collect();
+    let mut selected: Option<RunMode> = None;
+    let mut log_lines = 100_usize;
 
-        if mode != RunMode::Foreground {
-            return Err("use only one mode flag at a time".into());
+    let mut idx = 0_usize;
+    while idx < args.len() {
+        let arg = args[idx].as_str();
+
+        match arg {
+            "--daemon" => set_mode_once(&mut selected, RunMode::DaemonParent)?,
+            "--run-daemon" => set_mode_once(&mut selected, RunMode::DaemonChild)?,
+            "--stop" => set_mode_once(&mut selected, RunMode::Stop)?,
+            "--status" => set_mode_once(&mut selected, RunMode::Status)?,
+            "--restart" => set_mode_once(&mut selected, RunMode::Restart)?,
+            "--logs" => set_mode_once(&mut selected, RunMode::Logs { lines: log_lines })?,
+            "--lines" => {
+                if !matches!(selected, Some(RunMode::Logs { .. })) {
+                    return Err("--lines can only be used together with --logs".into());
+                }
+                idx += 1;
+                let Some(value) = args.get(idx) else {
+                    return Err("--lines requires a numeric value".into());
+                };
+                log_lines = parse_log_lines(value)?;
+            }
+            other if other.starts_with("--logs=") => {
+                let value = other.trim_start_matches("--logs=");
+                log_lines = parse_log_lines(value)?;
+                set_mode_once(&mut selected, RunMode::Logs { lines: log_lines })?;
+            }
+            other => return Err(format!("unknown argument: {other}").into()),
         }
-        mode = next;
+
+        idx += 1;
     }
+
+    let mode = match selected {
+        Some(RunMode::Logs { .. }) => RunMode::Logs { lines: log_lines },
+        Some(other) => other,
+        None => RunMode::Foreground,
+    };
+
     Ok(mode)
+}
+
+fn set_mode_once(
+    selected: &mut Option<RunMode>,
+    mode: RunMode,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if selected.is_some() {
+        return Err("use only one mode flag at a time".into());
+    }
+    *selected = Some(mode);
+    Ok(())
+}
+
+fn parse_log_lines(value: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    let lines = value
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("invalid log line count: {value}"))?;
+    if lines == 0 {
+        return Err("log line count must be greater than zero".into());
+    }
+    Ok(lines)
 }
 
 fn start_daemon_parent() -> Result<(), Box<dyn std::error::Error>> {
@@ -272,6 +332,8 @@ fn start_daemon_parent() -> Result<(), Box<dyn std::error::Error>> {
                 println!("web auth file: {path}");
             }
             println!("log file: {}", log_path.display());
+            println!("restart with: web_server --restart");
+            println!("view logs with: web_server --logs");
             println!("stop with: web_server --stop");
             return Ok(());
         }
@@ -288,11 +350,17 @@ fn start_daemon_parent() -> Result<(), Box<dyn std::error::Error>> {
 fn stop_daemon() -> Result<(), Box<dyn std::error::Error>> {
     let Some(pid) = read_pid()? else {
         println!("web_server is not running (no pid file).");
+        if let Some(path) = pid_path() {
+            println!("pid path: {}", path.display());
+        }
         return Ok(());
     };
 
     if !is_process_running(pid) {
-        println!("stale pid file found; cleaning up.");
+        println!("stale pid file found for pid {pid}; cleaning up runtime files.");
+        if let Some(path) = pid_path() {
+            println!("removed stale pid file: {}", path.display());
+        }
         clear_runtime_files()?;
         return Ok(());
     }
@@ -311,6 +379,56 @@ fn stop_daemon() -> Result<(), Box<dyn std::error::Error>> {
     let _ = send_signal(pid, libc::SIGKILL);
     clear_runtime_files()?;
     println!("web_server stopped.");
+    Ok(())
+}
+
+fn restart_daemon() -> Result<(), Box<dyn std::error::Error>> {
+    let pid = read_pid()?;
+    match pid {
+        Some(pid) if is_process_running(pid) => {
+            println!("restarting web_server daemon (pid {pid})...");
+            stop_daemon()?;
+        }
+        Some(pid) => {
+            println!("found stale pid {pid}; cleaning up before restart.");
+            clear_runtime_files()?;
+        }
+        None => {
+            println!("web_server is not running; starting daemon.");
+        }
+    }
+
+    start_daemon_parent()
+}
+
+fn print_logs(lines: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let path = log_path().ok_or("unable to resolve log path")?;
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            println!("log file not found: {}", path.display());
+            println!("start daemon with: web_server --daemon");
+            return Ok(());
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    let rows: Vec<&str> = text.lines().collect();
+    if rows.is_empty() {
+        println!("log file is empty: {}", path.display());
+        return Ok(());
+    }
+
+    let start = rows.len().saturating_sub(lines);
+    println!(
+        "showing last {} line(s) from {}",
+        rows.len() - start,
+        path.display()
+    );
+    for row in rows.into_iter().skip(start) {
+        println!("{row}");
+    }
+
     Ok(())
 }
 
@@ -333,13 +451,38 @@ fn print_status() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(path) = info.log_file.as_ref() {
                     println!("log file: {path}");
                 }
+            } else {
+                println!("runtime info file missing or unreadable.");
+                if let Some(path) = info_path() {
+                    println!("expected runtime info at: {}", path.display());
+                }
             }
+            println!("restart with: web_server --restart");
+            println!("view logs with: web_server --logs");
         }
-        Some(_) => {
-            println!("web_server status: not running (stale pid file)");
+        Some(pid) => {
+            println!("web_server status: not running (stale pid file for pid {pid})");
+            if let Some(path) = pid_path() {
+                println!("stale pid file: {}", path.display());
+            }
+            if info.is_some() {
+                if let Some(path) = info_path() {
+                    println!("stale runtime info file: {}", path.display());
+                }
+            }
+            println!("cleanup with: web_server --stop");
+            println!("or restart with: web_server --restart");
         }
         None => {
-            println!("web_server status: not running");
+            if info.is_some() {
+                println!("web_server status: not running (runtime info exists without pid)");
+                if let Some(path) = info_path() {
+                    println!("stale runtime info file: {}", path.display());
+                }
+                println!("cleanup with: web_server --stop");
+            } else {
+                println!("web_server status: not running");
+            }
         }
     }
 
@@ -360,9 +503,7 @@ fn resolve_auth_options() -> AuthRuntimeOptions {
         Err(_) => env_flag("WEBUI_AUTO_FUNNEL", true),
     };
 
-    AuthRuntimeOptions {
-        cookie_secure,
-    }
+    AuthRuntimeOptions { cookie_secure }
 }
 
 fn print_startup_info(info: &RuntimeInfo, state: PasswordState, options: AuthRuntimeOptions) {
@@ -429,7 +570,9 @@ fn setup_tailscale_funnel(port: u16) -> Option<String> {
     match status {
         Ok(output) if output.status.success() => {
             let text = String::from_utf8_lossy(&output.stdout);
-            if let Some(url) = text.split_whitespace().find(|token| token.starts_with("https://"))
+            if let Some(url) = text
+                .split_whitespace()
+                .find(|token| token.starts_with("https://"))
             {
                 Some(url.to_string())
             } else {

@@ -81,6 +81,13 @@ cargo run --bin web_server -- --daemon
 # check daemon state and URLs
 cargo run --bin web_server -- --status
 
+# restart daemon (stops stale/runtime leftovers automatically)
+cargo run --bin web_server -- --restart
+
+# print last ~100 log lines (or set a custom count)
+cargo run --bin web_server -- --logs
+cargo run --bin web_server -- --logs=250
+
 # stop daemon
 cargo run --bin web_server -- --stop
 ```
@@ -90,6 +97,8 @@ Release binary commands:
 ```bash
 ./target/release/web_server --daemon
 ./target/release/web_server --status
+./target/release/web_server --restart
+./target/release/web_server --logs
 ./target/release/web_server --stop
 ```
 
@@ -169,6 +178,8 @@ If a payload is raw JSON instead of JSONP, the parser handles both formats.
 - If the table stays empty, wait a few polling cycles for the first successful snapshot.
 - If you see repeated errors in the header, confirm outbound HTTPS access is available.
 - If rendering looks off, resize your terminal to provide more width for table columns.
+- If `--status` reports stale pid/runtime files, run `web_server --stop` once to clean them, then `web_server --daemon` or `web_server --restart`.
+- If daemon startup info is delayed, check `web_server --logs` (or `web_server --logs=<n>` for more history).
 
 ## Development
 
