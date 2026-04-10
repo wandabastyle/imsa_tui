@@ -6,6 +6,17 @@ interface SessionStateResponse {
   authenticated: boolean;
 }
 
+interface ErrorPayload {
+  error?: string;
+  retry_after_secs?: number;
+}
+
+export interface LoginResult {
+  ok: boolean;
+  error?: string;
+  retryAfterSecs?: number;
+}
+
 export async function fetchSnapshot(series: Series): Promise<SnapshotResponse> {
   const response = await fetch(`/api/snapshot/${series}`);
   if (!response.ok) {
@@ -23,7 +34,7 @@ export async function fetchSessionState(): Promise<boolean> {
   return payload.authenticated;
 }
 
-export async function loginWithAccessCode(accessCode: string): Promise<boolean> {
+export async function loginWithAccessCode(accessCode: string): Promise<LoginResult> {
   const response = await fetch('/auth/login', {
     method: 'POST',
     headers: {
@@ -32,7 +43,16 @@ export async function loginWithAccessCode(accessCode: string): Promise<boolean> 
     body: JSON.stringify({ access_code: accessCode })
   });
 
-  return response.ok;
+  if (response.ok) {
+    return { ok: true };
+  }
+
+  const payload = (await safeReadJson(response)) as ErrorPayload | null;
+  return {
+    ok: false,
+    error: payload?.error ?? 'login failed',
+    retryAfterSecs: payload?.retry_after_secs
+  };
 }
 
 export async function logoutSession(): Promise<void> {
@@ -75,4 +95,12 @@ export function openSeriesStream(series: Series, onSnapshot: (payload: SnapshotR
   });
 
   return eventSource;
+}
+
+async function safeReadJson(response: Response): Promise<unknown | null> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }

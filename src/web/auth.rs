@@ -25,8 +25,13 @@ use std::{
 pub struct WebAuthConfig {
     pub access_code: String,
     pub cookie_name: String,
+    pub cookie_secure: bool,
     pub session_ttl_secs: u64,
+    pub login_window_secs: u64,
+    pub max_login_attempts: u32,
+    pub login_block_secs: u64,
     sessions: Arc<RwLock<HashMap<String, u64>>>,
+    login_attempts: Arc<RwLock<HashMap<String, LoginAttemptState>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,13 +47,25 @@ struct StoredWebAuth {
     access_code: String,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct LoginAttemptState {
+    window_start: u64,
+    attempts: u32,
+    blocked_until: u64,
+}
+
 impl WebAuthConfig {
-    pub fn new(access_code: String) -> Self {
+    pub fn new(access_code: String, cookie_secure: bool) -> Self {
         Self {
             access_code,
             cookie_name: "imsa_session".to_string(),
+            cookie_secure,
             session_ttl_secs: 60 * 60 * 24 * 30,
+            login_window_secs: 60,
+            max_login_attempts: 6,
+            login_block_secs: 5 * 60,
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            login_attempts: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -83,6 +100,68 @@ impl WebAuthConfig {
             guard.remove(token);
         }
     }
+
+    fn check_login_allowed(&self, key: &str) -> Result<(), u64> {
+        let now = now_unix_secs();
+        let mut guard = match self.login_attempts.write() {
+            Ok(g) => g,
+            Err(_) => return Err(self.login_block_secs),
+        };
+
+        guard.retain(|_, state| {
+            state.blocked_until > now || now.saturating_sub(state.window_start) <= self.login_window_secs
+        });
+
+        let state = guard.entry(key.to_string()).or_default();
+        if state.blocked_until > now {
+            return Err(state.blocked_until.saturating_sub(now));
+        }
+
+        if now.saturating_sub(state.window_start) > self.login_window_secs {
+            state.window_start = now;
+            state.attempts = 0;
+            state.blocked_until = 0;
+        }
+
+        if state.attempts >= self.max_login_attempts {
+            state.blocked_until = now.saturating_add(self.login_block_secs);
+            return Err(self.login_block_secs);
+        }
+
+        Ok(())
+    }
+
+    fn record_login_failure(&self, key: &str) {
+        let now = now_unix_secs();
+        if let Ok(mut guard) = self.login_attempts.write() {
+            let state = guard.entry(key.to_string()).or_default();
+            if state.window_start == 0 || now.saturating_sub(state.window_start) > self.login_window_secs {
+                state.window_start = now;
+                state.attempts = 0;
+                state.blocked_until = 0;
+            }
+            state.attempts = state.attempts.saturating_add(1);
+            if state.attempts >= self.max_login_attempts {
+                state.blocked_until = now.saturating_add(self.login_block_secs);
+            }
+        }
+    }
+
+    fn record_login_success(&self, key: &str) {
+        if let Ok(mut guard) = self.login_attempts.write() {
+            guard.remove(key);
+        }
+    }
+
+    fn build_cookie(&self, name: &str, value: &str, max_age: u64) -> String {
+        let mut cookie = format!(
+            "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}"
+        );
+        if self.cookie_secure {
+            cookie.push_str("; Secure");
+        }
+        cookie
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,33 +177,36 @@ pub struct SessionStateResponse {
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_after_secs: Option<u64>,
 }
 
-pub async fn login(State(config): State<WebAuthConfig>, Json(payload): Json<LoginRequest>) -> Response {
-    if payload.access_code != config.access_code {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "invalid access code".to_string(),
-            }),
-        )
-            .into_response();
+pub async fn login(
+    State(config): State<WebAuthConfig>,
+    headers: HeaderMap,
+    Json(payload): Json<LoginRequest>,
+) -> Response {
+    let login_key = login_attempt_key(&headers);
+    if let Err(retry_after_secs) = config.check_login_allowed(&login_key) {
+        return error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many login attempts, try again later",
+            Some(retry_after_secs),
+        );
     }
 
+    if payload.access_code != config.access_code {
+        config.record_login_failure(&login_key);
+        return error_response(StatusCode::UNAUTHORIZED, "invalid access code", None);
+    }
+
+    config.record_login_success(&login_key);
+
     let Some(token) = config.create_session() else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "failed to create session".to_string(),
-            }),
-        )
-            .into_response();
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to create session", None);
     };
 
-    let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
-        config.cookie_name, token, config.session_ttl_secs
-    );
+    let cookie = config.build_cookie(&config.cookie_name, &token, config.session_ttl_secs);
 
     let mut response = (StatusCode::OK, Json(SessionStateResponse { authenticated: true })).into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie) {
@@ -136,10 +218,7 @@ pub async fn login(State(config): State<WebAuthConfig>, Json(payload): Json<Logi
 pub async fn logout(State(config): State<WebAuthConfig>, request: Request) -> Response {
     config.revoke_from_headers(request.headers());
 
-    let clear_cookie = format!(
-        "{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-        config.cookie_name
-    );
+    let clear_cookie = config.build_cookie(&config.cookie_name, "", 0);
     let mut response = (StatusCode::OK, Json(SessionStateResponse { authenticated: false })).into_response();
     if let Ok(value) = HeaderValue::from_str(&clear_cookie) {
         response.headers_mut().insert(header::SET_COOKIE, value);
@@ -165,13 +244,26 @@ pub async fn require_session_middleware(
 }
 
 fn unauthorized_response() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
+    error_response(StatusCode::UNAUTHORIZED, "authentication required", None)
+}
+
+fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u64>) -> Response {
+    let mut response = (
+        status,
         Json(ErrorResponse {
-            error: "authentication required".to_string(),
+            error: message.to_string(),
+            retry_after_secs,
         }),
     )
-        .into_response()
+        .into_response();
+
+    if let Some(seconds) = retry_after_secs {
+        if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+            response.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+    }
+
+    response
 }
 
 pub fn load_or_initialize_password(rotate: bool) -> (String, PasswordState) {
@@ -241,6 +333,28 @@ fn cookie_value<'a>(headers: &'a HeaderMap, cookie_name: &str) -> Option<&'a str
             None
         }
     })
+}
+
+fn login_attempt_key(headers: &HeaderMap) -> String {
+    if let Some(forwarded) = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|raw| raw.split(',').next())
+    {
+        let key = forwarded.trim();
+        if !key.is_empty() {
+            return key.to_string();
+        }
+    }
+
+    if let Some(real_ip) = headers.get("x-real-ip").and_then(|value| value.to_str().ok()) {
+        let key = real_ip.trim();
+        if !key.is_empty() {
+            return key.to_string();
+        }
+    }
+
+    "unknown-client".to_string()
 }
 
 fn now_unix_secs() -> u64 {

@@ -242,9 +242,12 @@
 
   async function submitLogin(): Promise<void> {
     loginError = '';
-    const ok = await loginWithAccessCode(loginCode.trim());
-    if (!ok) {
-      loginError = 'Invalid access code';
+    const result = await loginWithAccessCode(loginCode.trim());
+    if (!result.ok) {
+      loginError =
+        result.retryAfterSecs && result.retryAfterSecs > 0
+          ? `${result.error ?? 'login blocked'} (retry in ${result.retryAfterSecs}s)`
+          : (result.error ?? 'Invalid access code');
       return;
     }
 

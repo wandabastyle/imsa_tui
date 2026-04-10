@@ -33,6 +33,11 @@ struct ResolvedAuth {
     state: PasswordState,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AuthRuntimeOptions {
+    cookie_secure: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunMode {
     Foreground,
@@ -86,6 +91,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("web/build"));
     let resolved_auth = resolve_auth();
+    let auth_options = resolve_auth_options();
 
     let app_state = WebAppState::new();
     let feed_controller = start_feed_bridge(app_state.clone());
@@ -94,7 +100,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         root_dir: static_root,
     };
 
-    let auth_config = WebAuthConfig::new(resolved_auth.access_code.clone());
+    let auth_config = WebAuthConfig::new(resolved_auth.access_code.clone(), auth_options.cookie_secure);
 
     let protected_api_routes = Router::new()
         .route("/api/snapshot/:series", get(api::get_snapshot))
@@ -166,7 +172,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         started_unix_secs: now_unix_secs(),
     };
 
-    print_startup_info(&runtime_info, resolved_auth.state);
+    print_startup_info(&runtime_info, resolved_auth.state, auth_options);
 
     if mode == RunMode::DaemonChild {
         write_runtime_info(&runtime_info)?;
@@ -346,7 +352,20 @@ fn resolve_auth() -> ResolvedAuth {
     ResolvedAuth { access_code, state }
 }
 
-fn print_startup_info(info: &RuntimeInfo, state: PasswordState) {
+fn resolve_auth_options() -> AuthRuntimeOptions {
+    // Default to secure cookies when funnel is enabled (public HTTPS entrypoint).
+    // Allow explicit override for local/plain HTTP workflows.
+    let cookie_secure = match env::var("WEBUI_COOKIE_SECURE") {
+        Ok(value) => parse_boolish(&value).unwrap_or(false),
+        Err(_) => env_flag("WEBUI_AUTO_FUNNEL", true),
+    };
+
+    AuthRuntimeOptions {
+        cookie_secure,
+    }
+}
+
+fn print_startup_info(info: &RuntimeInfo, state: PasswordState, options: AuthRuntimeOptions) {
     println!("web server listening on {}", info.local_url);
     match state {
         PasswordState::Loaded => println!("web auth enabled (loaded saved access code)."),
@@ -358,6 +377,7 @@ fn print_startup_info(info: &RuntimeInfo, state: PasswordState) {
         }
     }
     println!("shared access code: {}", info.access_code);
+    println!("session cookie secure: {}", options.cookie_secure);
     if let Some(path) = info.auth_file.as_ref() {
         println!("web auth file: {path}");
     }
@@ -368,11 +388,16 @@ fn print_startup_info(info: &RuntimeInfo, state: PasswordState) {
 
 fn env_flag(name: &str, default: bool) -> bool {
     match env::var(name) {
-        Ok(value) => {
-            let v = value.trim().to_ascii_lowercase();
-            !(v == "0" || v == "false" || v == "off" || v == "no")
-        }
+        Ok(value) => parse_boolish(&value).unwrap_or(default),
         Err(_) => default,
+    }
+}
+
+fn parse_boolish(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => Some(true),
+        "0" | "false" | "off" | "no" => Some(false),
+        _ => None,
     }
 }
 
