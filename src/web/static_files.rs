@@ -11,10 +11,35 @@ use axum::{
 #[derive(Clone)]
 pub struct StaticConfig {
     pub root_dir: PathBuf,
+    pub source: StaticSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StaticSource {
+    Disk,
+    #[cfg(feature = "embed-ui")]
+    Embedded,
+}
+
+#[cfg(feature = "embed-ui")]
+static EMBEDDED_WEB_DIST: include_dir::Dir<'_> =
+    include_dir::include_dir!("$CARGO_MANIFEST_DIR/web/build");
+
+impl StaticConfig {
+    pub fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
+        Self {
+            root_dir,
+            source: select_source(prefer_embedded),
+        }
+    }
 }
 
 pub async fn index(config: StaticConfig) -> impl IntoResponse {
-    serve_file_or_404(config.root_dir.join("index.html")).await
+    match config.source {
+        StaticSource::Disk => serve_file_or_404(config.root_dir.join("index.html")).await,
+        #[cfg(feature = "embed-ui")]
+        StaticSource::Embedded => serve_embedded_or_404("index.html"),
+    }
 }
 
 pub async fn asset_or_index(config: StaticConfig, request_path: &str) -> impl IntoResponse {
@@ -22,13 +47,25 @@ pub async fn asset_or_index(config: StaticConfig, request_path: &str) -> impl In
         return StatusCode::BAD_REQUEST.into_response();
     };
 
-    let candidate = config.root_dir.join(clean_path);
-    if candidate.is_file() {
-        return serve_file_or_404(candidate).await;
-    }
+    match config.source {
+        StaticSource::Disk => {
+            let candidate = config.root_dir.join(clean_path);
+            if candidate.is_file() {
+                return serve_file_or_404(candidate).await;
+            }
 
-    // SPA fallback so deep links are handled by SvelteKit client routing.
-    serve_file_or_404(config.root_dir.join("index.html")).await
+            // SPA fallback so deep links are handled by SvelteKit client routing.
+            serve_file_or_404(config.root_dir.join("index.html")).await
+        }
+        #[cfg(feature = "embed-ui")]
+        StaticSource::Embedded => {
+            let clean_str = clean_path.to_string_lossy().replace('\\', "/");
+            if embedded_exists(&clean_str) {
+                return serve_embedded_or_404(&clean_str);
+            }
+            serve_embedded_or_404("index.html")
+        }
+    }
 }
 
 async fn serve_file_or_404(path: PathBuf) -> Response {
@@ -63,4 +100,38 @@ fn clean_relative_path(request_path: &str) -> Option<PathBuf> {
     }
 
     Some(candidate.to_path_buf())
+}
+
+#[cfg(feature = "embed-ui")]
+fn embedded_exists(path: &str) -> bool {
+    EMBEDDED_WEB_DIST.get_file(path).is_some()
+}
+
+#[cfg(feature = "embed-ui")]
+fn serve_embedded_or_404(path: &str) -> Response {
+    let Some(file) = EMBEDDED_WEB_DIST.get_file(path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let mut response = Response::new(Body::from(file.contents().to_vec()));
+    *response.status_mut() = StatusCode::OK;
+    if let Ok(content_type) = HeaderValue::from_str(mime.as_ref()) {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, content_type);
+    }
+    response
+}
+
+fn select_source(prefer_embedded: bool) -> StaticSource {
+    #[cfg(feature = "embed-ui")]
+    {
+        if prefer_embedded {
+            return StaticSource::Embedded;
+        }
+    }
+
+    let _ = prefer_embedded;
+    StaticSource::Disk
 }

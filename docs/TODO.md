@@ -11,17 +11,13 @@
   - Added daemon lifecycle commands `--restart` and `--logs` (default tail view)
   - Improved stale PID/runtime diagnostics in `--status` and `--stop`
   - Updated README ops docs for daemon lifecycle and troubleshooting
+- Cancelled: **Systemd service phase**
+  - Service/unit work removed from planned scope
+- Completed: **Phase B** on branch `feat/embed-ui`
+  - Added feature-gated embedded frontend assets mode (`embed-ui`)
+  - Kept disk-served frontend as default behavior
+  - Documented build/run matrix for disk and embedded modes
 
 ## Next Phases (Planned)
 
-### Phase B (new branch from latest `webui`: `feat/systemd-service`)
-
-- Add systemd service unit template
-- Add env/config template for service runtime
-- Add installation/enable/start/restart docs
-
-### Phase C (new branch from latest `webui`: `feat/embed-ui`)
-
-- Add feature-gated embedded frontend assets mode (`embed-ui`)
-- Keep disk-served frontend as default behavior
-- Document build/run matrix for both modes
+- None currently planned

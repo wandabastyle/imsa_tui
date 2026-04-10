@@ -23,7 +23,7 @@ use imsa_tui::web::{
     bridge::start_feed_bridge,
     sse,
     state::WebAppState,
-    static_files::{self, StaticConfig},
+    static_files::{self, StaticConfig, StaticSource},
 };
 use serde::{Deserialize, Serialize};
 
@@ -106,9 +106,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = WebAppState::new();
     let feed_controller = start_feed_bridge(app_state.clone());
 
-    let static_config = StaticConfig {
-        root_dir: static_root,
-    };
+    let static_config = resolve_static_config(static_root);
 
     let auth_config = WebAuthConfig::new(
         resolved_auth.access_code.clone(),
@@ -185,7 +183,12 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         started_unix_secs: now_unix_secs(),
     };
 
-    print_startup_info(&runtime_info, resolved_auth.state, auth_options);
+    print_startup_info(
+        &runtime_info,
+        resolved_auth.state,
+        auth_options,
+        static_config.source,
+    );
 
     if mode == RunMode::DaemonChild {
         write_runtime_info(&runtime_info)?;
@@ -495,6 +498,21 @@ fn resolve_auth() -> ResolvedAuth {
     ResolvedAuth { access_code, state }
 }
 
+fn resolve_static_config(root_dir: PathBuf) -> StaticConfig {
+    let prefer_embedded = env_flag("WEBUI_EMBED_UI", false);
+
+    #[cfg(not(feature = "embed-ui"))]
+    {
+        if prefer_embedded {
+            eprintln!(
+                "WEBUI_EMBED_UI=1 requested, but binary was built without the embed-ui feature; using disk assets."
+            );
+        }
+    }
+
+    StaticConfig::new(root_dir, prefer_embedded)
+}
+
 fn resolve_auth_options() -> AuthRuntimeOptions {
     // Default to secure cookies when funnel is enabled (public HTTPS entrypoint).
     // Allow explicit override for local/plain HTTP workflows.
@@ -506,7 +524,12 @@ fn resolve_auth_options() -> AuthRuntimeOptions {
     AuthRuntimeOptions { cookie_secure }
 }
 
-fn print_startup_info(info: &RuntimeInfo, state: PasswordState, options: AuthRuntimeOptions) {
+fn print_startup_info(
+    info: &RuntimeInfo,
+    state: PasswordState,
+    options: AuthRuntimeOptions,
+    static_source: StaticSource,
+) {
     println!("web server listening on {}", info.local_url);
     match state {
         PasswordState::Loaded => println!("web auth enabled (loaded saved access code)."),
@@ -519,11 +542,20 @@ fn print_startup_info(info: &RuntimeInfo, state: PasswordState, options: AuthRun
     }
     println!("shared access code: {}", info.access_code);
     println!("session cookie secure: {}", options.cookie_secure);
+    println!("web assets source: {}", static_source_label(static_source));
     if let Some(path) = info.auth_file.as_ref() {
         println!("web auth file: {path}");
     }
     if let Some(url) = info.public_url.as_ref() {
         println!("public web UI: {url}");
+    }
+}
+
+fn static_source_label(source: StaticSource) -> &'static str {
+    match source {
+        StaticSource::Disk => "disk (WEB_DIST_DIR)",
+        #[cfg(feature = "embed-ui")]
+        StaticSource::Embedded => "embedded (build-time web/build)",
     }
 }
 
