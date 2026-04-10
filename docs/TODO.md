@@ -32,10 +32,11 @@
   - Changed `imsa_session` to a browser-session cookie so login is required after browser restart
   - Kept persistent `imsa_profile` storage for per-browser preferences after re-login
   - Verified logout still clears the auth cookie (`Max-Age=0`)
+- Completed: **Phase C3** on branch `feat/web-storage-profiles`
+  - Added backend path-resolution tests for `data_local_dir` web auth/runtime files
+  - Kept auth guard verification in regression tests for protected API/SSE routes
+  - Updated troubleshooting docs with the new storage locations
 
 ## Next Phases (Planned)
 
-- Planned: **Phase C3 - Validation and regression coverage**
-  - Add backend tests for new web path resolution (`data_local_dir` locations).
-  - Verify unauthenticated access is still blocked for protected API/SSE routes.
-  - Update operational docs/troubleshooting for new storage layout.
+- None currently planned

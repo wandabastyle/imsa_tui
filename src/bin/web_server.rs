@@ -790,3 +790,19 @@ fn send_signal(pid: i32, signal: i32) -> Result<(), Box<dyn std::error::Error>> 
         Err("signals are not supported on this platform".into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_paths_use_data_local_dir() {
+        let dirs = ProjectDirs::from("", "", "imsa_tui").expect("project dirs");
+        let base = dirs.data_local_dir().to_path_buf();
+
+        assert_eq!(runtime_dir(), Some(base.clone()));
+        assert_eq!(pid_path(), Some(base.join("web_server.pid")));
+        assert_eq!(info_path(), Some(base.join("web_server.info.toml")));
+        assert_eq!(log_path(), Some(base.join("web_server.log")));
+    }
+}

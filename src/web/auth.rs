@@ -386,3 +386,15 @@ fn now_unix_secs() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_auth_path_uses_data_local_dir() {
+        let path = stored_auth_path().expect("stored auth path");
+        let dirs = ProjectDirs::from("", "", "imsa_tui").expect("project dirs");
+        assert_eq!(path, dirs.data_local_dir().join("web_auth.toml"));
+    }
+}

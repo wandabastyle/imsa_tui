@@ -203,6 +203,7 @@ If a payload is raw JSON instead of JSONP, the parser handles both formats.
 - If rendering looks off, resize your terminal to provide more width for table columns.
 - If `--status` reports stale pid/runtime files, run `web_server --stop` once to clean them, then `web_server --daemon` or `web_server --restart`.
 - If daemon startup info is delayed, check `web_server --logs` (or `web_server --logs=<n>` for more history).
+- If you cannot find web artifacts, check `~/.local/share/imsa_tui/` (`web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`) and `~/.local/share/imsa_tui/profiles/` for WebUI preference files.
 
 ## Development
 
