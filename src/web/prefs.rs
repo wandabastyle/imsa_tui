@@ -41,6 +41,6 @@ pub fn save_preferences(preferences: &Preferences) -> Result<(), String> {
 }
 
 fn preferences_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
     Some(dirs.config_dir().join("config.toml"))
 }

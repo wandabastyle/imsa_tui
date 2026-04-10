@@ -17,21 +17,14 @@
   - Added feature-gated embedded frontend assets mode (`embed-ui`)
   - Kept disk-served frontend as default behavior
   - Documented build/run matrix for disk and embedded modes
+- Completed: **Phase C1** on branch `feat/web-storage-profiles`
+  - Standardized `ProjectDirs` to `ProjectDirs::from("", "", "imsa_tui")`
+  - Moved web runtime/auth artifacts to `data_local_dir` (`~/.local/share/imsa_tui` on Linux)
+  - Kept TUI config in `config_dir` (`~/.config/imsa_tui/config.toml` on Linux)
+  - Added startup cleanup for legacy web artifacts in the config directory
+  - Updated README storage-path documentation
 
 ## Next Phases (Planned)
-
-- Planned: **Phase C1 - Web runtime/data directory split**
-  - Standardize `ProjectDirs` usage to `ProjectDirs::from("", "", "imsa_tui")` so Linux paths resolve to `~/.config/imsa_tui` and `~/.local/share/imsa_tui`.
-  - Move web server runtime artifacts from `config_dir` to `data_local_dir`:
-    - `web_auth.toml`
-    - `web_server.pid`
-    - `web_server.info.toml`
-    - `web_server.log`
-  - Store files directly under `data_local_dir` root for naming consistency (`~/.local/share/imsa_tui`).
-  - Keep TUI/operator configuration in `config_dir` only.
-  - Do not implement legacy-path fallback (intentional hard move).
-  - Remove old web artifacts from prior config locations after cutover (do not remove TUI config files).
-  - Update startup/status output and README paths accordingly.
 
 - Planned: **Phase C2 - Per-browser WebUI profiles**
   - Introduce a persistent profile cookie (opaque random id) separate from auth concerns.

@@ -307,8 +307,8 @@ pub fn load_or_initialize_password(rotate: bool) -> (String, PasswordState) {
 }
 
 pub fn stored_auth_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
-    Some(dirs.config_dir().join("web_auth.toml"))
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
+    Some(dirs.data_local_dir().join("web_auth.toml"))
 }
 
 fn generate_password(length: usize) -> String {

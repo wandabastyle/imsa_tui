@@ -134,6 +134,7 @@ Notes:
 - `/healthz` and `/readyz` are intentionally public for probes.
 - `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
 - `WEBUI_EMBED_UI=1`/`0` toggles embedded vs disk mode only when binaries are compiled with the `embed-ui` feature (enabled by default on this branch).
+- Web auth/runtime artifacts are stored in the app data-local directory (Linux: `~/.local/share/imsa_tui/`): `web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`.
 
 Manual Tailscale Funnel commands (new CLI):
 
@@ -162,11 +163,9 @@ tailscale funnel reset
 
 ## Configuration
 
-The app stores configuration in a TOML file at:
+The TUI stores configuration in a TOML file under the platform config directory (`ProjectDirs::config_dir`).
 
-- Linux: `~/.config/imsa/imsa_tui/config.toml`
-- macOS: `~/Library/Application Support/com.imsa.imsa_tui/config.toml`
-- Windows: `%APPDATA%\\imsa\\imsa_tui\\config.toml`
+- Linux: `~/.config/imsa_tui/config.toml`
 
 Current configuration fields:
 

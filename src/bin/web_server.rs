@@ -100,6 +100,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
     let static_root = env::var("WEB_DIST_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("web/build"));
+    cleanup_legacy_config_artifacts();
     let resolved_auth = resolve_auth();
     let auth_options = resolve_auth_options();
 
@@ -648,8 +649,31 @@ async fn wait_for_shutdown_signal() {
 }
 
 fn runtime_dir() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("com", "imsa", "imsa_tui")?;
-    Some(dirs.config_dir().to_path_buf())
+    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
+    Some(dirs.data_local_dir().to_path_buf())
+}
+
+fn cleanup_legacy_config_artifacts() {
+    let Some(dirs) = ProjectDirs::from("", "", "imsa_tui") else {
+        return;
+    };
+    let legacy_dir = dirs.config_dir();
+    for name in [
+        "web_auth.toml",
+        "web_server.pid",
+        "web_server.info.toml",
+        "web_server.log",
+    ] {
+        let path = legacy_dir.join(name);
+        match fs::remove_file(&path) {
+            Ok(_) => {}
+            Err(err) if err.kind() == ErrorKind::NotFound => {}
+            Err(err) => eprintln!(
+                "failed to remove legacy web artifact {}: {err}",
+                path.display()
+            ),
+        }
+    }
 }
 
 fn pid_path() -> Option<PathBuf> {
