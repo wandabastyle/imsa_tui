@@ -26,11 +26,7 @@ pub async fn get_snapshot(
     let series = match Series::from_str(&series_raw) {
         Ok(series) => series,
         Err(err) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: err }),
-            )
-                .into_response();
+            return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: err })).into_response();
         }
     };
 

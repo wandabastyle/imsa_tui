@@ -109,7 +109,8 @@ impl WebAuthConfig {
         };
 
         guard.retain(|_, state| {
-            state.blocked_until > now || now.saturating_sub(state.window_start) <= self.login_window_secs
+            state.blocked_until > now
+                || now.saturating_sub(state.window_start) <= self.login_window_secs
         });
 
         let state = guard.entry(key.to_string()).or_default();
@@ -135,7 +136,9 @@ impl WebAuthConfig {
         let now = now_unix_secs();
         if let Ok(mut guard) = self.login_attempts.write() {
             let state = guard.entry(key.to_string()).or_default();
-            if state.window_start == 0 || now.saturating_sub(state.window_start) > self.login_window_secs {
+            if state.window_start == 0
+                || now.saturating_sub(state.window_start) > self.login_window_secs
+            {
                 state.window_start = now;
                 state.attempts = 0;
                 state.blocked_until = 0;
@@ -154,9 +157,8 @@ impl WebAuthConfig {
     }
 
     fn build_cookie(&self, name: &str, value: &str, max_age: u64) -> String {
-        let mut cookie = format!(
-            "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}"
-        );
+        let mut cookie =
+            format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}");
         if self.cookie_secure {
             cookie.push_str("; Secure");
         }
@@ -203,12 +205,22 @@ pub async fn login(
     config.record_login_success(&login_key);
 
     let Some(token) = config.create_session() else {
-        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to create session", None);
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to create session",
+            None,
+        );
     };
 
     let cookie = config.build_cookie(&config.cookie_name, &token, config.session_ttl_secs);
 
-    let mut response = (StatusCode::OK, Json(SessionStateResponse { authenticated: true })).into_response();
+    let mut response = (
+        StatusCode::OK,
+        Json(SessionStateResponse {
+            authenticated: true,
+        }),
+    )
+        .into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(header::SET_COOKIE, value);
     }
@@ -219,7 +231,13 @@ pub async fn logout(State(config): State<WebAuthConfig>, request: Request) -> Re
     config.revoke_from_headers(request.headers());
 
     let clear_cookie = config.build_cookie(&config.cookie_name, "", 0);
-    let mut response = (StatusCode::OK, Json(SessionStateResponse { authenticated: false })).into_response();
+    let mut response = (
+        StatusCode::OK,
+        Json(SessionStateResponse {
+            authenticated: false,
+        }),
+    )
+        .into_response();
     if let Ok(value) = HeaderValue::from_str(&clear_cookie) {
         response.headers_mut().insert(header::SET_COOKIE, value);
     }
@@ -318,8 +336,8 @@ fn save_stored_auth(access_code: &str) -> Result<(), String> {
     let payload = StoredWebAuth {
         access_code: access_code.to_string(),
     };
-    let encoded = toml::to_string_pretty(&payload)
-        .map_err(|e| format!("encode auth config failed: {e}"))?;
+    let encoded =
+        toml::to_string_pretty(&payload).map_err(|e| format!("encode auth config failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write auth config failed: {e}"))
 }
 
@@ -347,7 +365,10 @@ fn login_attempt_key(headers: &HeaderMap) -> String {
         }
     }
 
-    if let Some(real_ip) = headers.get("x-real-ip").and_then(|value| value.to_str().ok()) {
+    if let Some(real_ip) = headers
+        .get("x-real-ip")
+        .and_then(|value| value.to_str().ok())
+    {
         let key = real_ip.trim();
         if !key.is_empty() {
             return key.to_string();

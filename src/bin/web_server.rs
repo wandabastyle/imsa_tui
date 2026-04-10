@@ -499,7 +499,7 @@ fn resolve_auth() -> ResolvedAuth {
 }
 
 fn resolve_static_config(root_dir: PathBuf) -> StaticConfig {
-    let prefer_embedded = env_flag("WEBUI_EMBED_UI", false);
+    let prefer_embedded = env_flag("WEBUI_EMBED_UI", true);
 
     #[cfg(not(feature = "embed-ui"))]
     {
