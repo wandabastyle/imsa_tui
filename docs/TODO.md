@@ -33,6 +33,11 @@
   - Keep current login-code flow; no separate account system.
   - Ensure profile creation and persistence are transparent to the frontend.
 
+- Planned: **Phase C2.5 - Session-only auth cookie hardening (recommended)**
+  - Make `imsa_session` a browser-session cookie (no `Max-Age`/`Expires`) so login is required after browser restart.
+  - Keep `imsa_profile` persistent so per-browser WebUI preferences remain available after re-login.
+  - Verify logout still clears auth cookie immediately.
+
 - Planned: **Phase C3 - Validation and regression coverage**
   - Add backend tests for new web path resolution (`data_local_dir` locations).
   - Add tests for per-profile preference isolation across different profile cookies.
