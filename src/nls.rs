@@ -1,9 +1,12 @@
+// NLS websocket adapter: subscribes to livetiming hub events and maps payloads to timing rows.
+
 use std::{
     io,
     sync::mpsc::{Receiver, Sender},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use reqwest::blocking::Client;
 use serde_json::{json, Value};
 use tungstenite::{
     client::IntoClientRequest,
@@ -20,6 +23,8 @@ use crate::{
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const EVENT_ID: &str = "20";
+const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/language/de/startseite/";
+const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 fn now_millis() -> u128 {
     SystemTime::now()
@@ -46,6 +51,72 @@ fn build_request() -> tungstenite::handshake::client::Request {
 
 fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
     obj.get(key).and_then(|x| x.as_str())
+}
+
+fn first_non_empty<'a>(obj: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .filter_map(|key| get_str(obj, key))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+}
+
+fn strip_tags(raw: &str) -> String {
+    let mut output = String::with_capacity(raw.len());
+    let mut in_tag = false;
+    for ch in raw.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => output.push(ch),
+            _ => {}
+        }
+    }
+    output
+}
+
+fn normalize_spaces(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn extract_between<'a>(haystack: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let from = haystack.find(start)? + start.len();
+    let rest = &haystack[from..];
+    let to = rest.find(end)?;
+    Some(&rest[..to])
+}
+
+fn parse_event_name_from_homepage(html: &str) -> Option<String> {
+    let h1_marker = "<h1 class=\"font-weight-600 alt-font text-white width-95 sm-width-100\">";
+    let h1_start = html.find(h1_marker)?;
+    let h1_raw = extract_between(html, h1_marker, "</h1>")?;
+    let nls_code = normalize_spaces(&strip_tags(h1_raw));
+    if nls_code.is_empty() {
+        return None;
+    }
+
+    let h5_raw = extract_between(&html[h1_start..], "<h5>", "</h5>")?;
+    let h5_text = normalize_spaces(&strip_tags(h5_raw));
+    let race_title = if let Some((first, rest)) = h5_text.split_once(' ') {
+        if first.chars().filter(|c| *c == '.').count() == 2 && !rest.trim().is_empty() {
+            rest.trim().to_string()
+        } else {
+            h5_text
+        }
+    } else {
+        h5_text
+    };
+
+    if race_title.is_empty() {
+        return None;
+    }
+
+    Some(format!("{} - {}", nls_code, race_title))
+}
+
+fn fetch_homepage_event_name(client: &Client) -> Option<String> {
+    let response = client.get(NLS_HOME_URL).send().ok()?;
+    let html = response.text().ok()?;
+    parse_event_name_from_homepage(&html)
 }
 
 fn parse_u32_field(obj: &Value, key: &str) -> Option<u32> {
@@ -135,12 +206,32 @@ fn session_text(raw: &str) -> String {
 fn parse_ws_message(
     text: &str,
     header: &mut TimingHeader,
+    website_event_name: Option<&str>,
 ) -> Option<(Option<Vec<TimingEntry>>, bool)> {
     let parsed: Value = serde_json::from_str(text).ok()?;
     let pid = get_str(&parsed, "PID")?;
 
     match pid {
         "0" => {
+            // PID 0 carries the "what event/session is this" metadata in addition
+            // to ranking rows. Prefer HEAT/CUP/TRACKNAME so header wording matches
+            // the official NLS leaderboard labels.
+            if let Some(session_name) = first_non_empty(&parsed, &["HEAT"]) {
+                header.session_name = session_name.to_string();
+            } else {
+                header.session_name = session_text(get_str(&parsed, "HEATTYPE").unwrap_or("-"));
+            }
+
+            if let Some(event_name) =
+                website_event_name.or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
+            {
+                header.event_name = event_name.to_string();
+            }
+
+            if let Some(track_name) = first_non_empty(&parsed, &["TRACKNAME", "TRACK"]) {
+                header.track_name = track_name.to_string();
+            }
+
             let results = parsed.get("RESULT")?.as_array()?;
             let mut entries: Vec<TimingEntry> =
                 results.iter().filter_map(entry_from_value).collect();
@@ -148,12 +239,23 @@ fn parse_ws_message(
             Some((Some(entries), false))
         }
         "4" => {
-            header.session_name = session_text(get_str(&parsed, "HEATTYPE").unwrap_or("-"));
+            if header.session_name.is_empty() || header.session_name == "-" {
+                header.session_name = session_text(get_str(&parsed, "HEATTYPE").unwrap_or("-"));
+            }
             header.flag = track_state_text(get_str(&parsed, "TRACKSTATE").unwrap_or("-"));
-            header.track_name = get_str(&parsed, "TRACK").unwrap_or("NLS").to_string();
-            header.event_name = get_str(&parsed, "EVENTNAME")
-                .unwrap_or("NLS Live Timing")
-                .to_string();
+            if let Some(track_name) = first_non_empty(&parsed, &["TRACKNAME", "TRACK"]) {
+                header.track_name = track_name.to_string();
+            } else if header.track_name.is_empty() {
+                header.track_name = "NLS".to_string();
+            }
+
+            if let Some(event_name) =
+                website_event_name.or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
+            {
+                header.event_name = event_name.to_string();
+            } else if header.event_name.is_empty() {
+                header.event_name = "NLS Live Timing".to_string();
+            }
             let end_time_raw = get_str(&parsed, "ENDTIME")
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(0);
@@ -184,10 +286,26 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
         ..TimingHeader::default()
     };
     let mut latest_entries: Vec<TimingEntry> = Vec::new();
+    let website_client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok();
+    let mut website_event_name: Option<String> = None;
+    let mut next_website_refresh = Instant::now();
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
             break;
+        }
+
+        if Instant::now() >= next_website_refresh {
+            if let Some(client) = website_client.as_ref() {
+                if let Some(parsed_name) = fetch_homepage_event_name(client) {
+                    website_event_name = Some(parsed_name.clone());
+                    header.event_name = parsed_name;
+                }
+            }
+            next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
         }
 
         let _ = tx.send(TimingMessage::Status {
@@ -243,7 +361,9 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
 
             match socket.read() {
                 Ok(Message::Text(text)) => {
-                    if let Some((entries, header_changed)) = parse_ws_message(&text, &mut header) {
+                    if let Some((entries, header_changed)) =
+                        parse_ws_message(&text, &mut header, website_event_name.as_deref())
+                    {
                         if let Some(new_entries) = entries {
                             latest_entries = new_entries;
                         }
@@ -262,7 +382,9 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = std::str::from_utf8(&data) {
-                        if let Some((entries, _)) = parse_ws_message(text, &mut header) {
+                        if let Some((entries, _)) =
+                            parse_ws_message(text, &mut header, website_event_name.as_deref())
+                        {
                             if let Some(new_entries) = entries {
                                 latest_entries = new_entries;
                             }

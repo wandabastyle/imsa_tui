@@ -1,3 +1,5 @@
+// F1 SignalR-style adapter: negotiates session, subscribes to topics, and builds live leaderboard snapshots.
+
 use std::{
     collections::HashMap,
     io,

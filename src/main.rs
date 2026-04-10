@@ -1,18 +1,13 @@
+// TUI binary entrypoint: set terminal mode, run app loop, then restore terminal cleanly.
+
 use std::io;
 
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use imsa_tui::ui;
 use ratatui::{backend::CrosstermBackend, Terminal};
-
-#[cfg(feature = "dev-mode")]
-mod demo;
-mod f1;
-mod imsa;
-mod nls;
-mod timing;
-mod ui;
 
 #[cfg(feature = "dev-mode")]
 #[derive(Debug, Default)]

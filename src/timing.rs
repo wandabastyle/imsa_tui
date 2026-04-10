@@ -1,3 +1,7 @@
+// Shared timing domain model used by feed workers, TUI rendering, and web API serialization.
+
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -36,7 +40,20 @@ impl Series {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+impl FromStr for Series {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "imsa" => Ok(Self::Imsa),
+            "nls" => Ok(Self::Nls),
+            "f1" => Ok(Self::F1),
+            other => Err(format!("unsupported series: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct TimingHeader {
     pub session_name: String,
     pub event_name: String,
@@ -46,7 +63,7 @@ pub struct TimingHeader {
     pub time_to_go: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct TimingEntry {
     pub position: u32,
     pub car_number: String,

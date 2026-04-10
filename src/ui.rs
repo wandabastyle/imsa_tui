@@ -1,3 +1,9 @@
+// Interactive TUI state machine:
+// - consumes worker messages
+// - derives view/group/search/favourite projections
+// - renders one frame
+// - handles one keyboard event
+
 use std::{
     collections::HashSet,
     fs, io,
@@ -78,6 +84,21 @@ impl SeriesPickerState {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct GroupPickerState {
+    is_open: bool,
+    selected_idx: usize,
+}
+
+impl GroupPickerState {
+    fn closed() -> Self {
+        Self {
+            is_open: false,
+            selected_idx: 0,
+        }
+    }
+}
+
 fn favourite_key(series: Series, stable_id: &str) -> String {
     format!("{}|{}", series.as_key_prefix(), stable_id)
 }
@@ -139,6 +160,7 @@ fn help_popup() -> Paragraph<'static> {
         Line::from(""),
         Line::from("h      toggle help"),
         Line::from("g      cycle views"),
+        Line::from("G      open group selector popup"),
         Line::from("o      switch to overall view"),
         Line::from("t      open series selector popup"),
         Line::from("↑/↓    move selection"),
@@ -200,6 +222,45 @@ fn series_picker_popup(active_series: Series, selected_idx: usize) -> Paragraph<
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Series").borders(Borders::ALL))
+}
+
+fn group_picker_popup(groups: &[String], selected_idx: usize) -> Paragraph<'static> {
+    let mut lines = vec![
+        Line::from(vec![Span::styled(
+            "Select Group",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+    ];
+
+    if groups.is_empty() {
+        lines.push(Line::from("No groups available for current series."));
+    } else {
+        for (idx, group_name) in groups.iter().enumerate() {
+            let marker = if idx == selected_idx { ">" } else { " " };
+            let style = if idx == selected_idx {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::from(vec![Span::styled(
+                format!("{marker} {group_name}"),
+                style,
+            )]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "Use ↑/↓ to choose, Enter to open class view, Esc to cancel.",
+    ));
+
+    Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("Group").borders(Borders::ALL))
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -543,9 +604,9 @@ fn build_table<'a>(
 
 fn grouped_entries(
     entries: &[TimingEntry],
-    active_series: Series,
+    _active_series: Series,
 ) -> Vec<(String, Vec<TimingEntry>)> {
-    let mut grouped = std::collections::BTreeMap::<String, Vec<TimingEntry>>::new();
+    let mut grouped = std::collections::HashMap::<String, Vec<TimingEntry>>::new();
     for entry in entries {
         grouped
             .entry(class_display_name(&entry.class_name))
@@ -554,11 +615,6 @@ fn grouped_entries(
     }
 
     let mut groups: Vec<(String, Vec<TimingEntry>)> = grouped.into_iter().collect();
-    if active_series == Series::Imsa {
-        let order = ["GTP", "LMP2", "GTD PRO", "GTD"];
-        groups.sort_by_key(|(name, _)| order.iter().position(|x| x == name).unwrap_or(order.len()));
-    }
-
     for (_, entries) in &mut groups {
         entries.sort_by(|a, b| {
             let ar = a.class_rank.parse::<u32>().unwrap_or(u32::MAX);
@@ -566,6 +622,14 @@ fn grouped_entries(
             ar.cmp(&br).then_with(|| a.position.cmp(&b.position))
         });
     }
+
+    // Order grouped classes by their best overall-running position so the
+    // most competitive class appears first in grouped view.
+    groups.sort_by(|(an, ae), (bn, be)| {
+        let a_best = ae.iter().map(|e| e.position).min().unwrap_or(u32::MAX);
+        let b_best = be.iter().map(|e| e.position).min().unwrap_or(u32::MAX);
+        a_best.cmp(&b_best).then_with(|| an.cmp(bn))
+    });
 
     groups
 }
@@ -753,6 +817,51 @@ fn selected_series_index(series: Series) -> usize {
         .unwrap_or(0)
 }
 
+fn favourites_count_for_series(series: Series, favourites: &HashSet<String>) -> usize {
+    let prefix = format!("{}|", series.as_key_prefix());
+    favourites
+        .iter()
+        .filter(|value| value.starts_with(&prefix))
+        .count()
+}
+
+fn display_event_name(_series: Series, raw: &str) -> String {
+    if raw.trim().is_empty() || raw == "-" {
+        return "-".to_string();
+    }
+
+    raw.trim().to_string()
+}
+
+fn display_session_name(series: Series, raw: &str) -> String {
+    if raw.trim().is_empty() || raw == "-" {
+        return "-".to_string();
+    }
+
+    if series == Series::Imsa {
+        let cleaned = normalize_imsa_label(raw);
+        if !cleaned.is_empty() {
+            return cleaned;
+        }
+    }
+
+    raw.to_string()
+}
+
+fn normalize_imsa_label(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    if lower.contains("weathertech") {
+        if let Some((idx, ch)) = raw
+            .char_indices()
+            .rev()
+            .find(|(_, ch)| matches!(ch, '-' | '–' | '—'))
+        {
+            return raw[idx + ch.len_utf8()..].trim().to_string();
+        }
+    }
+    raw.trim().to_string()
+}
+
 // Switching feeds is centralized so both keyboard shortcuts and popup confirmation
 // run the exact same state-reset flow as more series are added.
 fn apply_series_change(
@@ -846,6 +955,7 @@ pub fn run_app(
     let mut show_help = false;
     let mut search = SearchState::default();
     let mut series_picker = SeriesPickerState::closed();
+    let mut group_picker = GroupPickerState::closed();
 
     loop {
         // This loop drives the app like a tiny state machine:
@@ -934,34 +1044,27 @@ pub fn run_app(
                     .collect::<Vec<_>>(),
             );
 
-            let event_text = if header.event_name.is_empty() { "-" } else { &header.event_name };
-            let session_text = if header.session_name.is_empty() {
-                "-"
-            } else {
-                &header.session_name
-            };
-            let track_text = if header.track_name.is_empty() { "-" } else { &header.track_name };
+            let event_text = display_event_name(
+                active_series,
+                if header.event_name.is_empty() { "-" } else { &header.event_name },
+            );
+            let session_display = display_session_name(
+                active_series,
+                if header.session_name.is_empty() {
+                    "-"
+                } else {
+                    &header.session_name
+                },
+            );
 
-            let header_lead = if track_text != "-" && track_text != event_text {
-                format!(
-                    "{} | {} | {} | {} | TTE {} | Mode {} | ",
-                    status,
-                    event_text,
-                    session_text,
-                    track_text,
-                    tte_text,
-                    mode_text,
-                )
-            } else {
-                format!(
-                    "{} | {} | {} | TTE {} | Mode {} | ",
-                    status,
-                    event_text,
-                    session_text,
-                    tte_text,
-                    mode_text,
-                )
-            };
+            let header_lead = format!(
+                "{} | {} | {} | TTE {} | Mode {} | ",
+                status,
+                event_text,
+                session_display,
+                tte_text,
+                mode_text,
+            );
 
             let mut header_spans = vec![
                 Span::styled(header_lead, header_style),
@@ -977,10 +1080,9 @@ pub fn run_app(
 
             header_spans.push(Span::styled(
                 format!(
-                    " | Day {} | {} | Favs {}",
-                    if header.day_time.is_empty() { "-" } else { &header.day_time },
+                    " | {} | Favs {}",
                     age,
-                    favourites.len(),
+                    favourites_count_for_series(active_series, &favourites),
                 ),
                 header_style,
             ));
@@ -1048,18 +1150,52 @@ pub fn run_app(
                                 .block(Block::default().title("Grouped").borders(Borders::ALL));
                             f.render_widget(waiting, chunks[1]);
                         } else {
-                            let constraints: Vec<Constraint> = current_groups
+                            let mut selected_group_idx = 0usize;
+                            let mut running = 0usize;
+                            for (idx, (_, class_entries)) in current_groups.iter().enumerate() {
+                                if selected_row < running + class_entries.len() {
+                                    selected_group_idx = idx;
+                                    break;
+                                }
+                                running += class_entries.len();
+                            }
+
+                            let minimum_rows_per_group = 7_u16;
+                            let max_visible_groups =
+                                (chunks[1].height / minimum_rows_per_group).max(1) as usize;
+
+                            // Grouped mode should remain grouped for every series. When many
+                            // groups exist (common in NLS), we render a moving window of groups
+                            // around the current selection so users can scroll down naturally.
+                            let visible_group_count = current_groups.len().min(max_visible_groups.max(1));
+                            let start_group_idx = if current_groups.len() <= visible_group_count {
+                                0
+                            } else {
+                                let half = visible_group_count / 2;
+                                selected_group_idx
+                                    .saturating_sub(half)
+                                    .min(current_groups.len() - visible_group_count)
+                            };
+                            let end_group_idx = start_group_idx + visible_group_count;
+                            let visible_groups = &current_groups[start_group_idx..end_group_idx];
+
+                            let constraints: Vec<Constraint> = visible_groups
                                 .iter()
-                                .map(|_| Constraint::Ratio(1, current_groups.len() as u32))
+                                .map(|_| Constraint::Ratio(1, visible_groups.len() as u32))
                                 .collect();
                             let group_chunks = Layout::default()
                                 .direction(Direction::Vertical)
                                 .constraints(constraints)
                                 .split(chunks[1]);
 
-                            let mut global_offset = 0usize;
+                            let mut global_offset = current_groups
+                                .iter()
+                                .take(start_group_idx)
+                                .map(|(_, entries)| entries.len())
+                                .sum::<usize>();
+
                             for ((class_name, class_entries), area) in
-                                current_groups.iter().zip(group_chunks.iter())
+                                visible_groups.iter().zip(group_chunks.iter())
                             {
                                 let local_selected = selected_row
                                     .saturating_sub(global_offset)
@@ -1155,6 +1291,16 @@ pub fn run_app(
                     area,
                 );
             }
+
+            if group_picker.is_open {
+                let area = centered_rect(40, 45, size);
+                f.render_widget(Clear, area);
+                let group_names: Vec<String> = current_groups
+                    .iter()
+                    .map(|(group_name, entries)| format!("{} ({} cars)", group_name, entries.len()))
+                    .collect();
+                f.render_widget(group_picker_popup(&group_names, group_picker.selected_idx), area);
+            }
         })?;
 
         if event::poll(tick_rate)? {
@@ -1226,6 +1372,37 @@ pub fn run_app(
                     continue;
                 }
 
+                if group_picker.is_open {
+                    match key.code {
+                        KeyCode::Esc => group_picker.is_open = false,
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if !current_groups.is_empty() {
+                                group_picker.selected_idx =
+                                    (group_picker.selected_idx + 1) % current_groups.len();
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if !current_groups.is_empty() {
+                                if group_picker.selected_idx == 0 {
+                                    group_picker.selected_idx = current_groups.len() - 1;
+                                } else {
+                                    group_picker.selected_idx -= 1;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if !current_groups.is_empty() {
+                                let idx = group_picker.selected_idx.min(current_groups.len() - 1);
+                                view_mode = ViewMode::Class(idx);
+                                selected_row = 0;
+                            }
+                            group_picker.is_open = false;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                     KeyCode::Char('h') => show_help = !show_help,
                     KeyCode::Esc => {
@@ -1245,8 +1422,16 @@ pub fn run_app(
                         }
                     }
                     KeyCode::Char('t') if !show_help => {
+                        group_picker.is_open = false;
                         series_picker.is_open = true;
                         series_picker.selected_idx = selected_series_index(active_series);
+                    }
+                    KeyCode::Char('G') if !show_help => {
+                        group_picker.is_open = true;
+                        group_picker.selected_idx = match view_mode {
+                            ViewMode::Class(idx) => idx.min(current_groups.len().saturating_sub(1)),
+                            _ => 0,
+                        };
                     }
                     KeyCode::Char('g') if !show_help => {
                         view_mode = next_view_mode(view_mode, current_groups.len());
@@ -1338,5 +1523,86 @@ pub fn run_app(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_entry(
+        position: u32,
+        class_name: &str,
+        class_rank: &str,
+        stable_id: &str,
+    ) -> TimingEntry {
+        TimingEntry {
+            position,
+            class_name: class_name.to_string(),
+            class_rank: class_rank.to_string(),
+            stable_id: stable_id.to_string(),
+            ..TimingEntry::default()
+        }
+    }
+
+    #[test]
+    fn grouped_entries_orders_classes_by_best_position() {
+        let entries = vec![
+            test_entry(5, "GTD", "2", "car-gtd-2"),
+            test_entry(1, "GTP", "1", "car-gtp-1"),
+            test_entry(3, "GTD", "1", "car-gtd-1"),
+        ];
+
+        let grouped = grouped_entries(&entries, Series::Imsa);
+
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].0, "GTP");
+        assert_eq!(grouped[1].0, "GTD");
+        assert_eq!(grouped[1].1[0].stable_id, "car-gtd-1");
+        assert_eq!(grouped[1].1[1].stable_id, "car-gtd-2");
+    }
+
+    #[test]
+    fn favourites_count_is_scoped_per_series_prefix() {
+        let favourites = HashSet::from([
+            "imsa|car-1".to_string(),
+            "imsa|car-2".to_string(),
+            "nls|car-7".to_string(),
+            "f1|car-44".to_string(),
+            "imsaX|car-invalid".to_string(),
+        ]);
+
+        assert_eq!(favourites_count_for_series(Series::Imsa, &favourites), 2);
+        assert_eq!(favourites_count_for_series(Series::Nls, &favourites), 1);
+        assert_eq!(favourites_count_for_series(Series::F1, &favourites), 1);
+    }
+
+    #[test]
+    fn header_formatting_normalizes_imsa_labels_and_fallbacks() {
+        assert_eq!(
+            display_event_name(Series::Imsa, "  Twelve Hours of Sebring  "),
+            "Twelve Hours of Sebring"
+        );
+        assert_eq!(display_event_name(Series::Imsa, "-"), "-");
+        assert_eq!(display_session_name(Series::Imsa, "-"), "-");
+
+        assert_eq!(
+            display_session_name(
+                Series::Imsa,
+                "IMSA WeatherTech SportsCar Championship - Qualifying"
+            ),
+            "Qualifying"
+        );
+        assert_eq!(
+            display_session_name(
+                Series::Imsa,
+                "IMSA WeatherTech SportsCar Championship — Race"
+            ),
+            "Race"
+        );
+        assert_eq!(
+            display_session_name(Series::Nls, "  ADAC NLS  "),
+            "  ADAC NLS  "
+        );
     }
 }

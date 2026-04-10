@@ -61,6 +61,88 @@ Release run:
 ./target/release/imsa_tui
 ```
 
+Web UI run (served by Rust backend):
+
+```bash
+cd web
+pnpm install
+pnpm run build
+cd ..
+
+cargo run --bin web_server
+```
+
+Frontend asset modes:
+
+- Embedded mode is the runtime default on this branch (`feat/embed-ui`).
+- Set `WEBUI_EMBED_UI=0` to force disk-served assets from `web/build` (or `WEB_DIST_DIR`).
+
+Build/run matrix:
+
+```bash
+# embedded assets mode at runtime
+WEBUI_EMBED_UI=1 cargo run --bin web_server
+
+# disk-served mode override
+WEBUI_EMBED_UI=0 cargo run --bin web_server
+
+# build without embedded assets capability
+cargo run --no-default-features --bin web_server
+
+# custom disk asset path override
+WEB_DIST_DIR=/path/to/web/build cargo run --bin web_server
+```
+
+Web UI daemon commands:
+
+```bash
+# start in background and return shell
+cargo run --bin web_server -- --daemon
+
+# check daemon state and URLs
+cargo run --bin web_server -- --status
+
+# restart daemon (stops stale/runtime leftovers automatically)
+cargo run --bin web_server -- --restart
+
+# print last ~100 log lines (or set a custom count)
+cargo run --bin web_server -- --logs
+cargo run --bin web_server -- --logs=250
+
+# stop daemon
+cargo run --bin web_server -- --stop
+```
+
+Release binary commands:
+
+```bash
+./target/release/web_server --daemon
+./target/release/web_server --status
+./target/release/web_server --restart
+./target/release/web_server --logs
+./target/release/web_server --stop
+```
+
+Notes:
+
+- On first start, the server auto-generates a strong shared access code, saves it, and prints it.
+- On later starts, the saved access code is reused automatically.
+- Set `WEBUI_ROTATE_PASSWORD=1` to generate and persist a new access code on startup.
+- The web app shows a login screen first; enter the shared access code to continue.
+- Login attempts are rate-limited per client address to reduce brute-force retries.
+- Cookie security defaults to `Secure` when `WEBUI_AUTO_FUNNEL` is enabled; override with `WEBUI_COOKIE_SECURE=1` or `WEBUI_COOKIE_SECURE=0`.
+- `/healthz` and `/readyz` are intentionally public for probes.
+- `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
+- `WEBUI_EMBED_UI=1`/`0` toggles embedded vs disk mode only when binaries are compiled with the `embed-ui` feature (enabled by default on this branch).
+
+Manual Tailscale Funnel commands (new CLI):
+
+```bash
+tailscale funnel --bg http://127.0.0.1:8080
+tailscale funnel status
+tailscale funnel reset
+```
+
 ## Controls
 
 - `h` — toggle help popup
@@ -118,6 +200,8 @@ If a payload is raw JSON instead of JSONP, the parser handles both formats.
 - If the table stays empty, wait a few polling cycles for the first successful snapshot.
 - If you see repeated errors in the header, confirm outbound HTTPS access is available.
 - If rendering looks off, resize your terminal to provide more width for table columns.
+- If `--status` reports stale pid/runtime files, run `web_server --stop` once to clean them, then `web_server --daemon` or `web_server --restart`.
+- If daemon startup info is delayed, check `web_server --logs` (or `web_server --logs=<n>` for more history).
 
 ## Development
 

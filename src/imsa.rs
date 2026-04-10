@@ -1,3 +1,5 @@
+// IMSA feed adapter: polls JSON/JSONP endpoints and normalizes rows into shared timing structs.
+
 use std::{
     sync::mpsc::{Receiver, Sender},
     time::{Duration, SystemTime, UNIX_EPOCH},

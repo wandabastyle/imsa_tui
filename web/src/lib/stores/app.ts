@@ -1,0 +1,134 @@
+// Main frontend state container and side effects:
+// initial snapshot load, stream subscription, and preference persistence.
+
+import { get, writable } from 'svelte/store';
+
+import { fetchPreferences, fetchSnapshot, openSeriesStream, updatePreferences } from '$lib/api';
+import type { Preferences, Series, SnapshotResponse, ViewMode } from '$lib/types';
+import { ALL_SERIES } from '$lib/types';
+
+interface SearchState {
+  query: string;
+  matches: number[];
+  currentMatch: number;
+  inputActive: boolean;
+}
+
+interface DemoFlagState {
+  enabled: boolean;
+  index: number;
+}
+
+export interface AppState {
+  snapshots: Partial<Record<Series, SnapshotResponse['snapshot']>>;
+  activeSeries: Series;
+  favourites: Set<string>;
+  viewMode: ViewMode;
+  selectedRow: number;
+  showHelp: boolean;
+  showSeriesPicker: boolean;
+  seriesPickerIndex: number;
+  showGroupPicker: boolean;
+  groupPickerIndex: number;
+  search: SearchState;
+  demoFlag: DemoFlagState;
+  connectionErrors: string[];
+}
+
+const initialState: AppState = {
+  snapshots: {},
+  activeSeries: 'imsa',
+  favourites: new Set<string>(),
+  viewMode: { kind: 'overall' },
+  selectedRow: 0,
+  showHelp: false,
+  showSeriesPicker: false,
+  seriesPickerIndex: 0,
+  showGroupPicker: false,
+  groupPickerIndex: 0,
+  search: {
+    query: '',
+    matches: [],
+    currentMatch: 0,
+    inputActive: false
+  },
+  demoFlag: {
+    enabled: false,
+    index: 0
+  },
+  connectionErrors: []
+};
+
+export const appState = writable<AppState>(initialState);
+
+let streamHandles: EventSource[] = [];
+
+export async function initializeAppState(): Promise<void> {
+  const [prefs, ...snapshots] = await Promise.all([
+    fetchPreferences(),
+    ...ALL_SERIES.map((series) => fetchSnapshot(series))
+  ]);
+
+  appState.update((state) => {
+    const nextSnapshots: AppState['snapshots'] = {};
+    for (const snapshot of snapshots) {
+      nextSnapshots[snapshot.series] = snapshot.snapshot;
+    }
+    return {
+      ...state,
+      activeSeries: prefs.selected_series,
+      favourites: new Set(prefs.favourites),
+      snapshots: nextSnapshots
+    };
+  });
+
+  // One stream per series keeps data warm, even when user switches tabs/views.
+  streamHandles = ALL_SERIES.map((series) =>
+    openSeriesStream(series, (payload) => {
+      appState.update((state) => ({
+        ...state,
+        snapshots: {
+          ...state.snapshots,
+          [payload.series]: payload.snapshot
+        }
+      }));
+    })
+  );
+
+  for (const [index, handle] of streamHandles.entries()) {
+    handle.onerror = () => {
+      appState.update((state) => ({
+        ...state,
+        connectionErrors: [
+          ...state.connectionErrors.slice(-4),
+          `stream reconnect: ${ALL_SERIES[index]}`
+        ]
+      }));
+    };
+  }
+}
+
+export function destroyStreams(): void {
+  for (const handle of streamHandles) {
+    handle.close();
+  }
+  streamHandles = [];
+}
+
+export function favouriteKey(series: Series, stableId: string): string {
+  return `${series}|${stableId}`;
+}
+
+export async function persistPreferences(): Promise<void> {
+  const state = get(appState);
+  const payload: Preferences = {
+    favourites: Array.from(state.favourites).sort(),
+    selected_series: state.activeSeries
+  };
+  const persisted = await updatePreferences(payload);
+  appState.update((current) => ({
+    ...current,
+    favourites: new Set(persisted.favourites),
+    activeSeries: persisted.selected_series
+  }));
+}

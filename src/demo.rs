@@ -1,5 +1,7 @@
 #![cfg(feature = "dev-mode")]
 
+// Deterministic demo snapshots used for UI development without live network feeds.
+
 use std::collections::HashSet;
 
 use crate::timing::{Series, TimingEntry, TimingHeader};
