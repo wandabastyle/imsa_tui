@@ -1,3 +1,9 @@
+// Interactive TUI state machine:
+// - consumes worker messages
+// - derives view/group/search/favourite projections
+// - renders one frame
+// - handles one keyboard event
+
 use std::{
     collections::HashSet,
     fs, io,

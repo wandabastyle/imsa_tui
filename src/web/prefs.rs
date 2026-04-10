@@ -1,3 +1,5 @@
+// Persistence for shared web preferences (global favourites + default series).
+
 use std::{collections::HashSet, fs, path::PathBuf};
 
 use directories::ProjectDirs;

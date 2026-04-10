@@ -1,3 +1,6 @@
+// Web server binary entrypoint.
+// Supports foreground mode plus daemon lifecycle commands (--daemon/--status/--stop).
+
 use std::{
     env, fs,
     io::{self, ErrorKind},

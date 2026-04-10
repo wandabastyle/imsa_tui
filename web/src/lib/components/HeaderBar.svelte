@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Compact status header matching TUI metadata order and flag-driven theming.
+
   import type { SeriesSnapshot } from '$lib/types';
 
   export let snapshot: SeriesSnapshot | null;

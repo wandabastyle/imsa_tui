@@ -1,4 +1,5 @@
 <script lang="ts">
+  // Series chooser popup used by keyboard shortcut `t` and click fallback.
   import type { Series } from '$lib/types';
 
   export let open = false;

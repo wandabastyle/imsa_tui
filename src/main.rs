@@ -1,3 +1,5 @@
+// TUI binary entrypoint: set terminal mode, run app loop, then restore terminal cleanly.
+
 use std::io;
 
 use crossterm::{

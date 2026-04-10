@@ -1,3 +1,8 @@
+// Shared-access-code authentication:
+// - persists one access code
+// - issues in-memory cookie sessions
+// - guards protected API routes
+
 use axum::{
     extract::{Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},

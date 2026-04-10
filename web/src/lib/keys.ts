@@ -1,3 +1,5 @@
+// Legacy keybinding utility kept for parity experiments and simple pages.
+
 export interface KeyActions {
   onQuitLikeEscape: () => void;
   onToggleHelp: () => void;

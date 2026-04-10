@@ -1,3 +1,5 @@
+// REST handlers for snapshots, preferences, and health probes.
+
 use std::str::FromStr;
 
 use axum::{

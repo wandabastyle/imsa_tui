@@ -1,3 +1,5 @@
+// Shared timing domain model used by feed workers, TUI rendering, and web API serialization.
+
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};

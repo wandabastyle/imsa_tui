@@ -1,3 +1,5 @@
+// SSE endpoint for live snapshot streaming per series.
+
 use std::{convert::Infallible, str::FromStr};
 
 use axum::{

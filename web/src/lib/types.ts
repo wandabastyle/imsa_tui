@@ -1,3 +1,5 @@
+// Shared frontend types mirroring backend DTOs from the Rust web API.
+
 export type Series = 'imsa' | 'nls' | 'f1';
 
 export interface TimingHeader {

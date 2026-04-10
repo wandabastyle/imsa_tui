@@ -1,3 +1,5 @@
+// Browser API helpers for auth/session, snapshots, preferences, and SSE streams.
+
 import type { Preferences, Series, SnapshotResponse } from './types';
 
 interface SessionStateResponse {

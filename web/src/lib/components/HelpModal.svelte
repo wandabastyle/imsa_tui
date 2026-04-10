@@ -1,4 +1,5 @@
 <script lang="ts">
+  // Keyboard reference popup; key map mirrors TUI/Web shared behavior.
   export let open = false;
 </script>
 

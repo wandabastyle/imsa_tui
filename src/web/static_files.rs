@@ -1,3 +1,5 @@
+// Static asset serving for the built Svelte frontend with SPA fallback routing.
+
 use std::path::{Path, PathBuf};
 
 use axum::{

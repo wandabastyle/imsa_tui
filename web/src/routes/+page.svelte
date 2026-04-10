@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Keyboard-first dashboard page that mirrors the TUI interaction model.
+
   import { onDestroy, onMount } from 'svelte';
 
   import HeaderBar from '$lib/components/HeaderBar.svelte';

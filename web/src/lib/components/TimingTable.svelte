@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Shared leaderboard table renderer for overall, grouped, class, and favourites views.
+
   import { afterUpdate } from 'svelte';
   import type { Series, TimingEntry } from '$lib/types';
 

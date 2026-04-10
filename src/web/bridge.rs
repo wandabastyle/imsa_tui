@@ -1,3 +1,5 @@
+// Worker bridge: runs one feed worker per series and folds their messages into shared web state.
+
 use std::{
     collections::HashMap,
     sync::mpsc::{self, Sender},

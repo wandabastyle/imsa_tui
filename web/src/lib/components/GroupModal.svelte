@@ -1,4 +1,5 @@
 <script lang="ts">
+  // Group chooser popup for direct jump into class-specific view.
   export let open = false;
   export let groups: string[] = [];
   export let selectedIndex = 0;

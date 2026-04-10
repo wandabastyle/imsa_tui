@@ -1,3 +1,6 @@
+// Main frontend state container and side effects:
+// initial snapshot load, stream subscription, and preference persistence.
+
 import { get, writable } from 'svelte/store';
 
 import { fetchPreferences, fetchSnapshot, openSeriesStream, updatePreferences } from '$lib/api';

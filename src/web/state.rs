@@ -1,3 +1,6 @@
+// In-memory web app state:
+// latest snapshot per series, shared preferences, and broadcast channels for SSE fanout.
+
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
