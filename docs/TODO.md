@@ -71,10 +71,9 @@
   - Rendered relative gap columns across series (`IMSA: Gap O/Gap C/Next C`, `NLS: Gap`, `F1: Gap/Int`) with unit-aware time/lap formatting.
   - Replaced anchor marker text with contextual label (`----LAP <laps>` when lap count is available, otherwise `----`).
   - Added anchor lifecycle handling (clear on series/view/class context switches and when anchor entry is no longer in the active view).
+- Completed: **Phase D7** on branch `nls-sector-gabs-anchor`
+  - Scoped table auto-scroll to selection/context changes only, so live snapshot refreshes no longer fight manual mouse-wheel scrolling.
+  - Kept keyboard navigation auto-follow behavior while preserving user-controlled scroll position during passive updates.
+  - Ensured `selectedRow = 0` transitions (for example key `o`) force the table viewport back to the top row.
 
 ## Next Phases (Planned)
-
-- Planned: **Phase D7 - Web UI scroll stability during live updates**
-  - Prevent table auto-scroll from overriding manual mouse-wheel scrolling on live snapshot refreshes.
-  - Trigger selected-row `scrollIntoView` only when selection/view context changes (keyboard navigation, mode/series switch).
-  - Preserve current keyboard-first behavior while avoiding jump-to-top during passive data updates.

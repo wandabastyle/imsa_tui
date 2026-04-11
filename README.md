@@ -14,6 +14,11 @@ A terminal user interface (TUI) for live IMSA, NLS, and F1 timing data.
   - **Class** (single class focus)
 - Header with event/session metadata, track, time-to-go, flag state, and update age.
 - Row selection, favourites, and in-table search (car, driver, or team).
+- Pit transition state machine highlighting in TUI and Web UI:
+  - `IN` phase (short light-blue/cyan event highlight)
+  - `PIT` phase (steady yellow in-pit highlight)
+  - `OUT` phase (short magenta exit highlight)
+  - IMSA/F1 use feed `pit=yes` signal; NLS uses `S5 == PIT`.
 - Animated flag color transitions.
 - Demo flag mode for UI testing without live flag changes.
 - Built-in help popup with keybindings.

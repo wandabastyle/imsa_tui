@@ -22,6 +22,9 @@
   let scrollContainer: HTMLDivElement | null = null;
   let marqueeTick = 0;
   let gapAnchorEntry: TimingEntry | null = null;
+  let lastSelectedRow = -1;
+  let lastSeries: Series | null = null;
+  let lastTitle = '';
   const pitTrackers = new Map<string, { inPit: boolean; inUntil: number; outUntil: number }>();
 
   const columnsBySeries: Record<Series, string[]> = {
@@ -342,11 +345,33 @@
     if (!container) {
       return;
     }
-    const selected = container.querySelector('tr.selected') as HTMLElement | null;
-    if (!selected) {
+
+    const selectionChanged = selectedRow !== lastSelectedRow;
+    const contextChanged = series !== lastSeries || title !== lastTitle;
+
+    if (!selectionChanged && !contextChanged) {
       return;
     }
-    selected.scrollIntoView({ block: 'nearest' });
+
+    const selected = container.querySelector('tr.selected') as HTMLElement | null;
+    if (!selected) {
+      lastSelectedRow = selectedRow;
+      lastSeries = series;
+      lastTitle = title;
+      return;
+    }
+
+    if (selectedRow === 0 && (selectionChanged || contextChanged)) {
+      // With sticky table headers, block:start can hide the first row under the header.
+      // A direct top reset keeps Pos 1 fully visible.
+      container.scrollTop = 0;
+    } else {
+      selected.scrollIntoView({ block: 'nearest' });
+    }
+
+    lastSelectedRow = selectedRow;
+    lastSeries = series;
+    lastTitle = title;
   });
 </script>
 
