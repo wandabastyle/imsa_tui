@@ -1,7 +1,7 @@
 <script lang="ts">
   // Shared leaderboard table renderer for overall, grouped, class, and favourites views.
 
-  import { afterUpdate } from 'svelte';
+  import { afterUpdate, onMount } from 'svelte';
   import type { Series, TimingEntry } from '$lib/types';
 
   interface GroupSection {
@@ -19,6 +19,7 @@
   export let markedStableId: string | null = null;
   export let favourites = new Set<string>();
   let scrollContainer: HTMLDivElement | null = null;
+  let marqueeTick = 0;
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
@@ -28,9 +29,9 @@
 
   const widthBySeries: Record<Series, string[]> = {
     // Mirrors the TUI fixed-column intent so grouped sections line up perfectly.
-    imsa: ['4ch', '5ch', '7ch', '4ch', '24ch', '20ch', '6ch', '11ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '5ch', '18ch'],
-    nls: ['4ch', '5ch', '9ch', '5ch', '18ch', '18ch', '24ch', '7ch', '11ch', '10ch', '10ch', '10ch', '10ch', '10ch', '10ch', '10ch'],
-    f1: ['4ch', '5ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch']
+    imsa: ['4ch', '7ch', '7ch', '4ch', '24ch', '20ch', '6ch', '11ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '5ch', '18ch'],
+    nls: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch'],
+    f1: ['4ch', '7ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch']
   };
 
   function favouriteFlag(entry: TimingEntry): string {
@@ -124,6 +125,15 @@
     return '';
   }
 
+  function rowPitActive(entry: TimingEntry): boolean {
+    if (series === 'imsa' || series === 'f1') {
+      return entry.pit.toLowerCase() === 'yes';
+    }
+
+    const s5 = entry.sector_5.toUpperCase();
+    return s5.includes('PIT') || s5 === 'IN';
+  }
+
   function pitCellClass(column: string, value: string): string {
     if ((column === 'Pit' || column === 'PIT') && value.toLowerCase() === 'yes') {
       return 'pit-active';
@@ -139,6 +149,41 @@
     }
     return '';
   }
+
+  function compactColumnClass(column: string): string {
+    if (['Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5'].includes(column)) {
+      return 'tight-col';
+    }
+    return '';
+  }
+
+  function columnWidthChars(colIndex: number): number {
+    const raw = widthBySeries[series][colIndex] ?? '12ch';
+    const match = raw.match(/(\d+)ch/);
+    return match ? Number.parseInt(match[1], 10) : 12;
+  }
+
+  function marqueeCellText(value: string, colIndex: number, selected: boolean, tick: number): string {
+    if (!selected) return value;
+    const width = columnWidthChars(colIndex);
+    const chars = Array.from(value);
+    if (chars.length <= width) return value;
+
+    const gap = 3;
+    const cycle = chars.length + gap;
+    const offset = tick % cycle;
+    if (offset < chars.length) {
+      return `${chars.slice(offset).join('')}   ${chars.slice(0, offset).join('')}`;
+    }
+    return `${' '.repeat(offset - chars.length)}${value}`;
+  }
+
+  onMount(() => {
+    const timer = window.setInterval(() => {
+      marqueeTick = (marqueeTick + 1) % 10000;
+    }, 240);
+    return () => window.clearInterval(timer);
+  });
 
   // Keep keyboard navigation usable by ensuring the selected row stays visible.
   afterUpdate(() => {
@@ -173,16 +218,16 @@
                 </colgroup>
                 <thead>
                   <tr>
-                    {#each columnsBySeries[series] as column}
-                      <th>{column}</th>
-                    {/each}
+                      {#each columnsBySeries[series] as column}
+                        <th class={compactColumnClass(column)}>{column}</th>
+                      {/each}
                   </tr>
                 </thead>
                 <tbody>
                   {#each section.entries as entry, index}
-                    <tr class={`${rowClass(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+                    <tr class={`${rowClass(entry)} ${rowPitActive(entry) ? 'pit-row' : ''} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
                       {#each cells(entry) as cell, colIndex}
-                        <td class={pitCellClass(columnsBySeries[series][colIndex], cell)}>{cell}</td>
+                        <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{marqueeCellText(cell, colIndex, section.start + index === selectedRow, marqueeTick)}</td>
                       {/each}
                     </tr>
                   {/each}
@@ -202,7 +247,7 @@
         <thead>
           <tr>
             {#each columnsBySeries[series] as column}
-              <th>{column}</th>
+              <th class={compactColumnClass(column)}>{column}</th>
             {/each}
           </tr>
         </thead>
@@ -213,9 +258,9 @@
             </tr>
           {:else}
             {#each entries as entry, index}
-              <tr class={`${rowClass(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+              <tr class={`${rowClass(entry)} ${rowPitActive(entry) ? 'pit-row' : ''} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
                 {#each cells(entry) as cell, colIndex}
-                  <td class={pitCellClass(columnsBySeries[series][colIndex], cell)}>{cell}</td>
+                  <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{marqueeCellText(cell, colIndex, index === selectedRow, marqueeTick)}</td>
                 {/each}
               </tr>
             {/each}
@@ -286,6 +331,9 @@
     border-bottom: 1px solid #24344a;
     padding: 0.25rem 0.38rem;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;
   }
 
   thead th {
@@ -296,6 +344,12 @@
     text-align: left;
   }
 
+  th.tight-col,
+  td.tight-col {
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+  }
+
   tr.selected {
     background: #244f82;
     font-weight: 700;
@@ -304,6 +358,16 @@
   tr.search-mark:not(.selected) {
     background: #113158;
     box-shadow: inset 0 0 0 1px #2a79c7;
+  }
+
+  tr.pit-row:not(.selected) {
+    color: #ffd166;
+    font-weight: 700;
+    background: rgba(130, 97, 20, 0.16);
+  }
+
+  tr.pit-row.selected {
+    color: #ffe08a;
   }
 
   td.pit-active {
