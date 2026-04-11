@@ -132,10 +132,106 @@ fn parse_u32_field(obj: &Value, key: &str) -> Option<u32> {
         .and_then(|n| u32::try_from(n).ok())
 }
 
+fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
+    if let Some(raw) = get_str(obj, key) {
+        let value = raw.trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    if let Some(n) = obj.get(key).and_then(|x| x.as_u64()) {
+        return Some(n.to_string());
+    }
+
+    None
+}
+
+fn normalized_key(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .map(|ch| ch.to_ascii_uppercase())
+        .collect()
+}
+
+fn looks_like_sector_key(key: &str, sector_no: usize) -> bool {
+    let Some(digit) = char::from_digit(sector_no as u32, 10) else {
+        return false;
+    };
+    if !key.contains(digit) {
+        return false;
+    }
+
+    if key == format!("S{digit}")
+        || key == format!("S{digit}TIME")
+        || key == format!("SPLIT{digit}")
+        || key == format!("SPLIT0{digit}")
+        || key == format!("SECTOR{digit}")
+        || key == format!("SEKTOR{digit}")
+    {
+        return true;
+    }
+
+    ["SECTOR", "SEKTOR", "SEC", "SPLIT", "INTERVAL"]
+        .iter()
+        .any(|token| key.contains(token))
+}
+
+fn sector_field(v: &Value, sector_no: usize) -> String {
+    let candidates: &[&str] = match sector_no {
+        1 => &["S1", "SEC1", "SECTOR1", "SECTOR_1", "SEKTOR1", "SEKTOR_1"],
+        2 => &["S2", "SEC2", "SECTOR2", "SECTOR_2", "SEKTOR2", "SEKTOR_2"],
+        3 => &["S3", "SEC3", "SECTOR3", "SECTOR_3", "SEKTOR3", "SEKTOR_3"],
+        4 => &["S4", "SEC4", "SECTOR4", "SECTOR_4", "SEKTOR4", "SEKTOR_4"],
+        5 => &["S5", "SEC5", "SECTOR5", "SECTOR_5", "SEKTOR5", "SEKTOR_5"],
+        _ => &[],
+    };
+
+    if let Some(value) = candidates.iter().find_map(|key| non_empty_field(v, key)) {
+        return value;
+    }
+
+    if let Some(obj) = v.as_object() {
+        for key in obj.keys() {
+            let key_norm = normalized_key(key);
+            if looks_like_sector_key(&key_norm, sector_no) {
+                if let Some(value) = non_empty_field(v, key) {
+                    return value;
+                }
+            }
+        }
+    }
+
+    "-".to_string()
+}
+
+fn pit_flag_from_inout_state(inout_state: &str) -> String {
+    let normalized = inout_state.trim().to_ascii_uppercase();
+    if normalized.is_empty() || normalized == "-" {
+        return "-".to_string();
+    }
+
+    if normalized.contains("OUT") {
+        return "No".to_string();
+    }
+
+    if normalized.contains("IN") || normalized.contains("PIT") || normalized.contains("BOX") {
+        return "Yes".to_string();
+    }
+
+    "-".to_string()
+}
+
 fn entry_from_value(v: &Value) -> Option<TimingEntry> {
     let car_number = parse_u32_field(v, "STNR")?.to_string();
     let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
     let stable_id = format!("stnr:{car_number}");
+
+    let sector_1 = sector_field(v, 1);
+    let sector_2 = sector_field(v, 2);
+    let sector_3 = sector_field(v, 3);
+    let sector_4 = sector_field(v, 4);
+    let sector_5 = sector_field(v, 5);
 
     Some(TimingEntry {
         position: parse_u32_field(v, "POSITION")?,
@@ -151,8 +247,13 @@ fn entry_from_value(v: &Value) -> Option<TimingEntry> {
         gap_next_in_class: "-".to_string(),
         last_lap: get_str(v, "LASTLAPTIME").unwrap_or("-").to_string(),
         best_lap: get_str(v, "FASTESTLAP").unwrap_or("-").to_string(),
+        sector_1,
+        sector_2,
+        sector_3,
+        sector_4,
+        sector_5: sector_5.clone(),
         best_lap_no: "-".to_string(),
-        pit: "-".to_string(),
+        pit: pit_flag_from_inout_state(&sector_5),
         pit_stops: "-".to_string(),
         fastest_driver: "-".to_string(),
         stable_id,
@@ -494,6 +595,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn current_time_to_end_at_counts_down_for_relative_mode() {
@@ -515,5 +617,114 @@ mod tests {
 
         let rendered = current_time_to_end_at(&header, 2_000_000, "1", 0, 1_940_000);
         assert_eq!(rendered, "00:01:00");
+    }
+
+    #[test]
+    fn entry_from_value_reads_all_five_sectors() {
+        let row = json!({
+            "POSITION": "1",
+            "STNR": "77",
+            "CLASSNAME": "SP9",
+            "CLASSRANK": "1",
+            "NAME": "Driver",
+            "CAR": "Car",
+            "TEAM": "Team",
+            "LAPS": "12",
+            "GAP": "Leader",
+            "LASTLAPTIME": "8:01.234",
+            "FASTESTLAP": "7:59.111",
+            "S1": "1:31.001",
+            "S2": "2:00.002",
+            "S3": "1:11.003",
+            "S4": "1:45.004",
+            "S5": "1:34.005"
+        });
+
+        let entry = entry_from_value(&row).expect("entry");
+        assert_eq!(entry.sector_1, "1:31.001");
+        assert_eq!(entry.sector_2, "2:00.002");
+        assert_eq!(entry.sector_3, "1:11.003");
+        assert_eq!(entry.sector_4, "1:45.004");
+        assert_eq!(entry.sector_5, "1:34.005");
+    }
+
+    #[test]
+    fn entry_from_value_uses_variant_sector_keys_and_fallbacks() {
+        let row = json!({
+            "POSITION": "4",
+            "STNR": "911",
+            "CLASSNAME": "SP9",
+            "CLASSRANK": "3",
+            "NAME": "Driver",
+            "CAR": "Car",
+            "TEAM": "Team",
+            "LAPS": "7",
+            "GAP": "+12.300",
+            "LASTLAPTIME": "8:12.340",
+            "FASTESTLAP": "8:05.900",
+            "SECTOR_1": "1:32.100",
+            "SEC2": "2:01.200",
+            "SEKTOR3": "1:10.300",
+            "SECTOR4": "1:46.400"
+        });
+
+        let entry = entry_from_value(&row).expect("entry");
+        assert_eq!(entry.sector_1, "1:32.100");
+        assert_eq!(entry.sector_2, "2:01.200");
+        assert_eq!(entry.sector_3, "1:10.300");
+        assert_eq!(entry.sector_4, "1:46.400");
+        assert_eq!(entry.sector_5, "-");
+    }
+
+    #[test]
+    fn entry_from_value_detects_split_style_sector_keys() {
+        let row = json!({
+            "POSITION": "8",
+            "STNR": "44",
+            "CLASSNAME": "SP9",
+            "CLASSRANK": "5",
+            "NAME": "Driver",
+            "CAR": "Car",
+            "TEAM": "Team",
+            "LAPS": "20",
+            "GAP": "+23.000",
+            "LASTLAPTIME": "8:11.111",
+            "FASTESTLAP": "8:02.222",
+            "Split01": "1:32.555",
+            "Split2": "2:01.666",
+            "S3Time": "1:10.777",
+            "Sektor_4": "1:45.888",
+            "SECTOR5TIME": "1:33.999"
+        });
+
+        let entry = entry_from_value(&row).expect("entry");
+        assert_eq!(entry.sector_1, "1:32.555");
+        assert_eq!(entry.sector_2, "2:01.666");
+        assert_eq!(entry.sector_3, "1:10.777");
+        assert_eq!(entry.sector_4, "1:45.888");
+        assert_eq!(entry.sector_5, "1:33.999");
+        assert_eq!(entry.pit, "-");
+    }
+
+    #[test]
+    fn entry_from_value_maps_s5_inout_to_pit_flag() {
+        let row = json!({
+            "POSITION": "9",
+            "STNR": "632",
+            "CLASSNAME": "AT",
+            "CLASSRANK": "1",
+            "NAME": "Driver",
+            "CAR": "Car",
+            "TEAM": "Team",
+            "LAPS": "22",
+            "GAP": "+44.000",
+            "LASTLAPTIME": "8:20.000",
+            "FASTESTLAP": "8:10.000",
+            "S5": "OUT"
+        });
+
+        let entry = entry_from_value(&row).expect("entry");
+        assert_eq!(entry.sector_5, "OUT");
+        assert_eq!(entry.pit, "No");
     }
 }

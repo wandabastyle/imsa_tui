@@ -444,17 +444,22 @@ fn imsa_table_widths() -> [Constraint; 16] {
     ]
 }
 
-fn nls_table_widths() -> [Constraint; 11] {
+fn nls_table_widths() -> [Constraint; 16] {
     [
         Constraint::Length(4),
         Constraint::Length(5),
         Constraint::Length(9),
         Constraint::Length(5),
+        Constraint::Length(18),
+        Constraint::Min(18),
         Constraint::Length(24),
-        Constraint::Min(14),
-        Constraint::Length(20),
         Constraint::Length(7),
         Constraint::Length(11),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
         Constraint::Length(10),
         Constraint::Length(10),
     ]
@@ -523,6 +528,11 @@ fn build_rows(
                     Cell::from(e.gap_overall.clone()),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
+                    Cell::from(e.sector_1.clone()),
+                    Cell::from(e.sector_2.clone()),
+                    Cell::from(e.sector_3.clone()),
+                    Cell::from(e.sector_4.clone()),
+                    Cell::from(e.sector_5.clone()),
                 ]),
                 Series::F1 => Row::new(vec![
                     Cell::from(e.position.to_string()),
@@ -540,15 +550,29 @@ fn build_rows(
                 ]),
             };
 
-            row.style(if marked_stable_id == Some(e.stable_id.as_str()) {
-                class_style(&e.class_name)
+            let mut style = class_style(&e.class_name);
+            if is_pit_highlighted(active_series, e) {
+                style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
+            }
+            if marked_stable_id == Some(e.stable_id.as_str()) {
+                style = style
                     .bg(Color::Rgb(34, 70, 122))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                class_style(&e.class_name)
-            })
+                    .add_modifier(Modifier::BOLD);
+            }
+
+            row.style(style)
         })
         .collect()
+}
+
+fn is_pit_highlighted(active_series: Series, entry: &TimingEntry) -> bool {
+    match active_series {
+        Series::Imsa | Series::F1 => entry.pit.eq_ignore_ascii_case("yes"),
+        Series::Nls => {
+            let state = entry.sector_5.trim().to_ascii_uppercase();
+            state == "IN" || state.contains("PIT")
+        }
+    }
 }
 
 fn build_table<'a>(
@@ -583,7 +607,7 @@ fn build_table<'a>(
         Series::Nls => (
             vec![
                 "Pos", "#", "Class", "PIC", "Driver", "Vehicle", "Team", "Laps", "Gap", "Last",
-                "Best",
+                "Best", "S1", "S2", "S3", "S4", "S5",
             ],
             nls_table_widths().to_vec(),
         ),

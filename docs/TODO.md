@@ -61,14 +61,13 @@
   - Added structured auth outcome logs (`auth_login`, `auth_logout`, `auth_guard`) without logging secrets.
   - Added structured profile-creation logs for `imsa_profile` issuance events with redacted profile hints.
   - Added README troubleshooting checklist covering storage split, session-cookie re-login behavior, profile file location, lockout defaults, and first-line daemon checks.
+- Completed: **Phase D4** on branch `nls-sector-gabs-anchor`
+  - Extended shared timing entries with sector fields (`sector_1`..`sector_5`) and kept defaults for non-NLS feeds.
+  - Added tolerant NLS sector parsing across common key variants (`S1..S5`, `SEC*`, `SECTOR*`, `SEKTOR*`) with `"-"` fallback.
+  - Added always-visible NLS sector columns (`S1`..`S5`) in both TUI and Web UI tables.
+  - Added parser tests for full and partial/variant sector payload shapes.
 
 ## Next Phases (Planned)
-
-- Planned: **Phase D4 - NLS sector columns (S1-S5)**
-  - Extend shared timing model with NLS-visible sector fields (`sector_1`..`sector_5`).
-  - Parse up to 5 sector values from NLS websocket payloads with tolerant key lookup and `"-"` fallback.
-  - Render always-on `S1`..`S5` columns for NLS in both TUI and Web UI tables.
-  - Add parser coverage for full/partial/variant sector payload shapes.
 
 - Planned: **Phase D5 - Favourite-relative gap reference (`f`)**
   - When `f` jumps to a favourite, set that row as the active gap reference anchor.

@@ -22,14 +22,14 @@
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
-    nls: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best'],
+    nls: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5'],
     f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC']
   };
 
   const widthBySeries: Record<Series, string[]> = {
     // Mirrors the TUI fixed-column intent so grouped sections line up perfectly.
     imsa: ['4ch', '5ch', '7ch', '4ch', '24ch', '20ch', '6ch', '11ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '5ch', '18ch'],
-    nls: ['4ch', '5ch', '9ch', '5ch', '24ch', '16ch', '20ch', '7ch', '11ch', '10ch', '10ch'],
+    nls: ['4ch', '5ch', '9ch', '5ch', '18ch', '18ch', '24ch', '7ch', '11ch', '10ch', '10ch', '10ch', '10ch', '10ch', '10ch', '10ch'],
     f1: ['4ch', '5ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch']
   };
 
@@ -91,7 +91,12 @@
         entry.laps,
         entry.gap_overall,
         entry.last_lap,
-        entry.best_lap
+        entry.best_lap,
+        entry.sector_1,
+        entry.sector_2,
+        entry.sector_3,
+        entry.sector_4,
+        entry.sector_5
       ];
     }
     return [
@@ -122,6 +127,12 @@
   function pitCellClass(column: string, value: string): string {
     if ((column === 'Pit' || column === 'PIT') && value.toLowerCase() === 'yes') {
       return 'pit-active';
+    }
+    if (column === 'S5') {
+      const upper = value.toUpperCase();
+      if (upper.includes('PIT') || upper === 'IN') {
+        return 'pit-active';
+      }
     }
     if ((column === 'Stop' || column === 'Stops') && value !== '-' && value !== '0') {
       return 'stops-hot';

@@ -25,6 +25,11 @@ export interface TimingEntry {
   gap_next_in_class: string;
   last_lap: string;
   best_lap: string;
+  sector_1: string;
+  sector_2: string;
+  sector_3: string;
+  sector_4: string;
+  sector_5: string;
   best_lap_no: string;
   pit: string;
   pit_stops: string;
