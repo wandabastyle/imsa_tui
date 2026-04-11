@@ -278,9 +278,7 @@ fn load_config() -> AppConfig {
         return AppConfig::default();
     };
 
-    let mut config = toml::from_str::<AppConfig>(&text).unwrap_or_default();
-    config.favourites = favourites::normalize_favourites(config.favourites.into_iter());
-    config
+    toml::from_str::<AppConfig>(&text).unwrap_or_default()
 }
 
 fn save_config(config: &AppConfig) -> Result<(), String> {
@@ -292,10 +290,10 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| format!("create config directory failed: {e}"))?;
     }
 
-    let mut normalized = config.clone();
-    normalized.favourites = favourites::normalize_favourites(normalized.favourites.into_iter());
+    let mut filtered = config.clone();
+    filtered.favourites = favourites::normalize_favourites(filtered.favourites.into_iter());
     let encoded =
-        toml::to_string_pretty(&normalized).map_err(|e| format!("encode config failed: {e}"))?;
+        toml::to_string_pretty(&filtered).map_err(|e| format!("encode config failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write config failed: {e}"))
 }
 
@@ -1612,12 +1610,9 @@ mod tests {
     }
 
     #[test]
-    fn favourite_key_normalizes_legacy_class_suffix_for_imsa_and_nls() {
-        assert_eq!(
-            favourite_key(Series::Imsa, "fallback:7:GTP"),
-            "imsa|fallback:7"
-        );
-        assert_eq!(favourite_key(Series::Nls, "stnr:632:AT2"), "nls|stnr:632");
+    fn favourite_key_is_series_prefixed_passthrough() {
+        assert_eq!(favourite_key(Series::Imsa, "fallback:7"), "imsa|fallback:7");
+        assert_eq!(favourite_key(Series::Nls, "stnr:632"), "nls|stnr:632");
         assert_eq!(favourite_key(Series::F1, "f1:driver:12"), "f1|f1:driver:12");
     }
 }

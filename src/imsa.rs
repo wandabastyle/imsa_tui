@@ -152,7 +152,7 @@ fn parse_entry(obj: &Value) -> Option<TimingEntry> {
     let position = parse_position(obj)?;
     let car_number = as_string(obj, "N");
     let class_name = as_string(obj, "C");
-    let stable_id = parse_stable_car_id(obj, &car_number, &class_name);
+    let stable_id = parse_stable_car_id(obj, &car_number);
 
     Some(TimingEntry {
         position,
@@ -176,7 +176,7 @@ fn parse_entry(obj: &Value) -> Option<TimingEntry> {
     })
 }
 
-fn parse_stable_car_id(obj: &Value, car_number: &str, class_name: &str) -> String {
+fn parse_stable_car_id(obj: &Value, car_number: &str) -> String {
     let unique_id_keys = ["ID", "Id", "id", "CID", "CarID", "EntryID", "UID"];
     for key in unique_id_keys {
         let v = as_string(obj, key);
@@ -185,13 +185,7 @@ fn parse_stable_car_id(obj: &Value, car_number: &str, class_name: &str) -> Strin
         }
     }
 
-    let normalized_class = normalize_class_name(class_name);
-    let fallback_class = if normalized_class.is_empty() {
-        "UNKNOWN".to_string()
-    } else {
-        normalized_class
-    };
-    format!("fallback:{}:{}", car_number.trim(), fallback_class)
+    format!("fallback:{}", car_number.trim())
 }
 
 fn parse_jsonp_body(text: &str, callback: &str) -> Result<Value, String> {

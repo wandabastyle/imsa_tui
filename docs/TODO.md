@@ -47,14 +47,13 @@
   - Normalized IMSA/NLS favourites to classless key format in both TUI config and web profile storage.
   - Added legacy-key load normalization and save-time deduplication.
   - Documented retention, reset behavior, and key format updates.
+- Completed: **Phase D2.x** on branch `main`
+  - Dropped legacy class-suffixed IMSA/NLS favourite-key support (`imsa|fallback:7:GTP`, `nls|stnr:632:AT2`).
+  - Updated IMSA/NLS stable ID generation to emit classless keys directly (`fallback:<car>`, `stnr:<car>`).
+  - Simplified favourite key generation to series-prefix passthrough; removed normalization on config/profile load.
+  - Updated regression and unit tests to expect only classless favourite keys.
 
 ## Next Phases (Planned)
-
-- Planned: **Phase D2.x - Simplify favourite keys (post-normalization)**
-  - Drop legacy-format support entirely; keep only new classless format (`imsa|fallback:7`, `nls|stnr:632`).
-  - Simplify normalized key generation to passthrough; remove normalization-on-read hooks.
-  - Update tests to expect only new format.
-  - Intended for after D2 migration is complete and all configs are known-clean.
 
 - Planned: **Phase D3 - Observability improvements**
   - Add structured logs for auth outcomes and profile creation events (without secrets).

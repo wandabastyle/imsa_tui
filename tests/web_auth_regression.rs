@@ -331,7 +331,7 @@ async fn preferences_are_isolated_per_profile_cookie() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&serde_json::json!({
-                        "favourites": ["imsa|fallback:7:GTP"],
+                        "favourites": ["imsa|fallback:7"],
                         "selected_series": "nls"
                     }))
                     .expect("put payload"),
@@ -361,7 +361,6 @@ async fn preferences_are_isolated_per_profile_cookie() {
     let first_body = response_body_text(first_profile_read).await;
     assert!(first_body.contains("\"selected_series\":\"nls\""));
     assert!(first_body.contains("imsa|fallback:7"));
-    assert!(!first_body.contains("imsa|fallback:7:GTP"));
 
     let second_get = app
         .clone()

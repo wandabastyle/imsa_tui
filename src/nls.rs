@@ -16,10 +16,7 @@ use tungstenite::{
     Error as WsError, Message,
 };
 
-use crate::{
-    imsa::normalize_class_name,
-    timing::{TimingEntry, TimingHeader, TimingMessage},
-};
+use crate::timing::{TimingEntry, TimingHeader, TimingMessage};
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const EVENT_ID: &str = "20";
@@ -131,7 +128,7 @@ fn parse_u32_field(obj: &Value, key: &str) -> Option<u32> {
 fn entry_from_value(v: &Value) -> Option<TimingEntry> {
     let car_number = parse_u32_field(v, "STNR")?.to_string();
     let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
-    let stable_id = format!("stnr:{}:{}", car_number, normalize_class_name(&class_name));
+    let stable_id = format!("stnr:{car_number}");
 
     Some(TimingEntry {
         position: parse_u32_field(v, "POSITION")?,

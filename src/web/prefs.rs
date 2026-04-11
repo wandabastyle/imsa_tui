@@ -11,7 +11,6 @@ use std::{
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::favourites;
 use crate::timing::Series;
 
 const PROFILE_RETENTION_DAYS_DEFAULT: u64 = 180;
@@ -32,7 +31,7 @@ pub fn load_preferences(profile_id: &str) -> Preferences {
         return Preferences::default();
     };
 
-    normalize_preferences(toml::from_str::<Preferences>(&text).unwrap_or_default())
+    toml::from_str::<Preferences>(&text).unwrap_or_default()
 }
 
 pub fn save_preferences(profile_id: &str, preferences: &Preferences) -> Result<(), String> {
@@ -44,8 +43,7 @@ pub fn save_preferences(profile_id: &str, preferences: &Preferences) -> Result<(
         fs::create_dir_all(parent).map_err(|e| format!("create config directory failed: {e}"))?;
     }
 
-    let normalized = normalize_preferences(preferences.clone());
-    let encoded = toml::to_string_pretty(&normalized)
+    let encoded = toml::to_string_pretty(preferences)
         .map_err(|e| format!("encode preferences failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write preferences failed: {e}"))
 }
@@ -136,9 +134,4 @@ fn profiles_dir() -> Option<PathBuf> {
 
 fn is_profile_file(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("toml")
-}
-
-fn normalize_preferences(mut preferences: Preferences) -> Preferences {
-    preferences.favourites = favourites::normalize_favourites(preferences.favourites.into_iter());
-    preferences
 }
