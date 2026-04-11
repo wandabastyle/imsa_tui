@@ -22,6 +22,7 @@
   let scrollContainer: HTMLDivElement | null = null;
   let marqueeTick = 0;
   let gapAnchorEntry: TimingEntry | null = null;
+  const pitTrackers = new Map<string, { inPit: boolean; inUntil: number; outUntil: number }>();
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
@@ -127,13 +128,43 @@
     return '';
   }
 
-  function rowPitActive(entry: TimingEntry): boolean {
+  function pitSignalActive(entry: TimingEntry): boolean {
     if (series === 'imsa' || series === 'f1') {
       return entry.pit.toLowerCase() === 'yes';
     }
+    return entry.sector_5.trim().toUpperCase() === 'PIT';
+  }
 
-    const s5 = entry.sector_5.toUpperCase();
-    return s5.includes('PIT') || s5 === 'IN';
+  function rowPitPhase(entry: TimingEntry): string {
+    const now = Date.now();
+    const key = entry.stable_id;
+    const tracker = pitTrackers.get(key) ?? { inPit: false, inUntil: 0, outUntil: 0 };
+    const signal = pitSignalActive(entry);
+
+    if (signal) {
+      if (!tracker.inPit) {
+        tracker.inPit = true;
+        tracker.inUntil = now + 1200;
+      }
+      tracker.outUntil = 0;
+    } else if (tracker.inPit) {
+      tracker.inPit = false;
+      tracker.inUntil = 0;
+      tracker.outUntil = now + 1800;
+    }
+
+    pitTrackers.set(key, tracker);
+
+    if (tracker.inPit && now <= tracker.inUntil) {
+      return 'pit-in';
+    }
+    if (tracker.inPit) {
+      return 'pit-row';
+    }
+    if (now <= tracker.outUntil) {
+      return 'pit-out';
+    }
+    return '';
   }
 
   function pitCellClass(column: string, value: string): string {
@@ -142,7 +173,7 @@
     }
     if (column === 'S5') {
       const upper = value.toUpperCase();
-      if (upper.includes('PIT') || upper === 'IN') {
+      if (upper === 'PIT') {
         return 'pit-active';
       }
     }
@@ -296,6 +327,15 @@
     ? entries.find((candidate) => candidate.stable_id === gapAnchorStableId) ?? null
     : null;
 
+  $: {
+    const currentIds = new Set(entries.map((entry) => entry.stable_id));
+    for (const key of pitTrackers.keys()) {
+      if (!currentIds.has(key)) {
+        pitTrackers.delete(key);
+      }
+    }
+  }
+
   // Keep keyboard navigation usable by ensuring the selected row stays visible.
   afterUpdate(() => {
     const container = scrollContainer;
@@ -336,7 +376,7 @@
                 </thead>
                 <tbody>
                   {#each section.entries as entry, index}
-                    <tr class={`${rowClass(entry)} ${rowPitActive(entry) ? 'pit-row' : ''} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+                    <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
                       {#each cells(entry) as cell, colIndex}
                         <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
@@ -369,7 +409,7 @@
             </tr>
           {:else}
             {#each entries as entry, index}
-              <tr class={`${rowClass(entry)} ${rowPitActive(entry) ? 'pit-row' : ''} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+              <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
                 {#each cells(entry) as cell, colIndex}
                   <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
@@ -479,6 +519,27 @@
 
   tr.pit-row.selected {
     color: #ffe08a;
+  }
+
+  tr.pit-in:not(.selected) {
+    color: #7fdfff;
+    font-weight: 700;
+    background: rgba(37, 125, 184, 0.28);
+  }
+
+  tr.pit-in.selected {
+    color: #b9ecff;
+    background: rgba(52, 150, 214, 0.38);
+  }
+
+  tr.pit-out:not(.selected) {
+    color: #f5b3ff;
+    font-weight: 700;
+    background: rgba(133, 66, 170, 0.18);
+  }
+
+  tr.pit-out.selected {
+    color: #ffd8ff;
   }
 
   td.pit-active {

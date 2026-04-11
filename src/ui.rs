@@ -5,7 +5,7 @@
 // - handles one keyboard event
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs, io,
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
@@ -503,6 +503,31 @@ enum GapValue {
     Laps(i32),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PitHighlightPhase {
+    None,
+    In,
+    Pit,
+    Out,
+}
+
+#[derive(Clone)]
+struct PitTracker {
+    in_pit: bool,
+    in_until: Option<Instant>,
+    out_until: Option<Instant>,
+}
+
+impl PitTracker {
+    fn new() -> Self {
+        Self {
+            in_pit: false,
+            in_until: None,
+            out_until: None,
+        }
+    }
+}
+
 fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
     GapAnchorInfo {
         stable_id: entry.stable_id.clone(),
@@ -634,6 +659,8 @@ fn build_rows(
     selected_row_in_view: Option<usize>,
     marquee_tick: usize,
     gap_anchor: Option<&GapAnchorInfo>,
+    pit_trackers: &HashMap<String, PitTracker>,
+    now: Instant,
 ) -> Vec<Row<'static>> {
     entries
         .iter()
@@ -737,8 +764,9 @@ fn build_rows(
             };
 
             let mut style = class_style(&e.class_name);
-            if is_pit_highlighted(active_series, e) {
-                style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
+            let pit_phase = pit_phase_for_entry(pit_trackers, e, now);
+            if let Some(pit_style) = pit_phase_style(pit_phase) {
+                style = style.patch(pit_style);
             }
             if marked_stable_id == Some(e.stable_id.as_str()) {
                 style = style
@@ -779,13 +807,88 @@ fn marquee_if_needed(text: &str, width_hint: usize, selected: bool, tick: usize)
     }
 }
 
-fn is_pit_highlighted(active_series: Series, entry: &TimingEntry) -> bool {
+fn pit_signal_active(active_series: Series, entry: &TimingEntry) -> bool {
     match active_series {
         Series::Imsa | Series::F1 => entry.pit.eq_ignore_ascii_case("yes"),
-        Series::Nls => {
-            let state = entry.sector_5.trim().to_ascii_uppercase();
-            state == "IN" || state.contains("PIT")
+        Series::Nls => entry.sector_5.trim().eq_ignore_ascii_case("PIT"),
+    }
+}
+
+fn pit_phase_style(phase: PitHighlightPhase) -> Option<Style> {
+    match phase {
+        PitHighlightPhase::None => None,
+        PitHighlightPhase::In => Some(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        PitHighlightPhase::Pit => Some(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        PitHighlightPhase::Out => Some(
+            Style::default()
+                .fg(Color::LightMagenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+    }
+}
+
+fn refresh_pit_trackers(
+    trackers: &mut HashMap<String, PitTracker>,
+    entries: &[TimingEntry],
+    active_series: Series,
+    now: Instant,
+) {
+    const IN_HIGHLIGHT_WINDOW: Duration = Duration::from_millis(1200);
+    const OUT_HIGHLIGHT_WINDOW: Duration = Duration::from_millis(1800);
+
+    let current_ids: HashSet<String> = entries
+        .iter()
+        .map(|entry| entry.stable_id.clone())
+        .collect();
+    trackers.retain(|stable_id, _| current_ids.contains(stable_id));
+
+    for entry in entries {
+        let signal = pit_signal_active(active_series, entry);
+        let tracker = trackers
+            .entry(entry.stable_id.clone())
+            .or_insert_with(PitTracker::new);
+
+        if signal {
+            if !tracker.in_pit {
+                tracker.in_pit = true;
+                tracker.in_until = Some(now + IN_HIGHLIGHT_WINDOW);
+            }
+            tracker.out_until = None;
+        } else if tracker.in_pit {
+            tracker.in_pit = false;
+            tracker.in_until = None;
+            tracker.out_until = Some(now + OUT_HIGHLIGHT_WINDOW);
         }
+    }
+}
+
+fn pit_phase_for_entry(
+    trackers: &HashMap<String, PitTracker>,
+    entry: &TimingEntry,
+    now: Instant,
+) -> PitHighlightPhase {
+    let Some(tracker) = trackers.get(&entry.stable_id) else {
+        return PitHighlightPhase::None;
+    };
+
+    if tracker.in_pit {
+        if tracker.in_until.map(|until| now <= until).unwrap_or(false) {
+            PitHighlightPhase::In
+        } else {
+            PitHighlightPhase::Pit
+        }
+    } else if tracker.out_until.map(|until| now <= until).unwrap_or(false) {
+        PitHighlightPhase::Out
+    } else {
+        PitHighlightPhase::None
     }
 }
 
@@ -798,6 +901,8 @@ fn build_table<'a>(
     selected_row_in_view: Option<usize>,
     marquee_tick: usize,
     gap_anchor: Option<&GapAnchorInfo>,
+    pit_trackers: &HashMap<String, PitTracker>,
+    now: Instant,
 ) -> Table<'a> {
     let (headers, widths): (Vec<&str>, Vec<Constraint>) = match active_series {
         Series::Imsa => (
@@ -846,6 +951,8 @@ fn build_table<'a>(
             selected_row_in_view,
             marquee_tick,
             gap_anchor,
+            pit_trackers,
+            now,
         ),
         widths,
     )
@@ -1209,6 +1316,7 @@ pub fn run_app(
     let mut series_picker = SeriesPickerState::closed();
     let mut group_picker = GroupPickerState::closed();
     let mut gap_anchor_stable_id: Option<String> = None;
+    let mut pit_trackers: HashMap<String, PitTracker> = HashMap::new();
     let ui_started_at = Instant::now();
 
     loop {
@@ -1227,6 +1335,8 @@ pub fn run_app(
         }
 
         let current_groups = grouped_entries(&entries, active_series);
+        let now = Instant::now();
+        refresh_pit_trackers(&mut pit_trackers, &entries, active_series, now);
 
         if let ViewMode::Class(idx) = view_mode {
             if current_groups.is_empty() {
@@ -1417,6 +1527,8 @@ pub fn run_app(
                             Some(local_selected),
                             marquee_tick,
                             gap_anchor.as_ref(),
+                            &pit_trackers,
+                            now,
                         );
                         f.render_stateful_widget(table, chunks[1], &mut state);
                     }
@@ -1497,6 +1609,8 @@ pub fn run_app(
                                     highlight,
                                     marquee_tick,
                                     gap_anchor.as_ref(),
+                                    &pit_trackers,
+                                    now,
                                 );
                                 f.render_stateful_widget(table, *area, &mut state);
                                 global_offset += class_entries.len();
@@ -1519,6 +1633,8 @@ pub fn run_app(
                                 Some(local_selected),
                                 marquee_tick,
                                 gap_anchor.as_ref(),
+                                &pit_trackers,
+                                now,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
@@ -1557,6 +1673,8 @@ pub fn run_app(
                                 Some(local_selected),
                                 marquee_tick,
                                 gap_anchor.as_ref(),
+                                &pit_trackers,
+                                now,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         }
