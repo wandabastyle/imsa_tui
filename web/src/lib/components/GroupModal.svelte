@@ -1,9 +1,26 @@
 <script lang="ts">
   // Group chooser popup for direct jump into class-specific view.
+  import { afterUpdate } from 'svelte';
+
   export let open = false;
   export let groups: string[] = [];
   export let selectedIndex = 0;
   export let onPick: (index: number) => void;
+
+  let listEl: HTMLDivElement | null = null;
+
+  afterUpdate(() => {
+    if (!open || !listEl || groups.length === 0) {
+      return;
+    }
+
+    const selected = listEl.querySelector('button.selected') as HTMLButtonElement | null;
+    if (!selected) {
+      return;
+    }
+
+    selected.scrollIntoView({ block: 'nearest' });
+  });
 </script>
 
 {#if open}
@@ -13,7 +30,7 @@
       {#if groups.length === 0}
         <p class="empty">No groups available for current series.</p>
       {:else}
-        <div class="list">
+        <div class="list" bind:this={listEl}>
           {#each groups as group, idx}
             <button class:selected={idx === selectedIndex} on:click={() => onPick?.(idx)}>
               {idx === selectedIndex ? '>' : ' '} {group}

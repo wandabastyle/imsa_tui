@@ -161,7 +161,11 @@
             ...state,
             showGroupPicker: true,
             groupPickerIndex:
-              state.viewMode.kind === 'class' ? Math.min(state.viewMode.index, groups.length - 1) : 0
+              state.viewMode.kind === 'class'
+                ? groups.length === 0
+                  ? 0
+                  : Math.min(state.viewMode.index, groups.length - 1)
+                : 0
           }));
           break;
         case 'o':
