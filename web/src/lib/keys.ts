@@ -93,5 +93,7 @@ export function installKeyBindings(actions: KeyActions): () => void {
   };
 
   window.addEventListener('keydown', handler);
-  return () => window.removeEventListener('keydown', handler);
+  return () => {
+    window.removeEventListener('keydown', handler);
+  };
 }
