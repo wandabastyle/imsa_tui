@@ -66,15 +66,13 @@
   - Added tolerant NLS sector parsing across common key variants (`S1..S5`, `SEC*`, `SECTOR*`, `SEKTOR*`) with `"-"` fallback.
   - Added always-visible NLS sector columns (`S1`..`S5`) in both TUI and Web UI tables.
   - Added parser tests for full and partial/variant sector payload shapes.
+- Completed: **Phase D5** on branch `nls-sector-gabs-anchor`
+  - Added favourite-triggered gap anchors: pressing `f` now sets the selected favourite as the relative-gap reference in both TUI and Web UI.
+  - Rendered relative gap columns across series (`IMSA: Gap O/Gap C/Next C`, `NLS: Gap`, `F1: Gap/Int`) with unit-aware time/lap formatting.
+  - Replaced anchor marker text with contextual label (`----LAP <laps>` when lap count is available, otherwise `----`).
+  - Added anchor lifecycle handling (clear on series/view/class context switches and when anchor entry is no longer in the active view).
 
 ## Next Phases (Planned)
-
-- Planned: **Phase D5 - Favourite-relative gap reference (`f`)**
-  - When `f` jumps to a favourite, set that row as the active gap reference anchor.
-  - Display gap columns relative to the anchor row in both TUI and Web UI (`IMSA: Gap O/Gap C/Next C`, `NLS: Gap`, `F1: Gap/Int`).
-  - Show `REF` for the anchor row and keep raw values as fallback when units cannot be compared.
-  - Clear anchor on context changes (series/view/group switch) or when the anchor row is no longer present.
-  - Add parser/formatting tests for time, lap, and mixed/unknown gap values.
 
 - Planned: **Phase D7 - Web UI scroll stability during live updates**
   - Prevent table auto-scroll from overriding manual mouse-wheel scrolling on live snapshot refreshes.

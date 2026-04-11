@@ -25,6 +25,7 @@ export interface AppState {
   favourites: Set<string>;
   viewMode: ViewMode;
   selectedRow: number;
+  gapAnchorStableId: string | null;
   showHelp: boolean;
   showSeriesPicker: boolean;
   seriesPickerIndex: number;
@@ -41,6 +42,7 @@ const initialState: AppState = {
   favourites: new Set<string>(),
   viewMode: { kind: 'overall' },
   selectedRow: 0,
+  gapAnchorStableId: null,
   showHelp: false,
   showSeriesPicker: false,
   seriesPickerIndex: 0,

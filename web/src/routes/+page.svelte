@@ -165,7 +165,7 @@
           }));
           break;
         case 'o':
-          appState.update((state) => ({ ...state, viewMode: { kind: 'overall' }, selectedRow: 0 }));
+          appState.update((state) => ({ ...state, viewMode: { kind: 'overall' }, selectedRow: 0, gapAnchorStableId: null }));
           break;
         case 't':
           appState.update((state) => ({
@@ -264,6 +264,7 @@
       ...state,
       snapshots: {},
       selectedRow: 0,
+      gapAnchorStableId: null,
       showHelp: false,
       showSeriesPicker: false,
       showGroupPicker: false,
@@ -330,7 +331,12 @@
   function cycleView(): void {
     appState.update((state) => {
       const groups = groupedEntries(activeEntries);
-      return { ...state, viewMode: nextViewMode(state.viewMode, groups.length), selectedRow: 0 };
+      return {
+        ...state,
+        viewMode: nextViewMode(state.viewMode, groups.length),
+        selectedRow: 0,
+        gapAnchorStableId: null
+      };
     });
   }
 
@@ -365,7 +371,11 @@
       const idx = (start + offset) % viewEntries.length;
       const key = favouriteKey($appState.activeSeries, viewEntries[idx].stable_id);
       if ($appState.favourites.has(key)) {
-        appState.update((state) => ({ ...state, selectedRow: idx }));
+        appState.update((state) => ({
+          ...state,
+          selectedRow: idx,
+          gapAnchorStableId: viewEntries[idx].stable_id
+        }));
         return;
       }
     }
@@ -403,7 +413,8 @@
       showGroupPicker: false,
       seriesPickerIndex: ALL_SERIES.indexOf(series),
       viewMode: { kind: 'overall' },
-      selectedRow: 0
+      selectedRow: 0,
+      gapAnchorStableId: null
     }));
     await persistPreferences();
   }
@@ -418,6 +429,7 @@
       ...state,
       viewMode: { kind: 'class', index: bounded },
       selectedRow: 0,
+      gapAnchorStableId: null,
       showGroupPicker: false,
       groupPickerIndex: bounded
     }));
@@ -444,6 +456,12 @@
     if (mode.kind === 'class') return groups[mode.index]?.[1] ?? [];
     return favouriteEntries;
   })();
+  $: if (
+    $appState.gapAnchorStableId &&
+    !viewEntries.some((entry) => entry.stable_id === $appState.gapAnchorStableId)
+  ) {
+    appState.update((state) => ({ ...state, gapAnchorStableId: null }));
+  }
   $: searchMatches = viewEntries
     .map((entry, index) => (entryMatchesSearch(entry, $appState.search.query) ? index : -1))
     .filter((idx) => idx >= 0);
@@ -527,6 +545,7 @@
       selectedRow={$appState.selectedRow}
       markedStableId={markedStableId}
       favourites={$appState.favourites}
+      gapAnchorStableId={$appState.gapAnchorStableId}
     />
 
     <HelpModal open={$appState.showHelp} />

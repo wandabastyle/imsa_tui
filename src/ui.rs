@@ -482,6 +482,150 @@ fn f1_table_widths() -> [Constraint; 12] {
     ]
 }
 
+#[derive(Clone)]
+struct GapAnchorInfo {
+    stable_id: String,
+    laps: String,
+    gap_overall: String,
+    gap_class: String,
+    gap_next_in_class: String,
+}
+
+#[derive(Clone, Copy)]
+enum GapColumn {
+    Overall,
+    Class,
+    NextInClass,
+}
+
+enum GapValue {
+    TimeMs(i64),
+    Laps(i32),
+}
+
+fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
+    GapAnchorInfo {
+        stable_id: entry.stable_id.clone(),
+        laps: entry.laps.clone(),
+        gap_overall: entry.gap_overall.clone(),
+        gap_class: entry.gap_class.clone(),
+        gap_next_in_class: entry.gap_next_in_class.clone(),
+    }
+}
+
+fn anchor_gap_label(laps: &str) -> String {
+    if laps.trim().chars().all(|ch| ch.is_ascii_digit()) && !laps.trim().is_empty() {
+        return format!("----LAP {}", laps.trim());
+    }
+    "----".to_string()
+}
+
+fn anchor_gap_value(anchor: &GapAnchorInfo, column: GapColumn) -> &str {
+    match column {
+        GapColumn::Overall => &anchor.gap_overall,
+        GapColumn::Class => &anchor.gap_class,
+        GapColumn::NextInClass => &anchor.gap_next_in_class,
+    }
+}
+
+fn parse_gap_value(raw: &str) -> Option<GapValue> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed == "-"
+        || trimmed.eq_ignore_ascii_case("leader")
+        || trimmed.to_ascii_uppercase().starts_with("----LAP")
+    {
+        return None;
+    }
+
+    let upper = trimmed.to_ascii_uppercase();
+    if upper.contains("LAP") {
+        let token = trimmed.split_whitespace().find(|part| {
+            let cleaned =
+                part.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
+            !cleaned.is_empty() && cleaned.chars().any(|ch| ch.is_ascii_digit())
+        })?;
+        let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
+        let laps = cleaned.parse::<i32>().ok()?;
+        return Some(GapValue::Laps(laps));
+    }
+
+    let normalized = trimmed.trim_start_matches('+');
+    if !normalized
+        .chars()
+        .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.')
+    {
+        return None;
+    }
+
+    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
+        let secs = right.parse::<f64>().ok()?;
+        let mins = left.parse::<u64>().ok()?;
+        ((mins as f64 * 60.0 + secs) * 1000.0).round() as i64
+    } else {
+        (normalized.parse::<f64>().ok()? * 1000.0).round() as i64
+    };
+    Some(GapValue::TimeMs(total_ms))
+}
+
+fn format_time_delta(ms: i64) -> String {
+    let sign = if ms >= 0 { '+' } else { '-' };
+    let abs_ms = ms.abs() as u64;
+    let minutes = abs_ms / 60_000;
+    let secs = (abs_ms % 60_000) as f64 / 1000.0;
+    if minutes > 0 {
+        format!("{sign}{minutes}:{secs:06.3}")
+    } else {
+        format!("{sign}{secs:.3}")
+    }
+}
+
+fn format_lap_delta(laps: i32) -> String {
+    let sign = if laps >= 0 { '+' } else { '-' };
+    let abs = laps.abs();
+    if abs == 1 {
+        format!("{sign}{abs} LAP")
+    } else {
+        format!("{sign}{abs} LAPS")
+    }
+}
+
+fn relative_gap_text(
+    entry: &TimingEntry,
+    raw_value: &str,
+    column: GapColumn,
+    anchor: Option<&GapAnchorInfo>,
+) -> String {
+    let Some(anchor) = anchor else {
+        return raw_value.to_string();
+    };
+
+    if entry.stable_id == anchor.stable_id {
+        return anchor_gap_label(&anchor.laps);
+    }
+
+    let row_laps = entry.laps.trim().parse::<i32>().ok();
+    let anchor_laps = anchor.laps.trim().parse::<i32>().ok();
+    if let (Some(row_laps), Some(anchor_laps)) = (row_laps, anchor_laps) {
+        if row_laps != anchor_laps {
+            return format_lap_delta(anchor_laps - row_laps);
+        }
+    }
+
+    let Some(row_gap) = parse_gap_value(raw_value) else {
+        return raw_value.to_string();
+    };
+    let Some(anchor_gap) = parse_gap_value(anchor_gap_value(anchor, column)) else {
+        return raw_value.to_string();
+    };
+
+    match (row_gap, anchor_gap) {
+        (GapValue::TimeMs(row), GapValue::TimeMs(base)) => format_time_delta(row - base),
+        (GapValue::Laps(row), GapValue::Laps(base)) => format_lap_delta(row - base),
+        _ => raw_value.to_string(),
+    }
+}
+
 fn build_rows(
     entries: &[TimingEntry],
     favourites: &HashSet<String>,
@@ -489,6 +633,7 @@ fn build_rows(
     active_series: Series,
     selected_row_in_view: Option<usize>,
     marquee_tick: usize,
+    gap_anchor: Option<&GapAnchorInfo>,
 ) -> Vec<Row<'static>> {
     entries
         .iter()
@@ -512,9 +657,24 @@ fn build_rows(
                     Cell::from(marquee_if_needed(&e.driver, 24, selected, marquee_tick)),
                     Cell::from(marquee_if_needed(&e.vehicle, 20, selected, marquee_tick)),
                     Cell::from(e.laps.clone()),
-                    Cell::from(e.gap_overall.clone()),
-                    Cell::from(e.gap_class.clone()),
-                    Cell::from(e.gap_next_in_class.clone()),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_overall,
+                        GapColumn::Overall,
+                        gap_anchor,
+                    )),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_class,
+                        GapColumn::Class,
+                        gap_anchor,
+                    )),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_next_in_class,
+                        GapColumn::NextInClass,
+                        gap_anchor,
+                    )),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
                     Cell::from(e.best_lap_no.clone()),
@@ -536,7 +696,12 @@ fn build_rows(
                     Cell::from(marquee_if_needed(&e.vehicle, 18, selected, marquee_tick)),
                     Cell::from(marquee_if_needed(&e.team, 24, selected, marquee_tick)),
                     Cell::from(e.laps.clone()),
-                    Cell::from(e.gap_overall.clone()),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_overall,
+                        GapColumn::Overall,
+                        gap_anchor,
+                    )),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
                     Cell::from(e.sector_1.clone()),
@@ -551,8 +716,18 @@ fn build_rows(
                     Cell::from(marquee_if_needed(&e.driver, 26, selected, marquee_tick)),
                     Cell::from(marquee_if_needed(&e.team, 16, selected, marquee_tick)),
                     Cell::from(e.laps.clone()),
-                    Cell::from(e.gap_overall.clone()),
-                    Cell::from(e.gap_class.clone()),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_overall,
+                        GapColumn::Overall,
+                        gap_anchor,
+                    )),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_class,
+                        GapColumn::Class,
+                        gap_anchor,
+                    )),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
                     Cell::from(e.pit.clone()),
@@ -622,6 +797,7 @@ fn build_table<'a>(
     active_series: Series,
     selected_row_in_view: Option<usize>,
     marquee_tick: usize,
+    gap_anchor: Option<&GapAnchorInfo>,
 ) -> Table<'a> {
     let (headers, widths): (Vec<&str>, Vec<Constraint>) = match active_series {
         Series::Imsa => (
@@ -669,6 +845,7 @@ fn build_table<'a>(
             active_series,
             selected_row_in_view,
             marquee_tick,
+            gap_anchor,
         ),
         widths,
     )
@@ -1031,6 +1208,7 @@ pub fn run_app(
     let mut search = SearchState::default();
     let mut series_picker = SeriesPickerState::closed();
     let mut group_picker = GroupPickerState::closed();
+    let mut gap_anchor_stable_id: Option<String> = None;
     let ui_started_at = Instant::now();
 
     loop {
@@ -1065,6 +1243,22 @@ pub fn run_app(
             &favourites,
             active_series,
         );
+
+        if let Some(anchor_id) = &gap_anchor_stable_id {
+            if !current_view_entries
+                .iter()
+                .any(|entry| entry.stable_id == *anchor_id)
+            {
+                gap_anchor_stable_id = None;
+            }
+        }
+
+        let gap_anchor = gap_anchor_stable_id.as_ref().and_then(|anchor_id| {
+            current_view_entries
+                .iter()
+                .find(|entry| entry.stable_id == *anchor_id)
+                .map(|entry| gap_anchor_from_entry(entry))
+        });
         selected_row = selected_row.min(current_view_entries.len().saturating_sub(1));
 
         refresh_search_matches(&mut search, &current_view_entries);
@@ -1222,6 +1416,7 @@ pub fn run_app(
                             active_series,
                             Some(local_selected),
                             marquee_tick,
+                            gap_anchor.as_ref(),
                         );
                         f.render_stateful_widget(table, chunks[1], &mut state);
                     }
@@ -1301,6 +1496,7 @@ pub fn run_app(
                                     active_series,
                                     highlight,
                                     marquee_tick,
+                                    gap_anchor.as_ref(),
                                 );
                                 f.render_stateful_widget(table, *area, &mut state);
                                 global_offset += class_entries.len();
@@ -1322,6 +1518,7 @@ pub fn run_app(
                                 active_series,
                                 Some(local_selected),
                                 marquee_tick,
+                                gap_anchor.as_ref(),
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
@@ -1359,6 +1556,7 @@ pub fn run_app(
                                 active_series,
                                 Some(local_selected),
                                 marquee_tick,
+                                gap_anchor.as_ref(),
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         }
@@ -1454,6 +1652,7 @@ pub fn run_app(
                                 &mut demo_flag,
                                 &mut config,
                             );
+                            gap_anchor_stable_id = None;
                             series_picker.is_open = false;
                         }
                         _ => {}
@@ -1484,6 +1683,7 @@ pub fn run_app(
                                 let idx = group_picker.selected_idx.min(current_groups.len() - 1);
                                 view_mode = ViewMode::Class(idx);
                                 selected_row = 0;
+                                gap_anchor_stable_id = None;
                             }
                             group_picker.is_open = false;
                         }
@@ -1525,10 +1725,12 @@ pub fn run_app(
                     KeyCode::Char('g') if !show_help => {
                         view_mode = next_view_mode(view_mode, current_groups.len());
                         selected_row = 0;
+                        gap_anchor_stable_id = None;
                     }
                     KeyCode::Char('o') if !show_help => {
                         view_mode = ViewMode::Overall;
                         selected_row = 0;
+                        gap_anchor_stable_id = None;
                     }
                     KeyCode::Down | KeyCode::Char('j') if !show_help => {
                         selected_row = step_selection(selected_row, current_view_entries.len(), 1);
@@ -1571,6 +1773,8 @@ pub fn run_app(
                                 );
                                 if favourites.contains(&fav_key) {
                                     selected_row = idx;
+                                    gap_anchor_stable_id =
+                                        Some(current_view_entries[idx].stable_id.clone());
                                     break;
                                 }
                             }

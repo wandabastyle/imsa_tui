@@ -18,8 +18,10 @@
   export let selectedRow = 0;
   export let markedStableId: string | null = null;
   export let favourites = new Set<string>();
+  export let gapAnchorStableId: string | null = null;
   let scrollContainer: HTMLDivElement | null = null;
   let marqueeTick = 0;
+  let gapAnchorEntry: TimingEntry | null = null;
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
@@ -157,6 +159,111 @@
     return '';
   }
 
+  function isRelativeGapColumn(column: string): boolean {
+    return column === 'Gap O' || column === 'Gap C' || column === 'Next C' || column === 'Gap' || column === 'Int';
+  }
+
+  function gapRawForColumn(entry: TimingEntry, column: string): string {
+    if (column === 'Gap O' || column === 'Gap') return entry.gap_overall;
+    if (column === 'Gap C' || column === 'Int') return entry.gap_class;
+    if (column === 'Next C') return entry.gap_next_in_class;
+    return '';
+  }
+
+  function anchorGapLabel(entry: TimingEntry): string {
+    const laps = entry.laps.trim();
+    return /^\d+$/.test(laps) ? `----LAP ${laps}` : '----';
+  }
+
+  type ParsedGap = { kind: 'time'; ms: number } | { kind: 'laps'; laps: number };
+
+  function parseGapValue(raw: string): ParsedGap | null {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === '-' || /^----LAP/i.test(trimmed) || /^leader$/i.test(trimmed)) {
+      return null;
+    }
+
+    if (/lap/i.test(trimmed)) {
+      const match = trimmed.match(/[+-]?\d+/);
+      if (!match) return null;
+      const laps = Number.parseInt(match[0], 10);
+      if (Number.isNaN(laps)) return null;
+      return { kind: 'laps', laps };
+    }
+
+    const normalized = trimmed.replace(/^\+/, '');
+    if (!/^[0-9:.]+$/.test(normalized)) return null;
+
+    let seconds = 0;
+    if (normalized.includes(':')) {
+      const [minsPart, secsPart] = normalized.split(':');
+      const mins = Number.parseInt(minsPart, 10);
+      const secs = Number.parseFloat(secsPart);
+      if (Number.isNaN(mins) || Number.isNaN(secs)) return null;
+      seconds = mins * 60 + secs;
+    } else {
+      const secs = Number.parseFloat(normalized);
+      if (Number.isNaN(secs)) return null;
+      seconds = secs;
+    }
+
+    return { kind: 'time', ms: Math.round(seconds * 1000) };
+  }
+
+  function formatTimeDelta(msDelta: number): string {
+    const sign = msDelta >= 0 ? '+' : '-';
+    const abs = Math.abs(msDelta);
+    const minutes = Math.floor(abs / 60000);
+    const seconds = (abs % 60000) / 1000;
+    if (minutes > 0) {
+      return `${sign}${minutes}:${seconds.toFixed(3).padStart(6, '0')}`;
+    }
+    return `${sign}${seconds.toFixed(3)}`;
+  }
+
+  function formatLapDelta(lapsDelta: number): string {
+    const sign = lapsDelta >= 0 ? '+' : '-';
+    const abs = Math.abs(lapsDelta);
+    return `${sign}${abs} ${abs === 1 ? 'LAP' : 'LAPS'}`;
+  }
+
+  function relativeGapCell(entry: TimingEntry, column: string, current: string): string {
+    if (!gapAnchorStableId || !isRelativeGapColumn(column)) {
+      return current;
+    }
+
+    if (entry.stable_id === gapAnchorStableId) {
+      return anchorGapLabel(entry);
+    }
+
+    const anchor = gapAnchorEntry;
+    if (!anchor) return current;
+
+    const rowLaps = Number.parseInt(entry.laps.trim(), 10);
+    const anchorLaps = Number.parseInt(anchor.laps.trim(), 10);
+    if (!Number.isNaN(rowLaps) && !Number.isNaN(anchorLaps) && rowLaps !== anchorLaps) {
+      return formatLapDelta(anchorLaps - rowLaps);
+    }
+
+    const rowGap = parseGapValue(current);
+    const anchorGap = parseGapValue(gapRawForColumn(anchor, column));
+    if (!rowGap || !anchorGap) return current;
+
+    if (rowGap.kind === 'time' && anchorGap.kind === 'time') {
+      return formatTimeDelta(rowGap.ms - anchorGap.ms);
+    }
+    if (rowGap.kind === 'laps' && anchorGap.kind === 'laps') {
+      return formatLapDelta(rowGap.laps - anchorGap.laps);
+    }
+    return current;
+  }
+
+  function renderCell(entry: TimingEntry, cell: string, colIndex: number, selected: boolean): string {
+    const column = columnsBySeries[series][colIndex];
+    const relative = relativeGapCell(entry, column, cell);
+    return marqueeCellText(relative, colIndex, selected, marqueeTick);
+  }
+
   function columnWidthChars(colIndex: number): number {
     const raw = widthBySeries[series][colIndex] ?? '12ch';
     const match = raw.match(/(\d+)ch/);
@@ -184,6 +291,10 @@
     }, 240);
     return () => window.clearInterval(timer);
   });
+
+  $: gapAnchorEntry = gapAnchorStableId
+    ? entries.find((candidate) => candidate.stable_id === gapAnchorStableId) ?? null
+    : null;
 
   // Keep keyboard navigation usable by ensuring the selected row stays visible.
   afterUpdate(() => {
@@ -227,7 +338,7 @@
                   {#each section.entries as entry, index}
                     <tr class={`${rowClass(entry)} ${rowPitActive(entry) ? 'pit-row' : ''} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
                       {#each cells(entry) as cell, colIndex}
-                        <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{marqueeCellText(cell, colIndex, section.start + index === selectedRow, marqueeTick)}</td>
+                        <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
                     </tr>
                   {/each}
@@ -260,7 +371,7 @@
             {#each entries as entry, index}
               <tr class={`${rowClass(entry)} ${rowPitActive(entry) ? 'pit-row' : ''} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
                 {#each cells(entry) as cell, colIndex}
-                  <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{marqueeCellText(cell, colIndex, index === selectedRow, marqueeTick)}</td>
+                  <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
               </tr>
             {/each}
