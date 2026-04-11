@@ -14,3 +14,38 @@
 
 - After changing any file, run the relevant lint/check commands for affected areas.
 - Continue fixing and re-running lint/check commands until all reported errors are resolved.
+
+## Verification Matrix
+
+- Rust-only changes must pass:
+  - `cargo fmt --check`
+  - `cargo clippy --all-targets --all-features`
+  - `cargo test`
+- Web-only changes must pass (in `web/`):
+  - `pnpm run verify`
+- Cross-cutting changes (Rust + Web) must pass both Rust and Web checks.
+
+## Commits
+
+- Use conventional-style commit subjects (`fix(...)`, `feat(...)`, `chore(...)`, `docs(...)`, `refactor(...)`, `test(...)`).
+- Keep commits scoped: do not mix unrelated changes in the same commit.
+- Do not amend commits unless explicitly requested.
+- Never commit secrets (`.env`, tokens, credential files).
+
+## Branch and Merge
+
+- Do feature/fix work on a dedicated branch; merge to `main` only after checks pass.
+- Before merge, ensure working tree is clean and all required checks are green.
+- Do not force-push protected branches.
+
+## Docs and Tests Sync
+
+- If behavior, runtime flags, storage paths, or operational flow changes, update `README.md` in the same branch.
+- If a tracked phase/plan item changes status, update `docs/TODO.md` in the same branch.
+- For behavior changes, add or update regression/unit tests in the same branch.
+
+## Version Bumps
+
+- Keep feature/fix commits separate from version bump commits.
+- Bump crate version only when preparing a release.
+- Ensure release tag points to the version bump commit.
