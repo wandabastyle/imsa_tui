@@ -487,24 +487,30 @@ fn build_rows(
     favourites: &HashSet<String>,
     marked_stable_id: Option<&str>,
     active_series: Series,
+    selected_row_in_view: Option<usize>,
+    marquee_tick: usize,
 ) -> Vec<Row<'static>> {
     entries
         .iter()
+        .enumerate()
         .map(|e| {
+            let (idx, e) = e;
             let fav_key = favourite_key(active_series, &e.stable_id);
             let fav_marker = if favourites.contains(&fav_key) {
                 "★ "
             } else {
                 ""
             };
+            let selected = selected_row_in_view == Some(idx);
+
             let row = match active_series {
                 Series::Imsa => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
-                    Cell::from(e.driver.clone()),
-                    Cell::from(e.vehicle.clone()),
+                    Cell::from(marquee_if_needed(&e.driver, 24, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.vehicle, 20, selected, marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(e.gap_overall.clone()),
                     Cell::from(e.gap_class.clone()),
@@ -514,16 +520,21 @@ fn build_rows(
                     Cell::from(e.best_lap_no.clone()),
                     Cell::from(e.pit.clone()),
                     Cell::from(e.pit_stops.clone()),
-                    Cell::from(e.fastest_driver.clone()),
+                    Cell::from(marquee_if_needed(
+                        &e.fastest_driver,
+                        18,
+                        selected,
+                        marquee_tick,
+                    )),
                 ]),
                 Series::Nls => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
-                    Cell::from(e.driver.clone()),
-                    Cell::from(e.vehicle.clone()),
-                    Cell::from(e.team.clone()),
+                    Cell::from(marquee_if_needed(&e.driver, 18, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.vehicle, 18, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.team, 24, selected, marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(e.gap_overall.clone()),
                     Cell::from(e.last_lap.clone()),
@@ -537,8 +548,8 @@ fn build_rows(
                 Series::F1 => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
-                    Cell::from(e.driver.clone()),
-                    Cell::from(e.team.clone()),
+                    Cell::from(marquee_if_needed(&e.driver, 26, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.team, 16, selected, marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(e.gap_overall.clone()),
                     Cell::from(e.gap_class.clone()),
@@ -565,6 +576,34 @@ fn build_rows(
         .collect()
 }
 
+fn marquee_if_needed(text: &str, width_hint: usize, selected: bool, tick: usize) -> String {
+    if !selected {
+        return text.to_string();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= width_hint {
+        return text.to_string();
+    }
+
+    let gap = 3;
+    let cycle_len = chars.len() + gap;
+    let offset = tick % cycle_len;
+
+    if offset < chars.len() {
+        let mut out = String::new();
+        out.extend(chars[offset..].iter());
+        out.push_str("   ");
+        out.extend(chars[..offset].iter());
+        out
+    } else {
+        let leading_spaces = offset - chars.len();
+        let mut out = " ".repeat(leading_spaces);
+        out.push_str(text);
+        out
+    }
+}
+
 fn is_pit_highlighted(active_series: Series, entry: &TimingEntry) -> bool {
     match active_series {
         Series::Imsa | Series::F1 => entry.pit.eq_ignore_ascii_case("yes"),
@@ -581,6 +620,8 @@ fn build_table<'a>(
     favourites: &HashSet<String>,
     marked_stable_id: Option<&str>,
     active_series: Series,
+    selected_row_in_view: Option<usize>,
+    marquee_tick: usize,
 ) -> Table<'a> {
     let (headers, widths): (Vec<&str>, Vec<Constraint>) = match active_series {
         Series::Imsa => (
@@ -621,7 +662,14 @@ fn build_table<'a>(
     };
 
     Table::new(
-        build_rows(entries, favourites, marked_stable_id, active_series),
+        build_rows(
+            entries,
+            favourites,
+            marked_stable_id,
+            active_series,
+            selected_row_in_view,
+            marquee_tick,
+        ),
         widths,
     )
     .header(Row::new(headers).style(Style::default().add_modifier(Modifier::BOLD)))
@@ -983,6 +1031,7 @@ pub fn run_app(
     let mut search = SearchState::default();
     let mut series_picker = SeriesPickerState::closed();
     let mut group_picker = GroupPickerState::closed();
+    let ui_started_at = Instant::now();
 
     loop {
         // This loop drives the app like a tiny state machine:
@@ -1046,6 +1095,8 @@ pub fn run_app(
             previous_flag = effective_flag.to_string();
             transition_started_at = Instant::now();
         }
+
+        let marquee_tick = (ui_started_at.elapsed().as_millis() / 240) as usize;
 
         terminal.draw(|f| {
             let size = f.size();
@@ -1160,14 +1211,17 @@ pub fn run_app(
                     ViewMode::Overall => {
                         let (visible_entries, start) =
                             visible_slice(&entries, selected_row, chunks[1].height);
+                        let local_selected = selected_row.saturating_sub(start);
                         let mut state = ratatui::widgets::TableState::default();
-                        state.select(Some(selected_row.saturating_sub(start)));
+                        state.select(Some(local_selected));
                         let table = build_table(
                             "Overall",
                             visible_entries,
                             &favourites,
                             marked_stable_id,
                             active_series,
+                            Some(local_selected),
+                            marquee_tick,
                         );
                         f.render_stateful_widget(table, chunks[1], &mut state);
                     }
@@ -1245,6 +1299,8 @@ pub fn run_app(
                                     &favourites,
                                     marked_stable_id,
                                     active_series,
+                                    highlight,
+                                    marquee_tick,
                                 );
                                 f.render_stateful_widget(table, *area, &mut state);
                                 global_offset += class_entries.len();
@@ -1255,14 +1311,17 @@ pub fn run_app(
                         if let Some((class_name, class_entries)) = current_groups.get(idx) {
                             let (visible_entries, start) =
                                 visible_slice(class_entries, selected_row, chunks[1].height);
+                            let local_selected = selected_row.saturating_sub(start);
                             let mut state = ratatui::widgets::TableState::default();
-                            state.select(Some(selected_row.saturating_sub(start)));
+                            state.select(Some(local_selected));
                             let table = build_table(
                                 format!("{} ({} cars)", class_name, class_entries.len()),
                                 visible_entries,
                                 &favourites,
                                 marked_stable_id,
                                 active_series,
+                                Some(local_selected),
+                                marquee_tick,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
@@ -1289,14 +1348,17 @@ pub fn run_app(
                         } else {
                             let (visible_entries, start) =
                                 visible_slice(&favourite_entries, selected_row, chunks[1].height);
+                            let local_selected = selected_row.saturating_sub(start);
                             let mut state = ratatui::widgets::TableState::default();
-                            state.select(Some(selected_row.saturating_sub(start)));
+                            state.select(Some(local_selected));
                             let table = build_table(
                                 format!("Favourites ({} cars)", favourite_entries.len()),
                                 visible_entries,
                                 &favourites,
                                 marked_stable_id,
                                 active_series,
+                                Some(local_selected),
+                                marquee_tick,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         }
