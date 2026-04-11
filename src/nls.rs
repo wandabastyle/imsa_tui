@@ -19,8 +19,11 @@ use tungstenite::{
 use crate::timing::{TimingEntry, TimingHeader, TimingMessage};
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
-const EVENT_ID: &str = "20";
+const DEFAULT_NLS_EVENT_ID: &str = "20";
+const N24_EVENT_ID: &str = "50";
 const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/language/de/startseite/";
+const N24_TERMINE_URL: &str = "https://www.24h-rennen.de/termine/";
+const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone)]
@@ -28,6 +31,13 @@ struct CountdownState {
     end_time_raw: u64,
     time_state_raw: String,
     received_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct CalendarDate {
+    year: i32,
+    month: u32,
+    day: u32,
 }
 
 fn now_millis() -> u128 {
@@ -121,6 +131,156 @@ fn fetch_homepage_event_name(client: &Client) -> Option<String> {
     let response = client.get(NLS_HOME_URL).send().ok()?;
     let html = response.text().ok()?;
     parse_event_name_from_homepage(&html)
+}
+
+fn decode_basic_html_entities(raw: &str) -> String {
+    raw.replace("&#8211;", "-")
+        .replace("&#8212;", "-")
+        .replace("&ndash;", "-")
+        .replace("&mdash;", "-")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+}
+
+fn html_to_text_lines(html: &str) -> Vec<String> {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+
+    for ch in html.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                text.push('\n');
+            }
+            '>' => {
+                in_tag = false;
+                text.push('\n');
+            }
+            _ if !in_tag => text.push(ch),
+            _ => {}
+        }
+    }
+
+    decode_basic_html_entities(&text)
+        .lines()
+        .map(str::trim)
+        .map(normalize_spaces)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+fn days_in_month(year: i32, month: u32) -> Option<u32> {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
+        4 | 6 | 9 | 11 => Some(30),
+        2 if is_leap_year(year) => Some(29),
+        2 => Some(28),
+        _ => None,
+    }
+}
+
+fn parse_u32_fragment(raw: &str) -> Option<u32> {
+    let digits: String = raw.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<u32>().ok()
+    }
+}
+
+fn parse_german_date_range(raw: &str) -> Option<(CalendarDate, CalendarDate)> {
+    let normalized = normalize_spaces(&raw.replace('–', "-").replace('—', "-").replace('−', "-"));
+    let (left, right) = normalized.split_once('-')?;
+
+    let start_day = parse_u32_fragment(left)?;
+    let mut right_parts = right.trim().split('.').map(str::trim);
+    let end_day = parse_u32_fragment(right_parts.next()?)?;
+    let month = parse_u32_fragment(right_parts.next()?)?;
+    let year = i32::try_from(parse_u32_fragment(right_parts.next()?)?).ok()?;
+
+    let max_day = days_in_month(year, month)?;
+    if start_day == 0 || end_day == 0 || start_day > max_day || end_day > max_day {
+        return None;
+    }
+
+    Some((
+        CalendarDate {
+            year,
+            month,
+            day: start_day,
+        },
+        CalendarDate {
+            year,
+            month,
+            day: end_day,
+        },
+    ))
+}
+
+fn extract_target_date_range(lines: &[String], year: i32) -> Option<(CalendarDate, CalendarDate)> {
+    let target_idx = lines
+        .iter()
+        .position(|line| line.contains(N24_TARGET_EVENT_TITLE))?;
+
+    for line in lines.iter().skip(target_idx + 1).take(12) {
+        let Some((start, end)) = parse_german_date_range(line) else {
+            continue;
+        };
+        if start.year == year && end.year == year {
+            return Some((start, end));
+        }
+    }
+
+    None
+}
+
+fn local_today() -> Option<CalendarDate> {
+    let mut timestamp: libc::time_t = 0;
+    // SAFETY: `time` writes to a valid pointer and `localtime_r` initializes `tm`.
+    unsafe {
+        if libc::time(&mut timestamp) < 0 {
+            return None;
+        }
+        let mut local_tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&timestamp, &mut local_tm).is_null() {
+            return None;
+        }
+        Some(CalendarDate {
+            year: local_tm.tm_year + 1900,
+            month: u32::try_from(local_tm.tm_mon + 1).ok()?,
+            day: u32::try_from(local_tm.tm_mday).ok()?,
+        })
+    }
+}
+
+fn determine_active_nuerburgring_event_id(client: &Client) -> Result<&'static str, String> {
+    let today = local_today().ok_or_else(|| "failed to resolve local date".to_string())?;
+
+    let response = client
+        .get(N24_TERMINE_URL)
+        .send()
+        .map_err(|err| format!("failed to fetch 24h schedule: {err}"))?;
+    let html = response
+        .text()
+        .map_err(|err| format!("failed to read 24h schedule: {err}"))?;
+
+    let lines = html_to_text_lines(&html);
+    let (start, end) = extract_target_date_range(&lines, today.year).ok_or_else(|| {
+        format!(
+            "could not parse {} date range for {}",
+            N24_TARGET_EVENT_TITLE, today.year
+        )
+    })?;
+
+    if today >= start && today <= end {
+        Ok(N24_EVENT_ID)
+    } else {
+        Ok(DEFAULT_NLS_EVENT_ID)
+    }
 }
 
 fn parse_u32_field(obj: &Value, key: &str) -> Option<u32> {
@@ -436,6 +596,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
     let mut website_event_name: Option<String> = None;
     let mut next_website_refresh = Instant::now();
     let mut countdown: Option<CountdownState> = None;
+    let mut active_event_id = DEFAULT_NLS_EVENT_ID;
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
@@ -447,6 +608,28 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                 if let Some(parsed_name) = fetch_homepage_event_name(client) {
                     website_event_name = Some(parsed_name.clone());
                     header.event_name = parsed_name;
+                }
+
+                match determine_active_nuerburgring_event_id(client) {
+                    Ok(event_id) => {
+                        if active_event_id != event_id {
+                            let _ = tx.send(TimingMessage::Status {
+                                source_id,
+                                text: format!("NLS switching to eventId {event_id}"),
+                            });
+                        }
+                        active_event_id = event_id;
+                    }
+                    Err(err) => {
+                        active_event_id = DEFAULT_NLS_EVENT_ID;
+                        let _ = tx.send(TimingMessage::Status {
+                            source_id,
+                            text: format!(
+                                "NLS 24h schedule fallback to eventId {} ({err})",
+                                DEFAULT_NLS_EVENT_ID
+                            ),
+                        });
+                    }
                 }
             }
             next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
@@ -483,7 +666,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
 
         let subscribe = json!({
             "clientLocalTime": now_millis(),
-            "eventId": EVENT_ID,
+            "eventId": active_event_id,
             "eventPid": [0, 4]
         });
 
@@ -726,5 +909,67 @@ mod tests {
         let entry = entry_from_value(&row).expect("entry");
         assert_eq!(entry.sector_5, "OUT");
         assert_eq!(entry.pit, "No");
+    }
+
+    #[test]
+    fn parse_german_date_range_handles_24h_format() {
+        let parsed = parse_german_date_range("14. – 17.05.2026").expect("range");
+        assert_eq!(
+            parsed.0,
+            CalendarDate {
+                year: 2026,
+                month: 5,
+                day: 14
+            }
+        );
+        assert_eq!(
+            parsed.1,
+            CalendarDate {
+                year: 2026,
+                month: 5,
+                day: 17
+            }
+        );
+    }
+
+    #[test]
+    fn extract_target_date_range_picks_current_year() {
+        let html = r#"
+            <div>ADAC RAVENOL 24h Nürburgring</div>
+            <div>14. &#8211; 17.05.2026</div>
+            <div>27. &#8211; 30.05.2027</div>
+        "#;
+        let lines = html_to_text_lines(html);
+
+        let parsed = extract_target_date_range(&lines, 2027).expect("year range");
+        assert_eq!(parsed.0.day, 27);
+        assert_eq!(parsed.1.day, 30);
+        assert_eq!(parsed.0.month, 5);
+    }
+
+    #[test]
+    fn chooses_24h_event_when_today_in_range() {
+        let start = CalendarDate {
+            year: 2026,
+            month: 5,
+            day: 14,
+        };
+        let end = CalendarDate {
+            year: 2026,
+            month: 5,
+            day: 17,
+        };
+        let today = CalendarDate {
+            year: 2026,
+            month: 5,
+            day: 15,
+        };
+
+        let event_id = if today >= start && today <= end {
+            N24_EVENT_ID
+        } else {
+            DEFAULT_NLS_EVENT_ID
+        };
+        assert_eq!(event_id, N24_EVENT_ID);
     }
 }
