@@ -75,10 +75,11 @@
   - Scoped table auto-scroll to selection/context changes only, so live snapshot refreshes no longer fight manual mouse-wheel scrolling.
   - Kept keyboard navigation auto-follow behavior while preserving user-controlled scroll position during passive updates.
   - Ensured `selectedRow = 0` transitions (for example key `o`) force the table viewport back to the top row.
+- Completed: **Phase E1** on branch `phase-e1`
+  - Added automatic NLS checkered flag promotion when computed `time_to_go` reaches zero (`0`, `0:00`, `00:00`, `00:00:00`) or is unknown (`-`).
+  - Updated `refresh_header_time_to_go` in `src/nls.rs` to set `flag = "Checkered"` only when the current flag is `Green` or default (`-`) and `HEATTYPE=R`.
+  - Preserved non-green race control states (`Yellow`, `Red`, `Code 60`, etc.) when countdown reaches zero.
 
 ## Next Phases (Planned)
 
-- **Phase E1** (Planned)
-  - Add automatic checkered flag for NLS when TTE reaches "0" or "0:00"
-  - Modify `refresh_header_time_to_go` in `src/nls.rs` to set flag to "Checkered" when time_to_go computes to zero
-  - Only override if current flag is "Green" or default ("-") to preserve Yellow/Red/Code60 states
+- No open planned phases.

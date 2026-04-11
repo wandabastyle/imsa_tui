@@ -31,6 +31,7 @@ struct CountdownState {
     end_time_raw: u64,
     time_state_raw: String,
     received_at_ms: u64,
+    is_race_session: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -307,59 +308,18 @@ fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
     None
 }
 
-fn normalized_key(raw: &str) -> String {
-    raw.chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .map(|ch| ch.to_ascii_uppercase())
-        .collect()
-}
-
-fn looks_like_sector_key(key: &str, sector_no: usize) -> bool {
-    let Some(digit) = char::from_digit(sector_no as u32, 10) else {
-        return false;
-    };
-    if !key.contains(digit) {
-        return false;
-    }
-
-    if key == format!("S{digit}")
-        || key == format!("S{digit}TIME")
-        || key == format!("SPLIT{digit}")
-        || key == format!("SPLIT0{digit}")
-        || key == format!("SECTOR{digit}")
-        || key == format!("SEKTOR{digit}")
-    {
-        return true;
-    }
-
-    ["SECTOR", "SEKTOR", "SEC", "SPLIT", "INTERVAL"]
-        .iter()
-        .any(|token| key.contains(token))
-}
-
 fn sector_field(v: &Value, sector_no: usize) -> String {
     let candidates: &[&str] = match sector_no {
-        1 => &["S1", "SEC1", "SECTOR1", "SECTOR_1", "SEKTOR1", "SEKTOR_1"],
-        2 => &["S2", "SEC2", "SECTOR2", "SECTOR_2", "SEKTOR2", "SEKTOR_2"],
-        3 => &["S3", "SEC3", "SECTOR3", "SECTOR_3", "SEKTOR3", "SEKTOR_3"],
-        4 => &["S4", "SEC4", "SECTOR4", "SECTOR_4", "SEKTOR4", "SEKTOR_4"],
-        5 => &["S5", "SEC5", "SECTOR5", "SECTOR_5", "SEKTOR5", "SEKTOR_5"],
+        1 => &["S1TIME", "S1"],
+        2 => &["S2TIME", "S2"],
+        3 => &["S3TIME", "S3"],
+        4 => &["S4TIME", "S4"],
+        5 => &["S5TIME", "S5"],
         _ => &[],
     };
 
     if let Some(value) = candidates.iter().find_map(|key| non_empty_field(v, key)) {
         return value;
-    }
-
-    if let Some(obj) = v.as_object() {
-        for key in obj.keys() {
-            let key_norm = normalized_key(key);
-            if looks_like_sector_key(&key_norm, sector_no) {
-                if let Some(value) = non_empty_field(v, key) {
-                    return value;
-                }
-            }
-        }
     }
 
     "-".to_string()
@@ -475,6 +435,39 @@ fn refresh_header_time_to_go(header: &mut TimingHeader, countdown: Option<&Count
         &countdown.time_state_raw,
         countdown.received_at_ms,
     );
+
+    if should_promote_to_checkered(header, countdown.is_race_session) {
+        header.flag = "Checkered".to_string();
+    }
+}
+
+fn is_zero_time_to_go(value: &str) -> bool {
+    let trimmed = value.trim();
+    matches!(trimmed, "0" | "0:00" | "00:00" | "00:00:00")
+}
+
+fn is_unknown_time_to_go(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty() || trimmed == "-"
+}
+
+fn should_promote_to_checkered_with_inputs(
+    flag: &str,
+    time_to_go: &str,
+    is_race_session: bool,
+) -> bool {
+    let normalized_flag = flag.trim();
+    let flag_is_promotable =
+        normalized_flag == "-" || normalized_flag.eq_ignore_ascii_case("green");
+    if !flag_is_promotable {
+        return false;
+    }
+
+    (is_zero_time_to_go(time_to_go) || is_unknown_time_to_go(time_to_go)) && is_race_session
+}
+
+fn should_promote_to_checkered(header: &TimingHeader, is_race_session: bool) -> bool {
+    should_promote_to_checkered_with_inputs(&header.flag, &header.time_to_go, is_race_session)
 }
 
 fn track_state_text(raw: &str) -> String {
@@ -500,6 +493,7 @@ fn parse_ws_message(
     header: &mut TimingHeader,
     website_event_name: Option<&str>,
     countdown: &mut Option<CountdownState>,
+    is_race_session: &mut bool,
 ) -> Option<(Option<Vec<TimingEntry>>, bool)> {
     let parsed: Value = serde_json::from_str(text).ok()?;
     let pid = get_str(&parsed, "PID")?;
@@ -525,6 +519,13 @@ fn parse_ws_message(
                 header.track_name = track_name.to_string();
             }
 
+            if let Some(heat_type) = get_str(&parsed, "HEATTYPE") {
+                *is_race_session = heat_type.trim() == "R";
+            }
+            if let Some(countdown_state) = countdown.as_mut() {
+                countdown_state.is_race_session = *is_race_session;
+            }
+
             let results = parsed.get("RESULT")?.as_array()?;
             let mut entries: Vec<TimingEntry> =
                 results.iter().filter_map(entry_from_value).collect();
@@ -532,6 +533,9 @@ fn parse_ws_message(
             Some((Some(entries), false))
         }
         "4" => {
+            if let Some(heat_type_raw) = get_str(&parsed, "HEATTYPE") {
+                *is_race_session = heat_type_raw.trim() == "R";
+            }
             if header.session_name.is_empty() || header.session_name == "-" {
                 header.session_name = session_text(get_str(&parsed, "HEATTYPE").unwrap_or("-"));
             }
@@ -555,15 +559,12 @@ fn parse_ws_message(
             let time_state_raw = get_str(&parsed, "TIMESTATE").unwrap_or("0");
             header.day_time = get_str(&parsed, "TIME").unwrap_or("-").to_string();
 
-            *countdown = if end_time_raw == 0 {
-                None
-            } else {
-                Some(CountdownState {
-                    end_time_raw,
-                    time_state_raw: time_state_raw.to_string(),
-                    received_at_ms: now_millis() as u64,
-                })
-            };
+            *countdown = Some(CountdownState {
+                end_time_raw,
+                time_state_raw: time_state_raw.to_string(),
+                received_at_ms: now_millis() as u64,
+                is_race_session: *is_race_session,
+            });
 
             refresh_header_time_to_go(header, countdown.as_ref());
             Some((None, true))
@@ -593,6 +594,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
     let mut website_event_name: Option<String> = None;
     let mut next_website_refresh = Instant::now();
     let mut countdown: Option<CountdownState> = None;
+    let mut is_race_session = false;
     let mut active_event_id = DEFAULT_NLS_EVENT_ID;
 
     'outer: loop {
@@ -690,6 +692,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                         &mut header,
                         website_event_name.as_deref(),
                         &mut countdown,
+                        &mut is_race_session,
                     ) {
                         if let Some(new_entries) = entries {
                             latest_entries = new_entries;
@@ -710,11 +713,12 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = std::str::from_utf8(&data) {
-                        if let Some((entries, _)) = parse_ws_message(
+                        if let Some((entries, header_changed)) = parse_ws_message(
                             text,
                             &mut header,
                             website_event_name.as_deref(),
                             &mut countdown,
+                            &mut is_race_session,
                         ) {
                             if let Some(new_entries) = entries {
                                 latest_entries = new_entries;
@@ -725,6 +729,12 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                 header: header.clone(),
                                 entries: latest_entries.clone(),
                             });
+                            if header_changed {
+                                let _ = tx.send(TimingMessage::Status {
+                                    source_id,
+                                    text: "NLS live timing connected".to_string(),
+                                });
+                            }
                         }
                     }
                 }
@@ -800,6 +810,134 @@ mod tests {
     }
 
     #[test]
+    fn refresh_sets_checkered_when_tte_reaches_zero_on_green() {
+        let mut header = TimingHeader {
+            flag: "Green".to_string(),
+            session_name: "Race".to_string(),
+            ..TimingHeader::default()
+        };
+        let countdown = CountdownState {
+            end_time_raw: 0,
+            time_state_raw: "0".to_string(),
+            received_at_ms: 0,
+            is_race_session: true,
+        };
+
+        header.time_to_go = "0:00".to_string();
+        refresh_header_time_to_go(&mut header, Some(&countdown));
+
+        assert_eq!(header.flag, "Checkered");
+    }
+
+    #[test]
+    fn refresh_keeps_non_green_flags_when_tte_reaches_zero() {
+        let mut header = TimingHeader {
+            flag: "Yellow".to_string(),
+            session_name: "Race".to_string(),
+            time_to_go: "0:00".to_string(),
+            ..TimingHeader::default()
+        };
+        let countdown = CountdownState {
+            end_time_raw: 0,
+            time_state_raw: "0".to_string(),
+            received_at_ms: 0,
+            is_race_session: true,
+        };
+
+        refresh_header_time_to_go(&mut header, Some(&countdown));
+
+        assert_eq!(header.flag, "Yellow");
+    }
+
+    #[test]
+    fn refresh_sets_checkered_when_tte_unknown_in_race_session() {
+        let mut header = TimingHeader {
+            flag: "Green".to_string(),
+            session_name: "Rennen".to_string(),
+            time_to_go: "-".to_string(),
+            ..TimingHeader::default()
+        };
+        let countdown = CountdownState {
+            end_time_raw: 0,
+            time_state_raw: "0".to_string(),
+            received_at_ms: 0,
+            is_race_session: true,
+        };
+
+        refresh_header_time_to_go(&mut header, Some(&countdown));
+
+        assert_eq!(header.flag, "Checkered");
+    }
+
+    #[test]
+    fn refresh_sets_checkered_when_tte_empty_in_race_session() {
+        let mut header = TimingHeader {
+            flag: "Green".to_string(),
+            session_name: "Rennen".to_string(),
+            time_to_go: String::new(),
+            ..TimingHeader::default()
+        };
+        let countdown = CountdownState {
+            end_time_raw: 0,
+            time_state_raw: "0".to_string(),
+            received_at_ms: 0,
+            is_race_session: true,
+        };
+
+        refresh_header_time_to_go(&mut header, Some(&countdown));
+
+        assert_eq!(header.flag, "Checkered");
+    }
+
+    #[test]
+    fn refresh_keeps_green_when_tte_zero_but_not_race_session() {
+        let mut header = TimingHeader {
+            flag: "Green".to_string(),
+            session_name: "Qualifying".to_string(),
+            time_to_go: "0:00".to_string(),
+            ..TimingHeader::default()
+        };
+        let countdown = CountdownState {
+            end_time_raw: 0,
+            time_state_raw: "0".to_string(),
+            received_at_ms: 0,
+            is_race_session: false,
+        };
+
+        refresh_header_time_to_go(&mut header, Some(&countdown));
+
+        assert_eq!(header.flag, "Green");
+    }
+
+    #[test]
+    fn pid0_race_session_stays_true_when_follow_up_payload_omits_heattype() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+
+        let first = r#"{"PID":"0","HEATTYPE":"R","RESULT":[]}"#;
+        let second = r#"{"PID":"0","RESULT":[]}"#;
+
+        let _ = parse_ws_message(
+            first,
+            &mut header,
+            None,
+            &mut countdown,
+            &mut is_race_session,
+        );
+        assert!(is_race_session);
+
+        let _ = parse_ws_message(
+            second,
+            &mut header,
+            None,
+            &mut countdown,
+            &mut is_race_session,
+        );
+        assert!(is_race_session);
+    }
+
+    #[test]
     fn entry_from_value_reads_all_five_sectors() {
         let row = json!({
             "POSITION": "1",
@@ -829,7 +967,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_from_value_uses_variant_sector_keys_and_fallbacks() {
+    fn entry_from_value_ignores_non_standard_sector_keys() {
         let row = json!({
             "POSITION": "4",
             "STNR": "911",
@@ -849,15 +987,15 @@ mod tests {
         });
 
         let entry = entry_from_value(&row).expect("entry");
-        assert_eq!(entry.sector_1, "1:32.100");
-        assert_eq!(entry.sector_2, "2:01.200");
-        assert_eq!(entry.sector_3, "1:10.300");
-        assert_eq!(entry.sector_4, "1:46.400");
+        assert_eq!(entry.sector_1, "-");
+        assert_eq!(entry.sector_2, "-");
+        assert_eq!(entry.sector_3, "-");
+        assert_eq!(entry.sector_4, "-");
         assert_eq!(entry.sector_5, "-");
     }
 
     #[test]
-    fn entry_from_value_detects_split_style_sector_keys() {
+    fn entry_from_value_prefers_sxtime_sector_keys() {
         let row = json!({
             "POSITION": "8",
             "STNR": "44",
@@ -870,11 +1008,11 @@ mod tests {
             "GAP": "+23.000",
             "LASTLAPTIME": "8:11.111",
             "FASTESTLAP": "8:02.222",
-            "Split01": "1:32.555",
-            "Split2": "2:01.666",
-            "S3Time": "1:10.777",
-            "Sektor_4": "1:45.888",
-            "SECTOR5TIME": "1:33.999"
+            "S1TIME": "1:32.555",
+            "S2TIME": "2:01.666",
+            "S3TIME": "1:10.777",
+            "S4TIME": "1:45.888",
+            "S5TIME": "1:33.999"
         });
 
         let entry = entry_from_value(&row).expect("entry");
@@ -900,7 +1038,7 @@ mod tests {
             "GAP": "+44.000",
             "LASTLAPTIME": "8:20.000",
             "FASTESTLAP": "8:10.000",
-            "S5": "OUT"
+            "S5TIME": "OUT"
         });
 
         let entry = entry_from_value(&row).expect("entry");
