@@ -2,6 +2,7 @@
   // Shared leaderboard table renderer for overall, grouped, class, and favourites views.
 
   import { afterUpdate, onMount } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
   import type { Series, TimingEntry } from '$lib/types';
 
   interface GroupSection {
@@ -25,7 +26,7 @@
   let lastSelectedRow = -1;
   let lastSeries: Series | null = null;
   let lastTitle = '';
-  const pitTrackers = new Map<string, { inPit: boolean; inUntil: number; outUntil: number }>();
+  const pitTrackers = new SvelteMap<string, { inPit: boolean; inUntil: number; outUntil: number }>();
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
@@ -228,18 +229,21 @@
     const normalized = trimmed.replace(/^\+/, '');
     if (!/^[0-9:.]+$/.test(normalized)) return null;
 
-    let seconds = 0;
-    if (normalized.includes(':')) {
+    const seconds = normalized.includes(':')
+      ? (() => {
       const [minsPart, secsPart] = normalized.split(':');
       const mins = Number.parseInt(minsPart, 10);
       const secs = Number.parseFloat(secsPart);
       if (Number.isNaN(mins) || Number.isNaN(secs)) return null;
-      seconds = mins * 60 + secs;
-    } else {
-      const secs = Number.parseFloat(normalized);
-      if (Number.isNaN(secs)) return null;
-      seconds = secs;
-    }
+        return mins * 60 + secs;
+      })()
+      : (() => {
+          const secs = Number.parseFloat(normalized);
+          if (Number.isNaN(secs)) return null;
+          return secs;
+        })();
+
+    if (seconds === null) return null;
 
     return { kind: 'time', ms: Math.round(seconds * 1000) };
   }
@@ -383,26 +387,26 @@
         {#if groupedSections.length === 0}
           <p class="empty">No grouped class data available yet.</p>
         {:else}
-          {#each groupedSections as section}
+          {#each groupedSections as section (section.name)}
             <section class="group-section">
               <div class="group-title">{section.name} ({section.entries.length} cars)</div>
               <table>
                 <colgroup>
-                  {#each widthBySeries[series] as width}
+                  {#each widthBySeries[series] as width, widthIndex (`${series}-group-${widthIndex}-${width}`)}
                     <col style={`width:${width}`} />
                   {/each}
                 </colgroup>
                 <thead>
                   <tr>
-                      {#each columnsBySeries[series] as column}
+                      {#each columnsBySeries[series] as column (column)}
                         <th class={compactColumnClass(column)}>{column}</th>
                       {/each}
                   </tr>
                 </thead>
                 <tbody>
-                  {#each section.entries as entry, index}
+                  {#each section.entries as entry, index (entry.stable_id)}
                     <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
-                      {#each cells(entry) as cell, colIndex}
+                      {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
                         <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
                     </tr>
@@ -416,13 +420,13 @@
     {:else}
       <table>
         <colgroup>
-          {#each widthBySeries[series] as width}
+          {#each widthBySeries[series] as width, widthIndex (`${series}-flat-${widthIndex}-${width}`)}
             <col style={`width:${width}`} />
           {/each}
         </colgroup>
         <thead>
           <tr>
-            {#each columnsBySeries[series] as column}
+            {#each columnsBySeries[series] as column (column)}
               <th class={compactColumnClass(column)}>{column}</th>
             {/each}
           </tr>
@@ -433,9 +437,9 @@
               <td colspan={columnsBySeries[series].length}>No timing data yet.</td>
             </tr>
           {:else}
-            {#each entries as entry, index}
+            {#each entries as entry, index (entry.stable_id)}
               <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
-                {#each cells(entry) as cell, colIndex}
+                {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
                   <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
               </tr>

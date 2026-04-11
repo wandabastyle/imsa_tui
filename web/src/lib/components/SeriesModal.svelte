@@ -14,7 +14,7 @@
     <section class="modal">
       <h2>Select Series</h2>
       <div class="list">
-        {#each seriesList as series}
+        {#each seriesList as series (series)}
           <button class:selected={series === selectedSeries} on:click={() => onPick?.(series)}>
             {series.toUpperCase()}
           </button>

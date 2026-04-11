@@ -2,6 +2,7 @@
   // Keyboard-first dashboard page that mirrors the TUI interaction model.
 
   import { onDestroy, onMount } from 'svelte';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
   import HeaderBar from '$lib/components/HeaderBar.svelte';
   import HelpModal from '$lib/components/HelpModal.svelte';
@@ -289,7 +290,7 @@
   }
 
   function groupedEntries(entries: TimingEntry[]): [string, TimingEntry[]][] {
-    const grouped = new Map<string, TimingEntry[]>();
+    const grouped = new SvelteMap<string, TimingEntry[]>();
     for (const entry of entries) {
       const group = classDisplayName(entry.class_name);
       if (!grouped.has(group)) {
@@ -357,7 +358,7 @@
     if (!selected) return;
     const key = favouriteKey($appState.activeSeries, selected.stable_id);
     appState.update((state) => {
-      const next = new Set(state.favourites);
+      const next = new SvelteSet(state.favourites);
       if (next.has(key)) {
         next.delete(key);
       } else {

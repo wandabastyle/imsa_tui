@@ -31,7 +31,7 @@
         <p class="empty">No groups available for current series.</p>
       {:else}
         <div class="list" bind:this={listEl}>
-          {#each groups as group, idx}
+          {#each groups as group, idx (`${idx}-${group}`)}
             <button class:selected={idx === selectedIndex} on:click={() => onPick?.(idx)}>
               {idx === selectedIndex ? '>' : ' '} {group}
             </button>
