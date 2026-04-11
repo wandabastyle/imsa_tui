@@ -23,6 +23,13 @@ const EVENT_ID: &str = "20";
 const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/language/de/startseite/";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
+#[derive(Debug, Clone)]
+struct CountdownState {
+    end_time_raw: u64,
+    time_state_raw: String,
+    received_at_ms: u64,
+}
+
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -166,20 +173,47 @@ fn current_time_to_end(
     time_state_raw: &str,
     received_at_ms: u64,
 ) -> String {
+    current_time_to_end_at(
+        header,
+        end_time_raw,
+        time_state_raw,
+        received_at_ms,
+        now_millis() as u64,
+    )
+}
+
+fn current_time_to_end_at(
+    header: &TimingHeader,
+    end_time_raw: u64,
+    time_state_raw: &str,
+    received_at_ms: u64,
+    now_ms: u64,
+) -> String {
     if end_time_raw == 0 {
         return header.time_to_go.clone();
     }
 
-    let now = now_millis() as u64;
-
     let remaining_ms = if time_state_raw == "0" {
-        let elapsed = now.saturating_sub(received_at_ms);
+        let elapsed = now_ms.saturating_sub(received_at_ms);
         end_time_raw.saturating_sub(elapsed)
     } else {
-        end_time_raw.saturating_sub(now)
+        end_time_raw.saturating_sub(now_ms)
     };
 
     format_duration_ms(remaining_ms)
+}
+
+fn refresh_header_time_to_go(header: &mut TimingHeader, countdown: Option<&CountdownState>) {
+    let Some(countdown) = countdown else {
+        return;
+    };
+
+    header.time_to_go = current_time_to_end(
+        header,
+        countdown.end_time_raw,
+        &countdown.time_state_raw,
+        countdown.received_at_ms,
+    );
 }
 
 fn track_state_text(raw: &str) -> String {
@@ -204,6 +238,7 @@ fn parse_ws_message(
     text: &str,
     header: &mut TimingHeader,
     website_event_name: Option<&str>,
+    countdown: &mut Option<CountdownState>,
 ) -> Option<(Option<Vec<TimingEntry>>, bool)> {
     let parsed: Value = serde_json::from_str(text).ok()?;
     let pid = get_str(&parsed, "PID")?;
@@ -258,8 +293,18 @@ fn parse_ws_message(
                 .unwrap_or(0);
             let time_state_raw = get_str(&parsed, "TIMESTATE").unwrap_or("0");
             header.day_time = get_str(&parsed, "TIME").unwrap_or("-").to_string();
-            header.time_to_go =
-                current_time_to_end(header, end_time_raw, time_state_raw, now_millis() as u64);
+
+            *countdown = if end_time_raw == 0 {
+                None
+            } else {
+                Some(CountdownState {
+                    end_time_raw,
+                    time_state_raw: time_state_raw.to_string(),
+                    received_at_ms: now_millis() as u64,
+                })
+            };
+
+            refresh_header_time_to_go(header, countdown.as_ref());
             Some((None, true))
         }
         "LTS_TIMESYNC" => None,
@@ -289,6 +334,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
         .ok();
     let mut website_event_name: Option<String> = None;
     let mut next_website_refresh = Instant::now();
+    let mut countdown: Option<CountdownState> = None;
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
@@ -358,12 +404,16 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
 
             match socket.read() {
                 Ok(Message::Text(text)) => {
-                    if let Some((entries, header_changed)) =
-                        parse_ws_message(&text, &mut header, website_event_name.as_deref())
-                    {
+                    if let Some((entries, header_changed)) = parse_ws_message(
+                        &text,
+                        &mut header,
+                        website_event_name.as_deref(),
+                        &mut countdown,
+                    ) {
                         if let Some(new_entries) = entries {
                             latest_entries = new_entries;
                         }
+                        refresh_header_time_to_go(&mut header, countdown.as_ref());
                         let _ = tx.send(TimingMessage::Snapshot {
                             source_id,
                             header: header.clone(),
@@ -379,12 +429,16 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = std::str::from_utf8(&data) {
-                        if let Some((entries, _)) =
-                            parse_ws_message(text, &mut header, website_event_name.as_deref())
-                        {
+                        if let Some((entries, _)) = parse_ws_message(
+                            text,
+                            &mut header,
+                            website_event_name.as_deref(),
+                            &mut countdown,
+                        ) {
                             if let Some(new_entries) = entries {
                                 latest_entries = new_entries;
                             }
+                            refresh_header_time_to_go(&mut header, countdown.as_ref());
                             let _ = tx.send(TimingMessage::Snapshot {
                                 source_id,
                                 header: header.clone(),
@@ -434,5 +488,32 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
         if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_time_to_end_at_counts_down_for_relative_mode() {
+        let header = TimingHeader {
+            time_to_go: "-".to_string(),
+            ..TimingHeader::default()
+        };
+
+        let rendered = current_time_to_end_at(&header, 120_000, "0", 1_000_000, 1_030_500);
+        assert_eq!(rendered, "00:01:29");
+    }
+
+    #[test]
+    fn current_time_to_end_at_uses_absolute_timestamp_mode() {
+        let header = TimingHeader {
+            time_to_go: "-".to_string(),
+            ..TimingHeader::default()
+        };
+
+        let rendered = current_time_to_end_at(&header, 2_000_000, "1", 0, 1_940_000);
+        assert_eq!(rendered, "00:01:00");
     }
 }

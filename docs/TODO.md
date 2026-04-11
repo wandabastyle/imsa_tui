@@ -52,6 +52,11 @@
   - Updated IMSA/NLS stable ID generation to emit classless keys directly (`fallback:<car>`, `stnr:<car>`).
   - Simplified favourite key generation to series-prefix passthrough; removed normalization on config/profile load.
   - Updated regression and unit tests to expect only classless favourite keys.
+- Completed: **Phase D6** on branch `main`
+  - Kept ENDTIME/TIMESTATE metadata from `PID=4` updates as countdown state.
+  - Recompute and refresh NLS `time_to_go` before every emitted snapshot (including `PID=0` result cycles).
+  - Preserved fallback behavior when countdown metadata is missing.
+  - Added countdown helper tests for relative and absolute timestamp modes.
 
 ## Next Phases (Planned)
 
@@ -63,3 +68,16 @@
     - profile preference file location,
     - login lockout behavior,
     - first-line daemon checks (`web_server --status`, `web_server --logs`).
+
+- Planned: **Phase D4 - NLS sector columns (S1-S5)**
+  - Extend shared timing model with NLS-visible sector fields (`sector_1`..`sector_5`).
+  - Parse up to 5 sector values from NLS websocket payloads with tolerant key lookup and `"-"` fallback.
+  - Render always-on `S1`..`S5` columns for NLS in both TUI and Web UI tables.
+  - Add parser coverage for full/partial/variant sector payload shapes.
+
+- Planned: **Phase D5 - Favourite-relative gap reference (`f`)**
+  - When `f` jumps to a favourite, set that row as the active gap reference anchor.
+  - Display gap columns relative to the anchor row in both TUI and Web UI (`IMSA: Gap O/Gap C/Next C`, `NLS: Gap`, `F1: Gap/Int`).
+  - Show `REF` for the anchor row and keep raw values as fallback when units cannot be compared.
+  - Clear anchor on context changes (series/view/group switch) or when the anchor row is no longer present.
+  - Add parser/formatting tests for time, lap, and mixed/unknown gap values.
