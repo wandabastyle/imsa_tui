@@ -5,16 +5,23 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['build/**', '.svelte-kit/**', 'node_modules/**']
+    ignores: ['build/**', '.svelte-kit/**', 'node_modules/**'],
+    languageOptions: {
+      parserOptions: {
+        projectService: true
+      }
+    }
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.strictTypeChecked,
+  ...tseslint.configs.stylisticTypeChecked,
   ...svelte.configs['flat/recommended'],
   {
     files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: {
       parserOptions: {
-        parser: tseslint.parser
+        parser: tseslint.parser,
+        projectService: true
       }
     }
   },

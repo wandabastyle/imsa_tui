@@ -8,8 +8,10 @@
     "dev": "vite dev",
     "build": "svelte-kit sync && vite build",
     "preview": "vite preview",
+    "typecheck": "svelte-kit sync && tsc --noEmit -p tsconfig.json",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "verify": "pnpm run typecheck && pnpm run check && pnpm run lint"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
