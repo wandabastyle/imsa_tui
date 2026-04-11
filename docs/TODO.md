@@ -57,17 +57,12 @@
   - Recompute and refresh NLS `time_to_go` before every emitted snapshot (including `PID=0` result cycles).
   - Preserved fallback behavior when countdown metadata is missing.
   - Added countdown helper tests for relative and absolute timestamp modes.
+- Completed: **Phase D3** on branch `main`
+  - Added structured auth outcome logs (`auth_login`, `auth_logout`, `auth_guard`) without logging secrets.
+  - Added structured profile-creation logs for `imsa_profile` issuance events with redacted profile hints.
+  - Added README troubleshooting checklist covering storage split, session-cookie re-login behavior, profile file location, lockout defaults, and first-line daemon checks.
 
 ## Next Phases (Planned)
-
-- Planned: **Phase D3 - Observability improvements**
-  - Add structured logs for auth outcomes and profile creation events (without secrets).
-  - Add a minimal troubleshooting checklist covering:
-    - storage paths (`~/.config/imsa_tui` vs `~/.local/share/imsa_tui`),
-    - session-cookie re-login behavior after browser restart,
-    - profile preference file location,
-    - login lockout behavior,
-    - first-line daemon checks (`web_server --status`, `web_server --logs`).
 
 - Planned: **Phase D4 - NLS sector columns (S1-S5)**
   - Extend shared timing model with NLS-visible sector fields (`sector_1`..`sector_5`).
@@ -81,3 +76,8 @@
   - Show `REF` for the anchor row and keep raw values as fallback when units cannot be compared.
   - Clear anchor on context changes (series/view/group switch) or when the anchor row is no longer present.
   - Add parser/formatting tests for time, lap, and mixed/unknown gap values.
+
+- Planned: **Phase D7 - Web UI scroll stability during live updates**
+  - Prevent table auto-scroll from overriding manual mouse-wheel scrolling on live snapshot refreshes.
+  - Trigger selected-row `scrollIntoView` only when selection/view context changes (keyboard navigation, mode/series switch).
+  - Preserve current keyboard-first behavior while avoiding jump-to-top during passive data updates.

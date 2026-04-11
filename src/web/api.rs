@@ -1,6 +1,9 @@
 // REST handlers for snapshots, preferences, and health probes.
 
-use std::str::FromStr;
+use std::{
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     extract::{Path, State},
@@ -10,6 +13,7 @@ use axum::{
 };
 use rand::{distributions::Alphanumeric, Rng};
 use serde::Serialize;
+use serde_json::json;
 
 use crate::timing::Series;
 
@@ -125,15 +129,47 @@ fn profile_context(
     state: &WebAppState,
     headers: &axum::http::HeaderMap,
 ) -> (String, Option<String>) {
+    let mut create_reason = "missing_cookie";
+
     if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
         if valid_profile_id(profile_id) {
             return (profile_id.to_string(), None);
         }
+        create_reason = "invalid_cookie";
     }
 
     let generated = generate_profile_id();
     let cookie = build_profile_cookie(state.profile_cookie_secure(), &generated);
+    log_profile_event("web_profile", "created", create_reason, &generated);
     (generated, Some(cookie))
+}
+
+fn log_profile_event(event: &str, outcome: &str, reason: &str, profile_id: &str) {
+    eprintln!(
+        "{}",
+        json!({
+            "event": event,
+            "outcome": outcome,
+            "reason": reason,
+            "profile_hint": profile_hint(profile_id),
+            "ts_unix": now_unix_secs(),
+        })
+    );
+}
+
+fn profile_hint(profile_id: &str) -> String {
+    if profile_id == "-" {
+        return "-".to_string();
+    }
+
+    profile_id.chars().take(8).collect()
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn with_profile_cookie(cookie: Option<String>, mut response: Response) -> Response {

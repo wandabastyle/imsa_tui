@@ -13,9 +13,12 @@ use axum::{
 use directories::ProjectDirs;
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::HashMap,
     fs,
+    hash::{Hash, Hasher},
     path::PathBuf,
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH},
@@ -92,13 +95,14 @@ impl WebAuthConfig {
         matches!(guard.get(token), Some(expires) if *expires > now)
     }
 
-    fn revoke_from_headers(&self, headers: &HeaderMap) {
+    fn revoke_from_headers(&self, headers: &HeaderMap) -> bool {
         let Some(token) = cookie_value(headers, &self.cookie_name) else {
-            return;
+            return false;
         };
         if let Ok(mut guard) = self.sessions.write() {
-            guard.remove(token);
+            return guard.remove(token).is_some();
         }
+        false
     }
 
     fn check_login_allowed(&self, key: &str) -> Result<(), u64> {
@@ -191,7 +195,14 @@ pub async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Response {
     let login_key = login_attempt_key(&headers);
+    let client = anonymized_client_key(&login_key);
     if let Err(retry_after_secs) = config.check_login_allowed(&login_key) {
+        log_auth_event(
+            "auth_login",
+            "blocked",
+            Some(retry_after_secs),
+            Some(client.as_str()),
+        );
         return error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "too many login attempts, try again later",
@@ -201,18 +212,27 @@ pub async fn login(
 
     if payload.access_code != config.access_code {
         config.record_login_failure(&login_key);
+        log_auth_event("auth_login", "failure", None, Some(client.as_str()));
         return error_response(StatusCode::UNAUTHORIZED, "invalid access code", None);
     }
 
     config.record_login_success(&login_key);
 
     let Some(token) = config.create_session() else {
+        log_auth_event(
+            "auth_login",
+            "session_create_error",
+            None,
+            Some(client.as_str()),
+        );
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to create session",
             None,
         );
     };
+
+    log_auth_event("auth_login", "success", None, Some(client.as_str()));
 
     let cookie = config.build_cookie(&config.cookie_name, &token, None);
 
@@ -230,7 +250,14 @@ pub async fn login(
 }
 
 pub async fn logout(State(config): State<WebAuthConfig>, request: Request) -> Response {
-    config.revoke_from_headers(request.headers());
+    let had_session = config.revoke_from_headers(request.headers());
+    let client = anonymized_client_key(&login_attempt_key(request.headers()));
+    log_auth_event(
+        "auth_logout",
+        if had_session { "success" } else { "no_session" },
+        None,
+        Some(client.as_str()),
+    );
 
     let clear_cookie = config.build_cookie(&config.cookie_name, "", Some(0));
     let mut response = (
@@ -257,6 +284,8 @@ pub async fn require_session_middleware(
     next: Next,
 ) -> Response {
     if !config.validate_headers(request.headers()) {
+        let client = anonymized_client_key(&login_attempt_key(request.headers()));
+        log_auth_event("auth_guard", "denied", None, Some(client.as_str()));
         return unauthorized_response();
     }
 
@@ -265,6 +294,29 @@ pub async fn require_session_middleware(
 
 fn unauthorized_response() -> Response {
     error_response(StatusCode::UNAUTHORIZED, "authentication required", None)
+}
+
+fn log_auth_event(event: &str, outcome: &str, retry_after_secs: Option<u64>, client: Option<&str>) {
+    eprintln!(
+        "{}",
+        json!({
+            "event": event,
+            "outcome": outcome,
+            "client": client,
+            "retry_after_secs": retry_after_secs,
+            "ts_unix": now_unix_secs(),
+        })
+    );
+}
+
+fn anonymized_client_key(raw: &str) -> String {
+    if raw == "unknown-client" {
+        return raw.to_string();
+    }
+
+    let mut hasher = DefaultHasher::new();
+    raw.hash(&mut hasher);
+    format!("client-{hash:016x}", hash = hasher.finish())
 }
 
 fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u64>) -> Response {

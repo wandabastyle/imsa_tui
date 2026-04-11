@@ -217,6 +217,14 @@ If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
 ## Troubleshooting
 
+Web auth/profile quick checklist:
+
+- Run `web_server --status` first, then `web_server --logs` for immediate daemon diagnostics.
+- Verify storage paths: TUI config is `~/.config/imsa_tui/config.toml`, web runtime/auth/profile files are under `~/.local/share/imsa_tui/`.
+- Browser restart requires login again (`imsa_session` is session-scoped), while profile preferences persist via `imsa_profile`.
+- Per-profile preferences are stored at `~/.local/share/imsa_tui/profiles/<profile_id>.toml`.
+- Lockout defaults: after `6` failed logins in `60s`, login is blocked for `300s`.
+
 - If the table stays empty, wait a few polling cycles for the first successful snapshot.
 - If you see repeated errors in the header, confirm outbound HTTPS access is available.
 - If rendering looks off, resize your terminal to provide more width for table columns.
