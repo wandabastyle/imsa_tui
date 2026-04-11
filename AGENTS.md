@@ -34,9 +34,18 @@
 
 ## Branch and Merge
 
+- Never work directly on `main` for feature/fix/doc changes.
+- Before making changes, create or switch to a dedicated branch (for example `feat/...`, `fix/...`, `chore/...`).
+- When work is ready, open a pull request and merge through the PR flow only (no direct pushes to `main`).
 - Do feature/fix work on a dedicated branch; merge to `main` only after checks pass.
 - Before merge, ensure working tree is clean and all required checks are green.
 - Do not force-push protected branches.
+
+## Shell Command Compatibility
+
+- When suggesting terminal commands to operators, prefer fish-friendly syntax.
+- Avoid bash-only constructs in examples (for example `$(...)`, HEREDOCs, and `&&` chains).
+- Prefer simple one-command-per-line sequences that run in both fish and bash when possible.
 
 ## Docs and Tests Sync
 
