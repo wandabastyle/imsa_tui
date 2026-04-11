@@ -13,6 +13,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - name: Build web assets for embed-ui
+        run: pnpm run build
+        working-directory: web
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
