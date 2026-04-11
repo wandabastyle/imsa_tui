@@ -77,3 +77,8 @@
   - Ensured `selectedRow = 0` transitions (for example key `o`) force the table viewport back to the top row.
 
 ## Next Phases (Planned)
+
+- **Phase E1** (Planned)
+  - Add automatic checkered flag for NLS when TTE reaches "0" or "0:00"
+  - Modify `refresh_header_time_to_go` in `src/nls.rs` to set flag to "Checkered" when time_to_go computes to zero
+  - Only override if current flag is "Green" or default ("-") to preserve Yellow/Red/Code60 states
