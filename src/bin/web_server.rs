@@ -778,7 +778,7 @@ fn is_process_running(pid: i32) -> bool {
             return true;
         }
         let err = io::Error::last_os_error();
-        return matches!(err.raw_os_error(), Some(code) if code == libc::EPERM);
+        matches!(err.raw_os_error(), Some(code) if code == libc::EPERM)
     }
 
     #[cfg(not(unix))]
@@ -795,7 +795,7 @@ fn send_signal(pid: i32, signal: i32) -> Result<(), Box<dyn std::error::Error>> 
         if rc == 0 {
             return Ok(());
         }
-        return Err(io::Error::last_os_error().into());
+        Err(io::Error::last_os_error().into())
     }
 
     #[cfg(not(unix))]

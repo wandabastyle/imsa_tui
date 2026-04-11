@@ -100,6 +100,36 @@ impl GroupPickerState {
     }
 }
 
+struct TableRenderCtx<'a> {
+    favourites: &'a HashSet<String>,
+    marked_stable_id: Option<&'a str>,
+    active_series: Series,
+    selected_row_in_view: Option<usize>,
+    marquee_tick: usize,
+    gap_anchor: Option<&'a GapAnchorInfo>,
+    pit_trackers: &'a HashMap<String, PitTracker>,
+    now: Instant,
+}
+
+struct SeriesChangeCtx<'a> {
+    active_series: &'a mut Series,
+    feed: &'a mut Option<ActiveFeed>,
+    tx: &'a Sender<TimingMessage>,
+    source_id_ctr: &'a mut u64,
+    dev_mode: bool,
+    header: &'a mut TimingHeader,
+    entries: &'a mut Vec<TimingEntry>,
+    status: &'a mut String,
+    favourites: &'a mut HashSet<String>,
+    last_error: &'a mut Option<String>,
+    last_update: &'a mut Option<Instant>,
+    selected_row: &'a mut usize,
+    view_mode: &'a mut ViewMode,
+    search: &'a mut SearchState,
+    demo_flag: &'a mut DemoFlagState,
+    config: &'a mut AppConfig,
+}
+
 fn favourite_key(series: Series, stable_id: &str) -> String {
     favourites::favourite_key(series, stable_id)
 }
@@ -291,7 +321,7 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
     }
 
     let mut filtered = config.clone();
-    filtered.favourites = favourites::normalize_favourites(filtered.favourites.into_iter());
+    filtered.favourites = favourites::normalize_favourites(filtered.favourites);
     let encoded =
         toml::to_string_pretty(&filtered).map_err(|e| format!("encode config failed: {e}"))?;
     fs::write(path, encoded).map_err(|e| format!("write config failed: {e}"))
@@ -595,7 +625,7 @@ fn parse_gap_value(raw: &str) -> Option<GapValue> {
 
 fn format_time_delta(ms: i64) -> String {
     let sign = if ms >= 0 { '+' } else { '-' };
-    let abs_ms = ms.abs() as u64;
+    let abs_ms = ms.unsigned_abs();
     let minutes = abs_ms / 60_000;
     let secs = (abs_ms % 60_000) as f64 / 1000.0;
     if minutes > 0 {
@@ -651,56 +681,51 @@ fn relative_gap_text(
     }
 }
 
-fn build_rows(
-    entries: &[TimingEntry],
-    favourites: &HashSet<String>,
-    marked_stable_id: Option<&str>,
-    active_series: Series,
-    selected_row_in_view: Option<usize>,
-    marquee_tick: usize,
-    gap_anchor: Option<&GapAnchorInfo>,
-    pit_trackers: &HashMap<String, PitTracker>,
-    now: Instant,
-) -> Vec<Row<'static>> {
+fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'static>> {
     entries
         .iter()
         .enumerate()
         .map(|e| {
             let (idx, e) = e;
-            let fav_key = favourite_key(active_series, &e.stable_id);
-            let fav_marker = if favourites.contains(&fav_key) {
+            let fav_key = favourite_key(ctx.active_series, &e.stable_id);
+            let fav_marker = if ctx.favourites.contains(&fav_key) {
                 "★ "
             } else {
                 ""
             };
-            let selected = selected_row_in_view == Some(idx);
+            let selected = ctx.selected_row_in_view == Some(idx);
 
-            let row = match active_series {
+            let row = match ctx.active_series {
                 Series::Imsa => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
-                    Cell::from(marquee_if_needed(&e.driver, 24, selected, marquee_tick)),
-                    Cell::from(marquee_if_needed(&e.vehicle, 20, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 24, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(
+                        &e.vehicle,
+                        20,
+                        selected,
+                        ctx.marquee_tick,
+                    )),
                     Cell::from(e.laps.clone()),
                     Cell::from(relative_gap_text(
                         e,
                         &e.gap_overall,
                         GapColumn::Overall,
-                        gap_anchor,
+                        ctx.gap_anchor,
                     )),
                     Cell::from(relative_gap_text(
                         e,
                         &e.gap_class,
                         GapColumn::Class,
-                        gap_anchor,
+                        ctx.gap_anchor,
                     )),
                     Cell::from(relative_gap_text(
                         e,
                         &e.gap_next_in_class,
                         GapColumn::NextInClass,
-                        gap_anchor,
+                        ctx.gap_anchor,
                     )),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
@@ -711,7 +736,7 @@ fn build_rows(
                         &e.fastest_driver,
                         18,
                         selected,
-                        marquee_tick,
+                        ctx.marquee_tick,
                     )),
                 ]),
                 Series::Nls => Row::new(vec![
@@ -719,15 +744,20 @@ fn build_rows(
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
-                    Cell::from(marquee_if_needed(&e.driver, 18, selected, marquee_tick)),
-                    Cell::from(marquee_if_needed(&e.vehicle, 18, selected, marquee_tick)),
-                    Cell::from(marquee_if_needed(&e.team, 24, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 18, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(
+                        &e.vehicle,
+                        18,
+                        selected,
+                        ctx.marquee_tick,
+                    )),
+                    Cell::from(marquee_if_needed(&e.team, 24, selected, ctx.marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(relative_gap_text(
                         e,
                         &e.gap_overall,
                         GapColumn::Overall,
-                        gap_anchor,
+                        ctx.gap_anchor,
                     )),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
@@ -740,20 +770,20 @@ fn build_rows(
                 Series::F1 => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
-                    Cell::from(marquee_if_needed(&e.driver, 26, selected, marquee_tick)),
-                    Cell::from(marquee_if_needed(&e.team, 16, selected, marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 26, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.team, 16, selected, ctx.marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(relative_gap_text(
                         e,
                         &e.gap_overall,
                         GapColumn::Overall,
-                        gap_anchor,
+                        ctx.gap_anchor,
                     )),
                     Cell::from(relative_gap_text(
                         e,
                         &e.gap_class,
                         GapColumn::Class,
-                        gap_anchor,
+                        ctx.gap_anchor,
                     )),
                     Cell::from(e.last_lap.clone()),
                     Cell::from(e.best_lap.clone()),
@@ -764,11 +794,11 @@ fn build_rows(
             };
 
             let mut style = class_style(&e.class_name);
-            let pit_phase = pit_phase_for_entry(pit_trackers, e, now);
+            let pit_phase = pit_phase_for_entry(ctx.pit_trackers, e, ctx.now);
             if let Some(pit_style) = pit_phase_style(pit_phase) {
                 style = style.patch(pit_style);
             }
-            if marked_stable_id == Some(e.stable_id.as_str()) {
+            if ctx.marked_stable_id == Some(e.stable_id.as_str()) {
                 style = style
                     .bg(Color::Rgb(34, 70, 122))
                     .add_modifier(Modifier::BOLD);
@@ -895,16 +925,9 @@ fn pit_phase_for_entry(
 fn build_table<'a>(
     title: impl Into<String>,
     entries: &'a [TimingEntry],
-    favourites: &HashSet<String>,
-    marked_stable_id: Option<&str>,
-    active_series: Series,
-    selected_row_in_view: Option<usize>,
-    marquee_tick: usize,
-    gap_anchor: Option<&GapAnchorInfo>,
-    pit_trackers: &HashMap<String, PitTracker>,
-    now: Instant,
+    ctx: &TableRenderCtx<'_>,
 ) -> Table<'a> {
-    let (headers, widths): (Vec<&str>, Vec<Constraint>) = match active_series {
+    let (headers, widths): (Vec<&str>, Vec<Constraint>) = match ctx.active_series {
         Series::Imsa => (
             vec![
                 "Pos",
@@ -942,23 +965,10 @@ fn build_table<'a>(
         ),
     };
 
-    Table::new(
-        build_rows(
-            entries,
-            favourites,
-            marked_stable_id,
-            active_series,
-            selected_row_in_view,
-            marquee_tick,
-            gap_anchor,
-            pit_trackers,
-            now,
-        ),
-        widths,
-    )
-    .header(Row::new(headers).style(Style::default().add_modifier(Modifier::BOLD)))
-    .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
-    .block(Block::default().title(title.into()).borders(Borders::ALL))
+    Table::new(build_rows(entries, ctx), widths)
+        .header(Row::new(headers).style(Style::default().add_modifier(Modifier::BOLD)))
+        .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
+        .block(Block::default().title(title.into()).borders(Borders::ALL))
 }
 
 fn grouped_entries(
@@ -1083,11 +1093,11 @@ fn drain_messages(
     }
 }
 
-fn visible_slice<'a>(
-    entries: &'a [TimingEntry],
+fn visible_slice(
+    entries: &[TimingEntry],
     selected_idx: usize,
     table_area_height: u16,
-) -> (&'a [TimingEntry], usize) {
+) -> (&[TimingEntry], usize) {
     let visible_rows = table_area_height.saturating_sub(3) as usize;
     let window = visible_rows.max(1);
     if entries.is_empty() {
@@ -1223,54 +1233,40 @@ fn normalize_imsa_label(raw: &str) -> String {
 
 // Switching feeds is centralized so both keyboard shortcuts and popup confirmation
 // run the exact same state-reset flow as more series are added.
-fn apply_series_change(
-    next_series: Series,
-    active_series: &mut Series,
-    feed: &mut Option<ActiveFeed>,
-    tx: &Sender<TimingMessage>,
-    source_id_ctr: &mut u64,
-    dev_mode: bool,
-    header: &mut TimingHeader,
-    entries: &mut Vec<TimingEntry>,
-    status: &mut String,
-    favourites: &mut HashSet<String>,
-    last_error: &mut Option<String>,
-    last_update: &mut Option<Instant>,
-    selected_row: &mut usize,
-    view_mode: &mut ViewMode,
-    search: &mut SearchState,
-    demo_flag: &mut DemoFlagState,
-    config: &mut AppConfig,
-) {
-    if *active_series == next_series {
+fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
+    if *ctx.active_series == next_series {
         return;
     }
 
-    stop_feed(feed);
-    *active_series = next_series;
+    stop_feed(ctx.feed);
+    *ctx.active_series = next_series;
 
-    if dev_mode {
-        (*header, *entries) = demo_snapshot(*active_series);
-        *status = format!("{} demo data", active_series.label());
-        seed_demo_favourites(*active_series, favourites);
+    if ctx.dev_mode {
+        (*ctx.header, *ctx.entries) = demo_snapshot(*ctx.active_series);
+        *ctx.status = format!("{} demo data", ctx.active_series.label());
+        seed_demo_favourites(*ctx.active_series, ctx.favourites);
     } else {
-        *source_id_ctr += 1;
-        *feed = Some(start_feed(*active_series, tx.clone(), *source_id_ctr));
-        *header = TimingHeader::default();
-        entries.clear();
-        *status = format!("Starting {} live timing...", active_series.label());
+        *ctx.source_id_ctr += 1;
+        *ctx.feed = Some(start_feed(
+            *ctx.active_series,
+            ctx.tx.clone(),
+            *ctx.source_id_ctr,
+        ));
+        *ctx.header = TimingHeader::default();
+        ctx.entries.clear();
+        *ctx.status = format!("Starting {} live timing...", ctx.active_series.label());
     }
 
-    *last_error = None;
-    *last_update = None;
-    *selected_row = 0;
-    *view_mode = ViewMode::Overall;
-    *search = SearchState::default();
-    demo_flag.enabled = false;
+    *ctx.last_error = None;
+    *ctx.last_update = None;
+    *ctx.selected_row = 0;
+    *ctx.view_mode = ViewMode::Overall;
+    *ctx.search = SearchState::default();
+    ctx.demo_flag.enabled = false;
 
-    config.selected_series = *active_series;
-    if let Err(err) = save_config(config) {
-        *last_error = Some(err);
+    ctx.config.selected_series = *ctx.active_series;
+    if let Err(err) = save_config(ctx.config) {
+        *ctx.last_error = Some(err);
     }
 }
 
@@ -1518,17 +1514,20 @@ pub fn run_app(
                         let local_selected = selected_row.saturating_sub(start);
                         let mut state = ratatui::widgets::TableState::default();
                         state.select(Some(local_selected));
+                        let table_ctx = TableRenderCtx {
+                            favourites: &favourites,
+                            marked_stable_id,
+                            active_series,
+                            selected_row_in_view: Some(local_selected),
+                            marquee_tick,
+                            gap_anchor: gap_anchor.as_ref(),
+                            pit_trackers: &pit_trackers,
+                            now,
+                        };
                         let table = build_table(
                             "Overall",
                             visible_entries,
-                            &favourites,
-                            marked_stable_id,
-                            active_series,
-                            Some(local_selected),
-                            marquee_tick,
-                            gap_anchor.as_ref(),
-                            &pit_trackers,
-                            now,
+                            &table_ctx,
                         );
                         f.render_stateful_widget(table, chunks[1], &mut state);
                     }
@@ -1600,17 +1599,20 @@ pub fn run_app(
                                 };
                                 state.select(highlight);
                                 let title = format!("{} ({} cars)", class_name, class_entries.len());
+                                let table_ctx = TableRenderCtx {
+                                    favourites: &favourites,
+                                    marked_stable_id,
+                                    active_series,
+                                    selected_row_in_view: highlight,
+                                    marquee_tick,
+                                    gap_anchor: gap_anchor.as_ref(),
+                                    pit_trackers: &pit_trackers,
+                                    now,
+                                };
                                 let table = build_table(
                                     title,
                                     visible_entries,
-                                    &favourites,
-                                    marked_stable_id,
-                                    active_series,
-                                    highlight,
-                                    marquee_tick,
-                                    gap_anchor.as_ref(),
-                                    &pit_trackers,
-                                    now,
+                                    &table_ctx,
                                 );
                                 f.render_stateful_widget(table, *area, &mut state);
                                 global_offset += class_entries.len();
@@ -1624,17 +1626,20 @@ pub fn run_app(
                             let local_selected = selected_row.saturating_sub(start);
                             let mut state = ratatui::widgets::TableState::default();
                             state.select(Some(local_selected));
+                            let table_ctx = TableRenderCtx {
+                                favourites: &favourites,
+                                marked_stable_id,
+                                active_series,
+                                selected_row_in_view: Some(local_selected),
+                                marquee_tick,
+                                gap_anchor: gap_anchor.as_ref(),
+                                pit_trackers: &pit_trackers,
+                                now,
+                            };
                             let table = build_table(
                                 format!("{} ({} cars)", class_name, class_entries.len()),
                                 visible_entries,
-                                &favourites,
-                                marked_stable_id,
-                                active_series,
-                                Some(local_selected),
-                                marquee_tick,
-                                gap_anchor.as_ref(),
-                                &pit_trackers,
-                                now,
+                                &table_ctx,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         } else {
@@ -1664,17 +1669,20 @@ pub fn run_app(
                             let local_selected = selected_row.saturating_sub(start);
                             let mut state = ratatui::widgets::TableState::default();
                             state.select(Some(local_selected));
+                            let table_ctx = TableRenderCtx {
+                                favourites: &favourites,
+                                marked_stable_id,
+                                active_series,
+                                selected_row_in_view: Some(local_selected),
+                                marquee_tick,
+                                gap_anchor: gap_anchor.as_ref(),
+                                pit_trackers: &pit_trackers,
+                                now,
+                            };
                             let table = build_table(
                                 format!("Favourites ({} cars)", favourite_entries.len()),
                                 visible_entries,
-                                &favourites,
-                                marked_stable_id,
-                                active_series,
-                                Some(local_selected),
-                                marquee_tick,
-                                gap_anchor.as_ref(),
-                                &pit_trackers,
-                                now,
+                                &table_ctx,
                             );
                             f.render_stateful_widget(table, chunks[1], &mut state);
                         }
@@ -1751,25 +1759,25 @@ pub fn run_app(
                         }
                         KeyCode::Enter => {
                             let next_series = series_list[series_picker.selected_idx];
-                            apply_series_change(
-                                next_series,
-                                &mut active_series,
-                                &mut feed,
-                                &tx,
-                                &mut source_id_ctr,
+                            let mut series_change_ctx = SeriesChangeCtx {
+                                active_series: &mut active_series,
+                                feed: &mut feed,
+                                tx: &tx,
+                                source_id_ctr: &mut source_id_ctr,
                                 dev_mode,
-                                &mut header,
-                                &mut entries,
-                                &mut status,
-                                &mut favourites,
-                                &mut last_error,
-                                &mut last_update,
-                                &mut selected_row,
-                                &mut view_mode,
-                                &mut search,
-                                &mut demo_flag,
-                                &mut config,
-                            );
+                                header: &mut header,
+                                entries: &mut entries,
+                                status: &mut status,
+                                favourites: &mut favourites,
+                                last_error: &mut last_error,
+                                last_update: &mut last_update,
+                                selected_row: &mut selected_row,
+                                view_mode: &mut view_mode,
+                                search: &mut search,
+                                demo_flag: &mut demo_flag,
+                                config: &mut config,
+                            };
+                            apply_series_change(next_series, &mut series_change_ctx);
                             gap_anchor_stable_id = None;
                             series_picker.is_open = false;
                         }

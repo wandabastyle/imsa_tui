@@ -150,7 +150,7 @@ impl WebAppState {
         mut next: Preferences,
     ) -> Result<Preferences, String> {
         // Keep only well-formed favourite keys so stale garbage does not spread.
-        next.favourites = favourites::normalize_favourites(next.favourites.into_iter());
+        next.favourites = favourites::normalize_favourites(next.favourites);
 
         save_preferences(profile_id, &next)?;
 
@@ -170,6 +170,12 @@ impl WebAppState {
             .map_err(|_| "preferences lock poisoned".to_string())?;
         guard.insert(profile_id.to_string(), defaults.clone());
         Ok(defaults)
+    }
+}
+
+impl Default for WebAppState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,5 +1,3 @@
-#![cfg(feature = "dev-mode")]
-
 // Deterministic demo snapshots used for UI development without live network feeds.
 
 use std::collections::HashSet;
@@ -46,51 +44,53 @@ fn header(
     }
 }
 
-fn entry(
-    position: u32,
-    car_number: &str,
-    class_name: &str,
-    class_rank: &str,
-    driver: &str,
-    vehicle: &str,
-    team: &str,
-    laps: &str,
-    gap_overall: &str,
-    gap_class: &str,
-    gap_next_in_class: &str,
-    last_lap: &str,
-    best_lap: &str,
-    best_lap_no: &str,
-    pit: &str,
-    pit_stops: &str,
-    fastest_driver: &str,
-    stable_id: &str,
-) -> TimingEntry {
-    TimingEntry {
-        position,
-        car_number: car_number.to_string(),
-        class_name: class_name.to_string(),
-        class_rank: class_rank.to_string(),
-        driver: driver.to_string(),
-        vehicle: vehicle.to_string(),
-        team: team.to_string(),
-        laps: laps.to_string(),
-        gap_overall: gap_overall.to_string(),
-        gap_class: gap_class.to_string(),
-        gap_next_in_class: gap_next_in_class.to_string(),
-        last_lap: last_lap.to_string(),
-        best_lap: best_lap.to_string(),
-        sector_1: "-".to_string(),
-        sector_2: "-".to_string(),
-        sector_3: "-".to_string(),
-        sector_4: "-".to_string(),
-        sector_5: "-".to_string(),
-        best_lap_no: best_lap_no.to_string(),
-        pit: pit.to_string(),
-        pit_stops: pit_stops.to_string(),
-        fastest_driver: fastest_driver.to_string(),
-        stable_id: stable_id.to_string(),
-    }
+macro_rules! entry {
+    (
+        $position:expr,
+        $car_number:expr,
+        $class_name:expr,
+        $class_rank:expr,
+        $driver:expr,
+        $vehicle:expr,
+        $team:expr,
+        $laps:expr,
+        $gap_overall:expr,
+        $gap_class:expr,
+        $gap_next_in_class:expr,
+        $last_lap:expr,
+        $best_lap:expr,
+        $best_lap_no:expr,
+        $pit:expr,
+        $pit_stops:expr,
+        $fastest_driver:expr,
+        $stable_id:expr $(,)?
+    ) => {
+        TimingEntry {
+            position: $position,
+            car_number: $car_number.to_string(),
+            class_name: $class_name.to_string(),
+            class_rank: $class_rank.to_string(),
+            driver: $driver.to_string(),
+            vehicle: $vehicle.to_string(),
+            team: $team.to_string(),
+            laps: $laps.to_string(),
+            gap_overall: $gap_overall.to_string(),
+            gap_class: $gap_class.to_string(),
+            gap_next_in_class: $gap_next_in_class.to_string(),
+            last_lap: $last_lap.to_string(),
+            best_lap: $best_lap.to_string(),
+            sector_1: "-".to_string(),
+            sector_2: "-".to_string(),
+            sector_3: "-".to_string(),
+            sector_4: "-".to_string(),
+            sector_5: "-".to_string(),
+            best_lap_no: $best_lap_no.to_string(),
+            pit: $pit.to_string(),
+            pit_stops: $pit_stops.to_string(),
+            fastest_driver: $fastest_driver.to_string(),
+            stable_id: $stable_id.to_string(),
+        }
+    };
 }
 
 fn imsa_header() -> TimingHeader {
@@ -128,7 +128,7 @@ fn f1_header() -> TimingHeader {
 
 fn f1_entries() -> Vec<TimingEntry> {
     vec![
-        entry(
+        entry!(
             1,
             "1",
             "F1",
@@ -148,7 +148,7 @@ fn f1_entries() -> Vec<TimingEntry> {
             "-",
             "f1:driver:1",
         ),
-        entry(
+        entry!(
             2,
             "16",
             "F1",
@@ -168,7 +168,7 @@ fn f1_entries() -> Vec<TimingEntry> {
             "-",
             "f1:driver:16",
         ),
-        entry(
+        entry!(
             3,
             "4",
             "F1",
@@ -192,7 +192,7 @@ fn f1_entries() -> Vec<TimingEntry> {
 }
 fn imsa_entries() -> Vec<TimingEntry> {
     vec![
-        entry(
+        entry!(
             1,
             "7",
             "GTP",
@@ -212,7 +212,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "M. Campbell",
             "imsa:7",
         ),
-        entry(
+        entry!(
             2,
             "31",
             "GTP",
@@ -232,7 +232,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "J. Aitken",
             "imsa:31",
         ),
-        entry(
+        entry!(
             3,
             "01",
             "GTP",
@@ -252,7 +252,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "R. van der Zande",
             "imsa:01",
         ),
-        entry(
+        entry!(
             4,
             "24",
             "GTP",
@@ -272,7 +272,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "P. Eng",
             "imsa:24",
         ),
-        entry(
+        entry!(
             5,
             "10",
             "GTP",
@@ -292,7 +292,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "R. Taylor",
             "imsa:10",
         ),
-        entry(
+        entry!(
             6,
             "52",
             "LMP2",
@@ -312,7 +312,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "M. Jensen",
             "imsa:52",
         ),
-        entry(
+        entry!(
             7,
             "18",
             "LMP2",
@@ -332,7 +332,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "C. Rasmussen",
             "imsa:18",
         ),
-        entry(
+        entry!(
             8,
             "11",
             "LMP2",
@@ -352,7 +352,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "M. Beche",
             "imsa:11",
         ),
-        entry(
+        entry!(
             9,
             "77",
             "GTD PRO",
@@ -372,7 +372,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "L. Heinrich",
             "imsa:77",
         ),
-        entry(
+        entry!(
             10,
             "3",
             "GTD PRO",
@@ -392,7 +392,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "N. Catsburg",
             "imsa:3",
         ),
-        entry(
+        entry!(
             11,
             "62",
             "GTD PRO",
@@ -412,7 +412,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "A. Pier Guidi",
             "imsa:62",
         ),
-        entry(
+        entry!(
             12,
             "27",
             "GTD",
@@ -432,7 +432,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "Z. Robichon",
             "imsa:27",
         ),
-        entry(
+        entry!(
             13,
             "120",
             "GTD",
@@ -452,7 +452,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "P. Gallagher",
             "imsa:120",
         ),
-        entry(
+        entry!(
             14,
             "32",
             "GTD",
@@ -477,7 +477,7 @@ fn imsa_entries() -> Vec<TimingEntry> {
 
 fn nls_entries() -> Vec<TimingEntry> {
     vec![
-        entry(
+        entry!(
             1,
             "911",
             "SP9",
@@ -497,7 +497,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:911",
         ),
-        entry(
+        entry!(
             2,
             "17",
             "SP9",
@@ -517,7 +517,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:17",
         ),
-        entry(
+        entry!(
             3,
             "98",
             "SP9",
@@ -537,7 +537,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:98",
         ),
-        entry(
+        entry!(
             4,
             "54",
             "SP9",
@@ -557,7 +557,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:54",
         ),
-        entry(
+        entry!(
             5,
             "44",
             "SP9",
@@ -577,7 +577,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:44",
         ),
-        entry(
+        entry!(
             6,
             "27",
             "SP10",
@@ -597,7 +597,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:27",
         ),
-        entry(
+        entry!(
             7,
             "160",
             "SP10",
@@ -617,7 +617,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:160",
         ),
-        entry(
+        entry!(
             8,
             "50",
             "VT2-RWD",
@@ -637,7 +637,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:50",
         ),
-        entry(
+        entry!(
             9,
             "500",
             "VT2-RWD",
@@ -657,7 +657,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:500",
         ),
-        entry(
+        entry!(
             10,
             "18",
             "Cup2",
@@ -677,7 +677,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:18",
         ),
-        entry(
+        entry!(
             11,
             "970",
             "Cup2",
@@ -697,7 +697,7 @@ fn nls_entries() -> Vec<TimingEntry> {
             "-",
             "nls:970",
         ),
-        entry(
+        entry!(
             12,
             "608",
             "SP8T",

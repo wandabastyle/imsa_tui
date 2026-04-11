@@ -193,7 +193,7 @@ fn parse_u32_fragment(raw: &str) -> Option<u32> {
 }
 
 fn parse_german_date_range(raw: &str) -> Option<(CalendarDate, CalendarDate)> {
-    let normalized = normalize_spaces(&raw.replace('–', "-").replace('—', "-").replace('−', "-"));
+    let normalized = normalize_spaces(&raw.replace(['–', '—', '−'], "-"));
     let (left, right) = normalized.split_once('-')?;
 
     let start_day = parse_u32_fragment(left)?;
@@ -574,11 +574,8 @@ fn parse_ws_message(
 }
 
 fn set_socket_timeout(socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>) {
-    match socket.get_mut() {
-        MaybeTlsStream::Plain(stream) => {
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-        }
-        _ => {}
+    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     }
 }
 
@@ -670,7 +667,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             "eventPid": [0, 4]
         });
 
-        if let Err(err) = socket.send(Message::Text(subscribe.to_string().into())) {
+        if let Err(err) = socket.send(Message::Text(subscribe.to_string())) {
             let _ = tx.send(TimingMessage::Error {
                 source_id,
                 text: format!("subscribe failed: {err}"),
