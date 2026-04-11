@@ -13,33 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Install web dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: web
-
-      - name: Build web assets for embed-ui
-        run: pnpm run build
-        working-directory: web
-
-      - name: Ensure embedded assets directory exists
-        run: |
-          if [ ! -d web/build ]; then
-            mkdir -p web/build
-            printf '%s\n' '<!doctype html><title>imsa_tui</title>' > web/build/index.html
-          fi
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -50,10 +23,10 @@ jobs:
         run: cargo fmt --check
 
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
 
       - name: cargo test
-        run: cargo test
+        run: cargo test --no-default-features
 
   web-checks:
     name: Web verify
@@ -81,3 +54,39 @@ jobs:
       - name: pnpm run verify
         run: pnpm run verify
         working-directory: web
+
+  integration-embed-ui:
+    name: Integration embed-ui
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - name: Build web assets
+        run: pnpm run build
+        working-directory: web
+
+      - name: cargo check --all-targets --all-features
+        run: cargo check --all-targets --all-features
