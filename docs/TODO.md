@@ -82,4 +82,9 @@
 
 ## Next Phases (Planned)
 
-- No open planned phases.
+- Planned: **Phase E2** on branch `mobile`
+  - Auto-enable mobile compact mode at `<= 900px` with manual override (`Auto` / `On` / `Off`).
+  - Add touch-first navigation/action bar for `View`, `Series`, `Group`, `Search`, `Fav`, and `Help`.
+  - Introduce compact timing table columns with per-row expand/collapse details on small screens.
+  - Reflow header + modal ergonomics for mobile readability and larger tap targets.
+  - Keep desktop keyboard-first behavior unchanged while adding mobile-friendly interaction parity.
