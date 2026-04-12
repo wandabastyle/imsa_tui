@@ -21,6 +21,7 @@
   let loginError = '';
   let viewportCompact = false;
   let coarsePointer = false;
+  let showMoreMenu = false;
 
   let cleanupKeys = () => {};
   let cleanupViewport = () => {};
@@ -154,39 +155,30 @@
 
       switch (event.key) {
         case 'Escape':
+          if (showMoreMenu) {
+            showMoreMenu = false;
+            break;
+          }
           if ($appState.showHelp) {
             appState.update((state) => ({ ...state, showHelp: false }));
           }
           break;
         case 'h':
         case '?':
+          showMoreMenu = false;
           appState.update((state) => ({ ...state, showHelp: !state.showHelp }));
           break;
         case 'g':
           cycleView();
           break;
         case 'G':
-          appState.update((state) => ({
-            ...state,
-            showGroupPicker: true,
-            groupPickerIndex:
-              state.viewMode.kind === 'class'
-                ? groups.length === 0
-                  ? 0
-                  : Math.min(state.viewMode.index, groups.length - 1)
-                : 0
-          }));
+          openGroupPicker();
           break;
         case 'o':
           appState.update((state) => ({ ...state, viewMode: { kind: 'overall' }, selectedRow: 0, gapAnchorStableId: null }));
           break;
         case 't':
-          appState.update((state) => ({
-            ...state,
-            showSeriesPicker: true,
-            showGroupPicker: false,
-            seriesPickerIndex: ALL_SERIES.indexOf(state.activeSeries)
-          }));
+          openSeriesPicker();
           break;
         case 'ArrowDown':
         case 'j':
@@ -282,6 +274,7 @@
   }
 
   async function signOut(): Promise<void> {
+    showMoreMenu = false;
     await logoutSession();
     destroyStreams();
     authenticated = false;
@@ -399,6 +392,7 @@
   }
 
   function openSearch(): void {
+    showMoreMenu = false;
     appState.update((state) => ({
       ...state,
       search: { ...state.search, query: '', currentMatch: 0, inputActive: true }
@@ -417,6 +411,39 @@
 
   function closeSearch(): void {
     appState.update((state) => ({ ...state, search: { ...state.search, inputActive: false } }));
+  }
+
+  function openSeriesPicker(): void {
+    showMoreMenu = false;
+    appState.update((state) => ({
+      ...state,
+      showSeriesPicker: true,
+      showGroupPicker: false,
+      seriesPickerIndex: ALL_SERIES.indexOf(state.activeSeries)
+    }));
+  }
+
+  function openGroupPicker(): void {
+    showMoreMenu = false;
+    appState.update((state) => ({
+      ...state,
+      showGroupPicker: true,
+      groupPickerIndex:
+        state.viewMode.kind === 'class'
+          ? groups.length === 0
+            ? 0
+            : Math.min(state.viewMode.index, groups.length - 1)
+          : 0
+    }));
+  }
+
+  function openHelp(): void {
+    showMoreMenu = false;
+    appState.update((state) => ({ ...state, showHelp: true }));
+  }
+
+  function toggleMoreMenu(): void {
+    showMoreMenu = !showMoreMenu;
   }
 
   function jumpFavourite(): void {
@@ -590,7 +617,6 @@
         errorText={activeSnapshot?.last_error ?? ''}
         displayFlag={effectiveFlag}
       />
-      <button class="logout-btn" on:click={() => void signOut()}>Logout</button>
     </div>
 
     {#if $appState.search.inputActive && showMobileActions}
@@ -625,46 +651,48 @@
     />
 
     {#if showMobileActions}
+      {#if showMoreMenu}
+        <button class="more-backdrop" on:click={() => (showMoreMenu = false)} type="button" aria-label="Close menu"></button>
+      {/if}
+
+      {#if showMoreMenu}
+        <section class="more-sheet" aria-label="More actions">
+          <button class="sheet-btn" on:click={openSeriesPicker} type="button">Series</button>
+          <button class="sheet-btn" on:click={openHelp} type="button">Help</button>
+          <button class="sheet-btn danger" on:click={() => void signOut()} type="button">Logout</button>
+        </section>
+      {/if}
+
       <nav class="mobile-action-bar" aria-label="Mobile actions">
-        <button class="action-btn" on:click={cycleView} type="button">View</button>
-        <button
-          class="action-btn"
-          on:click={() =>
-            appState.update((state) => ({
-              ...state,
-              showSeriesPicker: true,
-              showGroupPicker: false,
-              seriesPickerIndex: ALL_SERIES.indexOf(state.activeSeries)
-            }))}
-          type="button"
-        >
-          Series
+        <button class="nav-btn" on:click={cycleView} type="button">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16M4 12h16M4 19h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </span>
+          <span>View</span>
         </button>
-        <button
-          class="action-btn"
-          on:click={() =>
-            appState.update((state) => ({
-              ...state,
-              showGroupPicker: true,
-              groupPickerIndex:
-                state.viewMode.kind === 'class'
-                  ? groups.length === 0
-                    ? 0
-                    : Math.min(state.viewMode.index, groups.length - 1)
-                  : 0
-            }))}
-          type="button"
-        >
-          Group
+        <button class="nav-btn" on:click={openGroupPicker} type="button">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 8h7v4H4zM13 8h7v4h-7zM4 14h7v4H4zM13 14h7v4h-7z" stroke="currentColor" stroke-width="1.4"/></svg>
+          </span>
+          <span>Group</span>
         </button>
-        <button class="action-btn" on:click={openSearch} type="button">Search</button>
-        <button class="action-btn" on:click={() => void toggleFavourite()} type="button">Fav</button>
-        <button
-          class="action-btn"
-          on:click={() => appState.update((state) => ({ ...state, showHelp: !state.showHelp }))}
-          type="button"
-        >
-          Help
+        <button class="nav-btn nav-btn-primary" on:click={openSearch} type="button">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </span>
+          <span>Search</span>
+        </button>
+        <button class="nav-btn" on:click={() => void toggleFavourite()} type="button">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="m12 4 2.47 5 5.53.8-4 3.9.95 5.5L12 16.6 7.05 19.2 8 13.7 4 9.8 9.53 9z" stroke="currentColor" stroke-width="1.5"/></svg>
+          </span>
+          <span>Fav</span>
+        </button>
+        <button class="nav-btn" on:click={toggleMoreMenu} type="button" aria-expanded={showMoreMenu}>
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg>
+          </span>
+          <span>More</span>
         </button>
       </nav>
     {/if}
@@ -731,14 +759,13 @@
 
   .login-card input,
   .login-card button,
-  .action-btn,
-  .logout-btn {
+  .action-btn {
     font-family: inherit;
-    background: #13263a;
+    background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
     color: var(--text);
-    padding: 0.45rem 0.6rem;
+    padding: 0.45rem 0.68rem;
   }
 
   .action-btn {
@@ -755,70 +782,121 @@
   }
 
   .header-row {
-    display: flex;
-    align-items: stretch;
-    gap: 0.45rem;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.45rem;
   }
 
   .header-row :global(.header) {
-    flex: 1;
-  }
-
-  .logout-btn {
-    white-space: nowrap;
-    align-self: stretch;
-    height: auto;
-    display: flex;
-    align-items: center;
+    width: 100%;
   }
 
   .search-panel {
     display: grid;
     grid-template-columns: 1fr auto auto;
-    gap: 0.35rem;
-    margin: 0 0 0.35rem;
+    gap: 0.4rem;
+    margin: 0 0 0.45rem;
   }
 
   .search-panel input {
     font-family: inherit;
-    background: #13263a;
+    background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
     color: var(--text);
-    padding: 0.45rem 0.6rem;
+    padding: 0.52rem 0.68rem;
     min-height: 2.35rem;
+  }
+
+  .more-backdrop {
+    position: fixed;
+    inset: 0;
+    border: 0;
+    background: rgb(4 8 14 / 52%);
+    z-index: 300;
+  }
+
+  .more-sheet {
+    position: fixed;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: calc(4.9rem + env(safe-area-inset-bottom, 0));
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-1);
+    padding: 0.38rem;
+    display: grid;
+    gap: 0.34rem;
+    z-index: 320;
+  }
+
+  .sheet-btn {
+    font: inherit;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    background: var(--surface-2);
+    color: var(--text);
+    border-radius: 10px;
+    min-height: 2.6rem;
+    padding: 0.5rem 0.7rem;
+    text-align: left;
+  }
+
+  .sheet-btn.danger {
+    color: #ffced2;
+    border-color: rgb(143 45 53 / 55%);
   }
 
   .mobile-action-bar {
     position: sticky;
     bottom: 0;
-    margin-top: 0.35rem;
-    padding: 0.4rem;
+    margin-top: 0.45rem;
+    padding: 0.38rem;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgb(7 22 40 / 96%);
+    border-radius: 14px;
+    background: rgb(15 23 40 / 96%);
+    display: flex;
+    gap: 0.25rem;
+    justify-content: space-between;
+    z-index: 330;
+    box-shadow: 0 -8px 18px rgb(0 0 0 / 24%);
+  }
+
+  .nav-btn {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    border-radius: 10px;
+    min-height: 3rem;
+    color: var(--text-dim);
     display: grid;
-    gap: 0.35rem;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-items: center;
+    align-content: center;
+    gap: 0.16rem;
+    font: inherit;
+    font-size: 0.68rem;
+  }
+
+  .nav-btn-primary {
+    background: rgb(48 83 138 / 42%);
+    color: #d6e8ff;
+  }
+
+  .nav-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    display: inline-flex;
+  }
+
+  .nav-icon svg {
+    width: 100%;
+    height: 100%;
   }
 
   @media (max-width: 768px) {
-    .header-row {
-      flex-direction: column;
-    }
-
-    .logout-btn {
-      align-self: flex-start;
-    }
-
     .search-panel {
       grid-template-columns: 1fr;
     }
 
     .mobile-action-bar {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      padding-bottom: calc(0.4rem + env(safe-area-inset-bottom, 0));
+      padding-bottom: calc(0.38rem + env(safe-area-inset-bottom, 0));
     }
   }
 

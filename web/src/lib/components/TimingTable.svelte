@@ -30,7 +30,7 @@
   let lastSeries: Series | null = null;
   let lastTitle = '';
   const pitTrackers = new SvelteMap<string, { inPit: boolean; inUntil: number; outUntil: number }>();
-  const expandedRows = new SvelteSet<string>();
+  let expandedRows = new SvelteSet<string>();
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
@@ -57,6 +57,10 @@
       return trimLegacyClassSuffix(stableId, 'stnr');
     }
     return stableId;
+  }
+
+  function isFavourite(entry: TimingEntry): boolean {
+    return favourites.has(`${series}|${normalizeStableId(entry.stable_id)}`);
   }
 
   function trimLegacyClassSuffix(stableId: string, expectedPrefix: string): string {
@@ -202,13 +206,36 @@
     return currentSeries === 'imsa' ? 'Gap O' : 'Gap';
   }
 
-  function compactGapLabel(currentSeries: Series): string {
-    return compactGapColumn(currentSeries);
+  function compactGapLabel(): string {
+    return 'Gap';
   }
 
   function compactGapValue(entry: TimingEntry, currentSeries: Series): string {
     const column = compactGapColumn(currentSeries);
     return relativeGapCell(entry, column, entry.gap_overall);
+  }
+
+  function driverNameLines(value: string): [string, string] {
+    const trimmed = value.trim();
+    if (!trimmed) return ['-', ''];
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 1) return [parts[0], ''];
+    return [parts[0], parts.slice(1).join(' ')];
+  }
+
+  function driverFirstLine(value: string): string {
+    return driverNameLines(value)[0];
+  }
+
+  function driverLastLine(value: string): string {
+    return driverNameLines(value)[1];
+  }
+
+  function positionTone(position: number): string {
+    if (position === 1) return 'p1';
+    if (position === 2) return 'p2';
+    if (position === 3) return 'p3';
+    return 'pn';
   }
 
   function hiddenColumnsForCompact(currentSeries: Series): string[] {
@@ -217,11 +244,13 @@
   }
 
   function toggleExpandedRow(stableId: string): void {
-    if (expandedRows.has(stableId)) {
-      expandedRows.delete(stableId);
-      return;
+    const next = new SvelteSet(expandedRows);
+    if (next.has(stableId)) {
+      next.delete(stableId);
+    } else {
+      next.add(stableId);
     }
-    expandedRows.add(stableId);
+    expandedRows = next;
   }
 
   function detailValue(entry: TimingEntry, column: string): string {
@@ -368,7 +397,7 @@
   });
 
   $: if (!compactMobile && expandedRows.size > 0) {
-    expandedRows.clear();
+    expandedRows = new SvelteSet();
   }
 
   $: gapAnchorEntry = gapAnchorStableId
@@ -442,20 +471,38 @@
               }}
               tabindex="0"
             >
-              <div class="mobile-card-head">
-                <button
-                  class="fav-btn"
-                  class:active={favourites.has(`${series}|${normalizeStableId(entry.stable_id)}`)}
-                  on:click|stopPropagation={() => void onToggleFavourite(entry)}
-                  aria-label="Toggle favourite"
-                  title="Toggle favourite"
-                  type="button"
-                >
-                  ★
-                </button>
+              <div class="mobile-main">
+                <div class="mobile-driver-line">
+                  <button
+                    class="fav-icon"
+                    class:active={isFavourite(entry)}
+                    on:click|stopPropagation={() => void onToggleFavourite(entry)}
+                    on:pointerdown|stopPropagation
+                    on:touchstart|stopPropagation
+                    on:keydown|stopPropagation
+                    aria-label="Toggle favourite"
+                    title="Toggle favourite"
+                    type="button"
+                  >
+                    {isFavourite(entry) ? '★' : '☆'}
+                  </button>
+                  <div class="mobile-driver">
+                    <span class="driver-first">{driverFirstLine(entry.driver)}</span>
+                    <span class="driver-last">{driverLastLine(entry.driver)}</span>
+                    <span class="driver-car"># {entry.car_number}</span>
+                  </div>
+                </div>
+                <span class={`pos-badge ${positionTone(entry.position)}`}>P{entry.position}</span>
+                <div class="mobile-gap-stack">
+                  <span class="gap-label">{compactGapLabel()}</span>
+                  <span class="gap-value">{compactGapValue(entry, series)}</span>
+                </div>
                 <button
                   class="expand-btn"
                   on:click|stopPropagation={() => toggleExpandedRow(entry.stable_id)}
+                  on:pointerdown|stopPropagation
+                  on:touchstart|stopPropagation
+                  on:keydown|stopPropagation
                   aria-expanded={expandedRows.has(entry.stable_id)}
                   aria-label="Toggle row details"
                   title="Toggle details"
@@ -463,12 +510,6 @@
                 >
                   {expandedRows.has(entry.stable_id) ? 'Hide' : 'More'}
                 </button>
-              </div>
-              <div class="mobile-driver">{entry.driver}</div>
-              <div class="mobile-meta">
-                <span><small>Pos</small> {entry.position}</span>
-                <span><small>#</small> {entry.car_number}</span>
-                <span><small>{compactGapLabel(series)}</small> {compactGapValue(entry, series)}</span>
               </div>
               {#if expandedRows.has(entry.stable_id)}
                 <div class="detail-grid">
@@ -629,48 +670,127 @@
   }
 
   .mobile-list {
-    padding: 0.35rem;
+    padding: 0.18rem;
     display: grid;
-    gap: 0.4rem;
+    gap: 0.34rem;
   }
 
   .mobile-card {
-    border: 1px solid #24344a;
-    border-radius: 8px;
-    background: #0b1d31;
-    padding: 0.35rem 0.45rem 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-1) 86%, #0f1a2d);
+    padding: 0.5rem 0.55rem 0.46rem;
     display: grid;
-    gap: 0.22rem;
+    gap: 0.36rem;
   }
 
-  .mobile-card-head {
+  .mobile-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'driver pos'
+      'driver gap'
+      'expand expand';
+    align-items: center;
+    column-gap: 0.72rem;
+    row-gap: 0.26rem;
+  }
+
+  .mobile-driver-line {
+    grid-area: driver;
     display: flex;
-    justify-content: flex-end;
-    gap: 0.3rem;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
   }
 
   .mobile-driver {
-    text-align: center;
-    font-size: 0.92rem;
-    font-weight: 700;
-    line-height: 1.2;
+    display: grid;
+    gap: 0.02rem;
+    text-align: left;
+    line-height: 1.14;
+    min-width: 0;
   }
 
-  .mobile-meta {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 0.55rem;
-    font-size: 0.86rem;
-    font-weight: 700;
+  .driver-first,
+  .driver-last {
+    font-weight: 680;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .mobile-meta small {
-    font-size: 0.68rem;
+  .driver-first {
+    font-size: 0.93rem;
+  }
+
+  .driver-last {
+    font-size: 0.9rem;
+  }
+
+  .driver-last:empty {
+    display: none;
+  }
+
+  .driver-car {
     color: var(--text-dim);
-    margin-right: 0.18rem;
+    font-size: 0.78rem;
+    margin-top: 0.08rem;
+  }
+
+  .pos-badge {
+    grid-area: pos;
+    justify-self: end;
+    border-radius: 999px;
+    padding: 0.18rem 0.52rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid #3b4f71;
+    color: #c8d7ee;
+    background: #24334d;
+  }
+
+  .pos-badge.p1 {
+    color: #1c1d15;
+    background: #f1d171;
+    border-color: #f1d171;
+  }
+
+  .pos-badge.p2 {
+    color: #092037;
+    background: #77cbf5;
+    border-color: #77cbf5;
+  }
+
+  .pos-badge.p3 {
+    color: #2a1c00;
+    background: #f2ba7b;
+    border-color: #f2ba7b;
+  }
+
+  .mobile-gap-stack {
+    grid-area: gap;
+    justify-self: end;
+    display: grid;
+    gap: 0.02rem;
+    justify-items: end;
+    font-size: 0.84rem;
+    font-weight: 700;
+    line-height: 1.12;
+  }
+
+  .gap-label {
+    font-size: 0.64rem;
+    color: var(--text-dim);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.08em;
+  }
+
+  .gap-value {
+    color: var(--text);
+    min-width: 4.4rem;
+    text-align: right;
   }
 
   th,
@@ -778,7 +898,7 @@
     outline-offset: -2px;
   }
 
-  .fav-btn,
+  .fav-icon,
   .expand-btn {
     background: #11263d;
     border: 1px solid #355378;
@@ -786,16 +906,39 @@
     color: var(--text);
     font: inherit;
     padding: 0.28rem 0.42rem;
-    min-height: 2rem;
+    min-height: 1.9rem;
+  }
+
+  .fav-icon {
+    background: transparent;
+    border: 0;
+    min-width: 1.45rem;
+    min-height: 1.45rem;
+    padding: 0;
+    font-size: 1.1rem;
+    line-height: 1;
+    color: #9fb3cf;
   }
 
   .expand-btn {
-    margin-left: 0.3rem;
+    grid-area: expand;
+    justify-self: stretch;
+    margin-left: 0;
+    min-width: 0;
+    min-height: 1.75rem;
+    background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+    border-color: color-mix(in srgb, var(--border) 70%, transparent);
+    font-size: 0.78rem;
   }
 
-  .fav-btn.active {
+  .fav-icon.active {
     color: #ffd166;
-    border-color: #ffd166;
+  }
+
+  .fav-icon:focus-visible,
+  .expand-btn:focus-visible {
+    outline: 2px solid #4ea0ef;
+    outline-offset: 1px;
   }
 
   .detail-grid {
@@ -823,11 +966,11 @@
   }
 
   .mobile-card.selected {
-    background: #244f82;
+    background: #29466f;
   }
 
   .mobile-card.search-mark:not(.selected) {
-    box-shadow: inset 0 0 0 1px #2a79c7;
+    box-shadow: inset 0 0 0 1px #4f86ca;
   }
 
   .mobile-card.pit-row:not(.selected) {
@@ -866,12 +1009,33 @@
   }
 
   @media (max-width: 900px) {
+    .table-wrap {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .table-title {
+      border-bottom: 0;
+      padding: 0.25rem 0.25rem 0.35rem;
+      font-size: 0.82rem;
+      color: #c4d2e8;
+    }
+
     table {
       font-size: 0.78rem;
     }
 
-    .table-title {
-      font-size: 0.82rem;
+    .mobile-main {
+      column-gap: 0.58rem;
+    }
+
+    .gap-value {
+      min-width: 3.9rem;
+    }
+
+    .expand-btn {
+      min-height: 1.68rem;
     }
   }
 </style>

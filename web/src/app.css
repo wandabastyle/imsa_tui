@@ -1,16 +1,22 @@
 /* Global visual tokens and baseline styles for the web dashboard. */
 
 :root {
-  --bg: #050d17;
-  --bg-panel: #081829;
-  --bg-muted: #122236;
-  --text: #d9e3f2;
-  --text-dim: #9fb3cf;
-  --accent: #2e7bc6;
+  --bg: #070b15;
+  --bg-panel: #0f1728;
+  --bg-muted: #172338;
+  --surface-1: #121b2e;
+  --surface-2: #19243b;
+  --surface-3: #222f4a;
+  --text: #e2e9f6;
+  --text-dim: #9aacc8;
+  --accent: #5b9dff;
+  --accent-soft: #2f4c7e;
   --ok: #009944;
   --warn: #ffdd00;
   --danger: #8f2d35;
-  --border: #1c3b5d;
+  --border: #2a3953;
+  --chip-bg: #1b2740;
+  --chip-border: #314463;
 }
 
 * {
@@ -21,9 +27,11 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
+  background:
+    radial-gradient(160% 70% at 50% -10%, #1e2c48 0%, transparent 46%),
+    linear-gradient(180deg, #080d18 0%, #070b15 44%, #060913 100%);
   color: var(--text);
-  font-family: "Iosevka", "JetBrains Mono", "Fira Code", monospace;
+  font-family: "Sora", "Iosevka", "JetBrains Mono", "Fira Code", sans-serif;
 }
 
 a {
