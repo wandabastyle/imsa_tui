@@ -2,7 +2,7 @@
   // Shared leaderboard table renderer for overall, grouped, class, and favourites views.
 
   import { afterUpdate, onMount } from 'svelte';
-  import { SvelteMap } from 'svelte/reactivity';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import type { Series, TimingEntry } from '$lib/types';
 
   interface GroupSection {
@@ -20,6 +20,9 @@
   export let markedStableId: string | null = null;
   export let favourites = new Set<string>();
   export let gapAnchorStableId: string | null = null;
+  export let compactMobile = false;
+  export let onSelectRow: (index: number) => void = () => {};
+  export let onToggleFavourite: (entry: TimingEntry) => void | Promise<void> = () => {};
   let scrollContainer: HTMLDivElement | null = null;
   let marqueeTick = 0;
   let gapAnchorEntry: TimingEntry | null = null;
@@ -27,6 +30,7 @@
   let lastSeries: Series | null = null;
   let lastTitle = '';
   const pitTrackers = new SvelteMap<string, { inPit: boolean; inUntil: number; outUntil: number }>();
+  const expandedRows = new SvelteSet<string>();
 
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
@@ -194,6 +198,39 @@
     return '';
   }
 
+  function compactGapColumn(currentSeries: Series): string {
+    return currentSeries === 'imsa' ? 'Gap O' : 'Gap';
+  }
+
+  function compactGapLabel(currentSeries: Series): string {
+    return compactGapColumn(currentSeries);
+  }
+
+  function compactGapValue(entry: TimingEntry, currentSeries: Series): string {
+    const column = compactGapColumn(currentSeries);
+    return relativeGapCell(entry, column, entry.gap_overall);
+  }
+
+  function hiddenColumnsForCompact(currentSeries: Series): string[] {
+    const hiddenFromMainCard = new Set(['Pos', '#', 'Driver', compactGapColumn(currentSeries), 'Pit', 'S5']);
+    return columnsBySeries[currentSeries].filter((column) => !hiddenFromMainCard.has(column));
+  }
+
+  function toggleExpandedRow(stableId: string): void {
+    if (expandedRows.has(stableId)) {
+      expandedRows.delete(stableId);
+      return;
+    }
+    expandedRows.add(stableId);
+  }
+
+  function detailValue(entry: TimingEntry, column: string): string {
+    const colIndex = columnsBySeries[series].indexOf(column);
+    if (colIndex < 0) return '-';
+    const allCells = cells(entry);
+    return allCells[colIndex] ?? '-';
+  }
+
   function isRelativeGapColumn(column: string): boolean {
     return column === 'Gap O' || column === 'Gap C' || column === 'Next C' || column === 'Gap' || column === 'Int';
   }
@@ -330,6 +367,10 @@
     return () => window.clearInterval(timer);
   });
 
+  $: if (!compactMobile && expandedRows.size > 0) {
+    expandedRows.clear();
+  }
+
   $: gapAnchorEntry = gapAnchorStableId
     ? entries.find((candidate) => candidate.stable_id === gapAnchorStableId) ?? null
     : null;
@@ -382,7 +423,68 @@
 <section class="table-wrap">
   <div class="table-title">{title}</div>
   <div class="table-scroll" bind:this={scrollContainer}>
-    {#if isGroupedMode}
+    {#if compactMobile}
+      <div class="mobile-list">
+        {#if entries.length === 0}
+          <p class="empty">No timing data yet.</p>
+        {:else}
+          {#each entries as entry, index (entry.stable_id)}
+            <div
+              class={`mobile-card ${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}
+              role="button"
+              aria-label={`Select row ${entry.position} ${entry.driver}`}
+              on:click={() => onSelectRow(index)}
+              on:keydown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  onSelectRow(index);
+                  event.preventDefault();
+                }
+              }}
+              tabindex="0"
+            >
+              <div class="mobile-card-head">
+                <button
+                  class="fav-btn"
+                  class:active={favourites.has(`${series}|${normalizeStableId(entry.stable_id)}`)}
+                  on:click|stopPropagation={() => void onToggleFavourite(entry)}
+                  aria-label="Toggle favourite"
+                  title="Toggle favourite"
+                  type="button"
+                >
+                  ★
+                </button>
+                <button
+                  class="expand-btn"
+                  on:click|stopPropagation={() => toggleExpandedRow(entry.stable_id)}
+                  aria-expanded={expandedRows.has(entry.stable_id)}
+                  aria-label="Toggle row details"
+                  title="Toggle details"
+                  type="button"
+                >
+                  {expandedRows.has(entry.stable_id) ? 'Hide' : 'More'}
+                </button>
+              </div>
+              <div class="mobile-driver">{entry.driver}</div>
+              <div class="mobile-meta">
+                <span><small>Pos</small> {entry.position}</span>
+                <span><small>#</small> {entry.car_number}</span>
+                <span><small>{compactGapLabel(series)}</small> {compactGapValue(entry, series)}</span>
+              </div>
+              {#if expandedRows.has(entry.stable_id)}
+                <div class="detail-grid">
+                  {#each hiddenColumnsForCompact(series) as column (`detail-${entry.stable_id}-${column}`)}
+                    <div class="detail-pair">
+                      <span class="detail-label">{column}</span>
+                      <span class="detail-value">{detailValue(entry, column)}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {:else if isGroupedMode}
       <div class="group-stack">
         {#if groupedSections.length === 0}
           <p class="empty">No grouped class data available yet.</p>
@@ -405,7 +507,17 @@
                 </thead>
                 <tbody>
                   {#each section.entries as entry, index (entry.stable_id)}
-                    <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+                    <tr
+                      class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}
+                      on:click={() => onSelectRow(section.start + index)}
+                      on:keydown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          onSelectRow(section.start + index);
+                          event.preventDefault();
+                        }
+                      }}
+                      tabindex="0"
+                    >
                       {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
                         <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
@@ -438,7 +550,17 @@
             </tr>
           {:else}
             {#each entries as entry, index (entry.stable_id)}
-              <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+              <tr
+                class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}
+                on:click={() => onSelectRow(index)}
+                on:keydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    onSelectRow(index);
+                    event.preventDefault();
+                  }
+                }}
+                tabindex="0"
+              >
                 {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
                   <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
@@ -504,6 +626,51 @@
     border-collapse: collapse;
     font-size: 0.82rem;
     table-layout: fixed;
+  }
+
+  .mobile-list {
+    padding: 0.35rem;
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .mobile-card {
+    border: 1px solid #24344a;
+    border-radius: 8px;
+    background: #0b1d31;
+    padding: 0.35rem 0.45rem 0.45rem;
+    display: grid;
+    gap: 0.22rem;
+  }
+
+  .mobile-card-head {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.3rem;
+  }
+
+  .mobile-driver {
+    text-align: center;
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .mobile-meta {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    font-size: 0.86rem;
+    font-weight: 700;
+  }
+
+  .mobile-meta small {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-right: 0.18rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
   }
 
   th,
@@ -599,5 +766,112 @@
 
   tr.selected {
     color: #ffffff;
+  }
+
+  tr[tabindex='0']:focus-visible {
+    outline: 2px solid #4ea0ef;
+    outline-offset: -2px;
+  }
+
+  .mobile-card:focus-visible {
+    outline: 2px solid #4ea0ef;
+    outline-offset: -2px;
+  }
+
+  .fav-btn,
+  .expand-btn {
+    background: #11263d;
+    border: 1px solid #355378;
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    padding: 0.28rem 0.42rem;
+    min-height: 2rem;
+  }
+
+  .expand-btn {
+    margin-left: 0.3rem;
+  }
+
+  .fav-btn.active {
+    color: #ffd166;
+    border-color: #ffd166;
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.4rem, 1fr));
+    gap: 0.45rem;
+    padding: 0.35rem 0 0;
+    border-top: 1px dashed #2a3d55;
+    margin-top: 0.22rem;
+  }
+
+  .detail-pair {
+    display: grid;
+    gap: 0.1rem;
+  }
+
+  .detail-label {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+  }
+
+  .detail-value {
+    color: var(--text);
+    font-size: 0.82rem;
+  }
+
+  .mobile-card.selected {
+    background: #244f82;
+  }
+
+  .mobile-card.search-mark:not(.selected) {
+    box-shadow: inset 0 0 0 1px #2a79c7;
+  }
+
+  .mobile-card.pit-row:not(.selected) {
+    color: #ffd166;
+    background: rgba(130, 97, 20, 0.2);
+  }
+
+  .mobile-card.pit-in:not(.selected) {
+    color: #7fdfff;
+    background: rgba(37, 125, 184, 0.32);
+  }
+
+  .mobile-card.pit-out:not(.selected) {
+    color: #f5b3ff;
+    background: rgba(133, 66, 170, 0.24);
+  }
+
+  .mobile-card.class-lmp2 {
+    color: #3f90da;
+  }
+
+  .mobile-card.class-gtdpro {
+    color: #d22630;
+  }
+
+  .mobile-card.class-gtd {
+    color: #00a651;
+  }
+
+  .mobile-card.class-gtp {
+    color: #e9eef8;
+  }
+
+  .mobile-card.selected {
+    color: #ffffff;
+  }
+
+  @media (max-width: 900px) {
+    table {
+      font-size: 0.78rem;
+    }
+
+    .table-title {
+      font-size: 0.82rem;
+    }
   }
 </style>

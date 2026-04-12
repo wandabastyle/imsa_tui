@@ -183,6 +183,13 @@ tailscale funnel reset
 - `q` — quit (or close help popup first)
 - `Esc` — close help popup / quit
 
+### Mobile Web UI
+
+- Compact mobile mode auto-enables at `<= 900px` and can be overridden in the UI (`Compact: Auto/On/Off`).
+- In compact mode, each row shows centered driver-first cards with compact `Pos`, `#`, and gap fields, plus optional `More` details.
+- A touch action bar is shown on small screens for `View`, `Series`, `Group`, `Search`, `Fav`, and `Help`.
+- Row tap selects the active entry; favourite and details controls are available directly in each row.
+
 ## Configuration
 
 The TUI stores configuration in a TOML file under the platform config directory (`ProjectDirs::config_dir`).

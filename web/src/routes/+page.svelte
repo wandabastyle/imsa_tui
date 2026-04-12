@@ -19,8 +19,11 @@
   let authChecking = true;
   let loginCode = '';
   let loginError = '';
+  let viewportCompact = false;
+  let coarsePointer = false;
 
   let cleanupKeys = () => {};
+  let cleanupViewport = () => {};
 
   onMount(async () => {
     try {
@@ -42,6 +45,11 @@
 
     const handler = (event: KeyboardEvent) => {
       if (!authenticated) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return;
       }
 
@@ -207,10 +215,7 @@
           jumpFavourite();
           break;
         case 's':
-          appState.update((state) => ({
-            ...state,
-            search: { query: '', matches: [], currentMatch: 0, inputActive: true }
-          }));
+          openSearch();
           break;
         case 'n':
           jumpSearch(1);
@@ -238,10 +243,25 @@
 
     window.addEventListener('keydown', handler);
     cleanupKeys = () => window.removeEventListener('keydown', handler);
+
+    const compactMq = window.matchMedia('(max-width: 900px)');
+    const pointerMq = window.matchMedia('(pointer: coarse)');
+    const updateMobileState = () => {
+      viewportCompact = compactMq.matches;
+      coarsePointer = pointerMq.matches;
+    };
+    updateMobileState();
+    compactMq.addEventListener('change', updateMobileState);
+    pointerMq.addEventListener('change', updateMobileState);
+    cleanupViewport = () => {
+      compactMq.removeEventListener('change', updateMobileState);
+      pointerMq.removeEventListener('change', updateMobileState);
+    };
   });
 
   onDestroy(() => {
     cleanupKeys();
+    cleanupViewport();
     destroyStreams();
   });
 
@@ -353,10 +373,13 @@
     });
   }
 
-  async function toggleFavourite(): Promise<void> {
-    const selected = viewEntries[$appState.selectedRow];
-    if (!selected) return;
-    const key = favouriteKey($appState.activeSeries, selected.stable_id);
+  function selectRow(index: number): void {
+    const bounded = Math.max(0, Math.min(index, Math.max(viewEntries.length - 1, 0)));
+    appState.update((state) => ({ ...state, selectedRow: bounded }));
+  }
+
+  async function toggleFavouriteEntry(entry: TimingEntry): Promise<void> {
+    const key = favouriteKey($appState.activeSeries, entry.stable_id);
     appState.update((state) => {
       const next = new SvelteSet(state.favourites);
       if (next.has(key)) {
@@ -367,6 +390,33 @@
       return { ...state, favourites: next };
     });
     await persistPreferences();
+  }
+
+  async function toggleFavourite(): Promise<void> {
+    const selected = viewEntries[$appState.selectedRow];
+    if (!selected) return;
+    await toggleFavouriteEntry(selected);
+  }
+
+  function openSearch(): void {
+    appState.update((state) => ({
+      ...state,
+      search: { ...state.search, query: '', currentMatch: 0, inputActive: true }
+    }));
+  }
+
+  function applySearch(): void {
+    appState.update((state) => ({
+      ...state,
+      search: { ...state.search, inputActive: false, currentMatch: 0 }
+    }));
+    if (searchMatches.length > 0) {
+      selectRow(searchMatches[0]);
+    }
+  }
+
+  function closeSearch(): void {
+    appState.update((state) => ({ ...state, search: { ...state.search, inputActive: false } }));
   }
 
   function jumpFavourite(): void {
@@ -494,6 +544,8 @@
   $: favCountForSeries = Array.from($appState.favourites).filter((value) =>
     value.startsWith(`${$appState.activeSeries}|`)
   ).length;
+  $: compactMobileEnabled = viewportCompact || coarsePointer;
+  $: showMobileActions = viewportCompact || coarsePointer;
 </script>
 
 <main>
@@ -541,6 +593,22 @@
       <button class="logout-btn" on:click={() => void signOut()}>Logout</button>
     </div>
 
+    {#if $appState.search.inputActive && showMobileActions}
+      <section class="search-panel" aria-label="Mobile search">
+        <input
+          type="search"
+          placeholder="Search car #, driver, team"
+          value={$appState.search.query}
+          on:input={(event) => {
+            const value = (event.currentTarget as HTMLInputElement).value;
+            appState.update((state) => ({ ...state, search: { ...state.search, query: value } }));
+          }}
+        />
+        <button class="action-btn" on:click={applySearch} type="button">Apply</button>
+        <button class="action-btn" on:click={closeSearch} type="button">Cancel</button>
+      </section>
+    {/if}
+
     <TimingTable
       title={viewModeLabel}
       series={$appState.activeSeries}
@@ -551,19 +619,69 @@
       markedStableId={markedStableId}
       favourites={$appState.favourites}
       gapAnchorStableId={$appState.gapAnchorStableId}
+      compactMobile={compactMobileEnabled}
+      onSelectRow={selectRow}
+      onToggleFavourite={toggleFavouriteEntry}
     />
 
-    <HelpModal open={$appState.showHelp} />
+    {#if showMobileActions}
+      <nav class="mobile-action-bar" aria-label="Mobile actions">
+        <button class="action-btn" on:click={cycleView} type="button">View</button>
+        <button
+          class="action-btn"
+          on:click={() =>
+            appState.update((state) => ({
+              ...state,
+              showSeriesPicker: true,
+              showGroupPicker: false,
+              seriesPickerIndex: ALL_SERIES.indexOf(state.activeSeries)
+            }))}
+          type="button"
+        >
+          Series
+        </button>
+        <button
+          class="action-btn"
+          on:click={() =>
+            appState.update((state) => ({
+              ...state,
+              showGroupPicker: true,
+              groupPickerIndex:
+                state.viewMode.kind === 'class'
+                  ? groups.length === 0
+                    ? 0
+                    : Math.min(state.viewMode.index, groups.length - 1)
+                  : 0
+            }))}
+          type="button"
+        >
+          Group
+        </button>
+        <button class="action-btn" on:click={openSearch} type="button">Search</button>
+        <button class="action-btn" on:click={() => void toggleFavourite()} type="button">Fav</button>
+        <button
+          class="action-btn"
+          on:click={() => appState.update((state) => ({ ...state, showHelp: !state.showHelp }))}
+          type="button"
+        >
+          Help
+        </button>
+      </nav>
+    {/if}
+
+    <HelpModal open={$appState.showHelp} onClose={() => appState.update((state) => ({ ...state, showHelp: false }))} />
     <GroupModal
       open={$appState.showGroupPicker}
       groups={groups.map(([name]) => name)}
       selectedIndex={$appState.groupPickerIndex}
       onPick={pickGroup}
+      onClose={() => appState.update((state) => ({ ...state, showGroupPicker: false }))}
     />
     <SeriesModal
       open={$appState.showSeriesPicker}
       selectedSeries={ALL_SERIES[$appState.seriesPickerIndex]}
       onPick={chooseSeries}
+      onClose={() => appState.update((state) => ({ ...state, showSeriesPicker: false }))}
     />
   {/if}
 </main>
@@ -613,6 +731,7 @@
 
   .login-card input,
   .login-card button,
+  .action-btn,
   .logout-btn {
     font-family: inherit;
     background: #13263a;
@@ -620,6 +739,10 @@
     border-radius: 6px;
     color: var(--text);
     padding: 0.45rem 0.6rem;
+  }
+
+  .action-btn {
+    min-height: 2.35rem;
   }
 
   .login-card input {
@@ -650,6 +773,36 @@
     align-items: center;
   }
 
+  .search-panel {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 0.35rem;
+    margin: 0 0 0.35rem;
+  }
+
+  .search-panel input {
+    font-family: inherit;
+    background: #13263a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 0.45rem 0.6rem;
+    min-height: 2.35rem;
+  }
+
+  .mobile-action-bar {
+    position: sticky;
+    bottom: 0;
+    margin-top: 0.35rem;
+    padding: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgb(7 22 40 / 96%);
+    display: grid;
+    gap: 0.35rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   @media (max-width: 768px) {
     .header-row {
       flex-direction: column;
@@ -657,6 +810,15 @@
 
     .logout-btn {
       align-self: flex-start;
+    }
+
+    .search-panel {
+      grid-template-columns: 1fr;
+    }
+
+    .mobile-action-bar {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      padding-bottom: calc(0.4rem + env(safe-area-inset-bottom, 0));
     }
   }
 

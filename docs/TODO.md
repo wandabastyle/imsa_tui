@@ -79,12 +79,12 @@
   - Added automatic NLS checkered flag promotion when computed `time_to_go` reaches zero (`0`, `0:00`, `00:00`, `00:00:00`) or is unknown (`-`).
   - Updated `refresh_header_time_to_go` in `src/nls.rs` to set `flag = "Checkered"` only when the current flag is `Green` or default (`-`) and `HEATTYPE=R`.
   - Preserved non-green race control states (`Yellow`, `Red`, `Code 60`, etc.) when countdown reaches zero.
+- Completed: **Phase E2** on branch `mobile`
+  - Auto-enabled compact mobile mode for small/coarse screens with in-app override (`Auto` / `On` / `Off`).
+  - Added touch-first action bar and search panel for `View`, `Series`, `Group`, `Search`, `Fav`, and `Help` flows.
+  - Added compact timing table columns with per-row details expansion and tap row selection.
+  - Improved header wrapping/chips and modal tap ergonomics (close actions and larger targets).
 
 ## Next Phases (Planned)
 
-- Planned: **Phase E2** on branch `mobile`
-  - Auto-enable mobile compact mode at `<= 900px` with manual override (`Auto` / `On` / `Off`).
-  - Add touch-first navigation/action bar for `View`, `Series`, `Group`, `Search`, `Fav`, and `Help`.
-  - Introduce compact timing table columns with per-row expand/collapse details on small screens.
-  - Reflow header + modal ergonomics for mobile readability and larger tap targets.
-  - Keep desktop keyboard-first behavior unchanged while adding mobile-friendly interaction parity.
+- No open planned phases.

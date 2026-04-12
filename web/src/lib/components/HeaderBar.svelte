@@ -51,10 +51,26 @@
 </script>
 
 <section class="header" data-flag={displayFlag.toLowerCase()}>
-  <div class="line">
-    {snapshot?.status || 'Starting live timing...'} | {eventText} | {sessionDisplay} | TTE {snapshot?.header.time_to_go || '-'} | Mode {viewModeLabel} | <strong>{displayFlag}</strong> | {ageText} | Favs {favCount}
+  <div class="line primary">
+    <span>{snapshot?.status || 'Starting live timing...'}</span>
+    <span>{eventText}</span>
+    <span>{sessionDisplay}</span>
+    <span>TTE {snapshot?.header.time_to_go || '-'}</span>
+    <span>Mode {viewModeLabel}</span>
+    <span><strong>{displayFlag}</strong></span>
+    <span>{ageText}</span>
+    <span>Favs {favCount}</span>
   </div>
-  <div class="line dim">Keys: h help | {searchLabel || 'Search: -'} {demoLabel}{errorText ? ` | Error: ${errorText}` : ''}</div>
+  <div class="line dim secondary">
+    <span>Keys: h help</span>
+    <span>{searchLabel || 'Search: -'}</span>
+    {#if demoLabel}
+      <span>{demoLabel}</span>
+    {/if}
+    {#if errorText}
+      <span>Error: {errorText}</span>
+    {/if}
+  </div>
 </section>
 
 <style>
@@ -116,8 +132,45 @@
     line-height: 1.25;
   }
 
+  .line span + span::before {
+    content: '|';
+    margin: 0 0.34rem;
+    opacity: 0.72;
+  }
+
   .dim {
     color: var(--header-dim);
     margin-top: 0.08rem;
+  }
+
+  @media (max-width: 900px) {
+    .header {
+      padding: 0.4rem;
+    }
+
+    .line {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: initial;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.22rem;
+      font-size: 0.72rem;
+    }
+
+    .line span {
+      background: rgb(255 255 255 / 15%);
+      border-radius: 999px;
+      padding: 0.1rem 0.35rem;
+    }
+
+    .line span + span::before {
+      content: none;
+      margin: 0;
+    }
+
+    .secondary {
+      margin-top: 0.24rem;
+    }
   }
 </style>
