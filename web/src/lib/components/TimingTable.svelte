@@ -238,6 +238,10 @@
     return 'pn';
   }
 
+  function desktopGroupedEntries(classEntries: TimingEntry[]): TimingEntry[] {
+    return classEntries.slice(0, 5);
+  }
+
   function hiddenColumnsForCompact(currentSeries: Series): string[] {
     const hiddenFromMainCard = new Set(['Pos', '#', 'Driver', compactGapColumn(currentSeries), 'Pit', 'S5']);
     return columnsBySeries[currentSeries].filter((column) => !hiddenFromMainCard.has(column));
@@ -547,7 +551,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {#each section.entries as entry, index (entry.stable_id)}
+                  {#each desktopGroupedEntries(section.entries) as entry, index (entry.stable_id)}
                     <tr
                       class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}
                       on:click={() => onSelectRow(section.start + index)}
@@ -617,19 +621,21 @@
 <style>
   .table-wrap {
     border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #071628;
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--surface-1) 88%, #091426);
     min-height: 0;
     flex: 1;
     display: flex;
     flex-direction: column;
+    box-shadow: var(--shadow-soft);
   }
 
   .table-title {
-    padding: 0.35rem 0.55rem;
+    padding: 0.42rem 0.62rem;
     border-bottom: 1px solid var(--border);
     color: var(--text-dim);
-    font-size: 0.9rem;
+    font-size: 0.86rem;
+    letter-spacing: 0.02em;
   }
 
   .table-scroll {
@@ -637,24 +643,24 @@
   }
 
   .group-stack {
-    padding: 0.25rem;
+    padding: 0.3rem;
     display: grid;
-    gap: 0.45rem;
+    gap: 0.35rem;
   }
 
   .group-section {
-    border: 1px solid #355378;
-    border-radius: 5px;
+    border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+    border-radius: 10px;
     overflow: hidden;
-    background: #0a1a2d;
+    background: color-mix(in srgb, var(--surface-2) 86%, #101f33);
   }
 
   .group-title {
-    padding: 0.3rem 0.5rem;
-    font-size: 0.84rem;
+    padding: 0.36rem 0.56rem;
+    font-size: 0.8rem;
     color: var(--text-dim);
-    border-bottom: 1px solid #355378;
-    background: #11263d;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+    background: color-mix(in srgb, var(--surface-3) 64%, transparent);
   }
 
   .empty {
@@ -807,7 +813,7 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    background: #182436;
+    background: color-mix(in srgb, var(--surface-3) 88%, #16233a);
     text-align: left;
   }
 

@@ -22,6 +22,10 @@
   let viewportCompact = false;
   let coarsePointer = false;
   let showMoreMenu = false;
+  let groupPickerIncludeOverall = false;
+  let compactMobileEnabled = false;
+  let showMobileActions = false;
+  let groupPickerOptions: string[] = [];
 
   let cleanupKeys = () => {};
   let cleanupViewport = () => {};
@@ -329,7 +333,18 @@
     return groups;
   }
 
-  function nextViewMode(current: ViewMode, groupCount: number): ViewMode {
+  function nextViewMode(current: ViewMode, groupCount: number, mobileSimplified: boolean): ViewMode {
+    if (mobileSimplified) {
+      if (groupCount === 0) {
+        return current.kind === 'overall' ? { kind: 'favourites' } : { kind: 'overall' };
+      }
+      if (current.kind === 'overall') return { kind: 'class', index: 0 };
+      if (current.kind === 'class') {
+        return current.index + 1 < groupCount ? { kind: 'class', index: current.index + 1 } : { kind: 'favourites' };
+      }
+      return { kind: 'overall' };
+    }
+
     if (groupCount === 0) {
       if (current.kind === 'overall') return { kind: 'grouped' };
       if (current.kind === 'grouped') return { kind: 'favourites' };
@@ -351,7 +366,7 @@
       const groups = groupedEntries(activeEntries);
       return {
         ...state,
-        viewMode: nextViewMode(state.viewMode, groups.length),
+        viewMode: nextViewMode(state.viewMode, groups.length, compactMobileEnabled),
         selectedRow: 0,
         gapAnchorStableId: null
       };
@@ -425,21 +440,25 @@
 
   function openGroupPicker(): void {
     showMoreMenu = false;
+    groupPickerIncludeOverall = compactMobileEnabled;
+    const mobileIndex =
+      $appState.viewMode.kind === 'overall'
+        ? 0
+        : $appState.viewMode.kind === 'class'
+          ? Math.min($appState.viewMode.index + 1, groups.length)
+          : 0;
     appState.update((state) => ({
       ...state,
       showGroupPicker: true,
       groupPickerIndex:
-        state.viewMode.kind === 'class'
-          ? groups.length === 0
-            ? 0
-            : Math.min(state.viewMode.index, groups.length - 1)
-          : 0
+        groupPickerIncludeOverall
+          ? mobileIndex
+          : state.viewMode.kind === 'class'
+            ? groups.length === 0
+              ? 0
+              : Math.min(state.viewMode.index, groups.length - 1)
+            : 0
     }));
-  }
-
-  function openHelp(): void {
-    showMoreMenu = false;
-    appState.update((state) => ({ ...state, showHelp: true }));
   }
 
   function toggleMoreMenu(): void {
@@ -502,8 +521,41 @@
   }
 
   function pickGroup(index: number): void {
+    if (groupPickerIncludeOverall) {
+      if (index === 0) {
+        appState.update((state) => ({
+          ...state,
+          viewMode: { kind: 'overall' },
+          selectedRow: 0,
+          gapAnchorStableId: null,
+          showGroupPicker: false,
+          groupPickerIndex: 0
+        }));
+        groupPickerIncludeOverall = false;
+        return;
+      }
+      const classIndex = Math.max(0, index - 1);
+      if (groups.length === 0) {
+        appState.update((state) => ({ ...state, showGroupPicker: false }));
+        groupPickerIncludeOverall = false;
+        return;
+      }
+      const boundedClass = Math.max(0, Math.min(classIndex, groups.length - 1));
+      appState.update((state) => ({
+        ...state,
+        viewMode: { kind: 'class', index: boundedClass },
+        selectedRow: 0,
+        gapAnchorStableId: null,
+        showGroupPicker: false,
+        groupPickerIndex: boundedClass + 1
+      }));
+      groupPickerIncludeOverall = false;
+      return;
+    }
+
     if (groups.length === 0) {
       appState.update((state) => ({ ...state, showGroupPicker: false }));
+      groupPickerIncludeOverall = false;
       return;
     }
     const bounded = Math.max(0, Math.min(index, groups.length - 1));
@@ -515,6 +567,7 @@
       showGroupPicker: false,
       groupPickerIndex: bounded
     }));
+    groupPickerIncludeOverall = false;
   }
 
   $: activeSnapshot = $appState.snapshots[$appState.activeSeries] ?? null;
@@ -538,6 +591,9 @@
     if (mode.kind === 'class') return groups[mode.index]?.[1] ?? [];
     return favouriteEntries;
   })();
+  $: if (compactMobileEnabled && $appState.viewMode.kind === 'grouped') {
+    appState.update((state) => ({ ...state, viewMode: { kind: 'overall' }, selectedRow: 0, gapAnchorStableId: null }));
+  }
   $: if (
     $appState.gapAnchorStableId &&
     !viewEntries.some((entry) => entry.stable_id === $appState.gapAnchorStableId)
@@ -573,6 +629,7 @@
   ).length;
   $: compactMobileEnabled = viewportCompact || coarsePointer;
   $: showMobileActions = viewportCompact || coarsePointer;
+  $: groupPickerOptions = groupPickerIncludeOverall ? ['Overall', ...groups.map(([name]) => name)] : groups.map(([name]) => name);
 </script>
 
 <main>
@@ -616,6 +673,8 @@
         demoLabel={demoLabel}
         errorText={activeSnapshot?.last_error ?? ''}
         displayFlag={effectiveFlag}
+        showLogoutChip={!showMobileActions}
+        onLogout={() => void signOut()}
       />
     </div>
 
@@ -658,18 +717,11 @@
       {#if showMoreMenu}
         <section class="more-sheet" aria-label="More actions">
           <button class="sheet-btn" on:click={openSeriesPicker} type="button">Series</button>
-          <button class="sheet-btn" on:click={openHelp} type="button">Help</button>
           <button class="sheet-btn danger" on:click={() => void signOut()} type="button">Logout</button>
         </section>
       {/if}
 
       <nav class="mobile-action-bar" aria-label="Mobile actions">
-        <button class="nav-btn" on:click={cycleView} type="button">
-          <span class="nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16M4 12h16M4 19h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          </span>
-          <span>View</span>
-        </button>
         <button class="nav-btn" on:click={openGroupPicker} type="button">
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M4 8h7v4H4zM13 8h7v4h-7zM4 14h7v4H4zM13 14h7v4h-7z" stroke="currentColor" stroke-width="1.4"/></svg>
@@ -682,7 +734,20 @@
           </span>
           <span>Search</span>
         </button>
-        <button class="nav-btn" on:click={() => void toggleFavourite()} type="button">
+        <button
+          class="nav-btn"
+          on:click={() => {
+            if ($appState.viewMode.kind !== 'favourites') {
+              appState.update((state) => ({
+                ...state,
+                viewMode: { kind: 'favourites' },
+                selectedRow: 0,
+                gapAnchorStableId: null
+              }));
+            }
+          }}
+          type="button"
+        >
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="m12 4 2.47 5 5.53.8-4 3.9.95 5.5L12 16.6 7.05 19.2 8 13.7 4 9.8 9.53 9z" stroke="currentColor" stroke-width="1.5"/></svg>
           </span>
@@ -700,10 +765,13 @@
     <HelpModal open={$appState.showHelp} onClose={() => appState.update((state) => ({ ...state, showHelp: false }))} />
     <GroupModal
       open={$appState.showGroupPicker}
-      groups={groups.map(([name]) => name)}
+      groups={groupPickerOptions}
       selectedIndex={$appState.groupPickerIndex}
       onPick={pickGroup}
-      onClose={() => appState.update((state) => ({ ...state, showGroupPicker: false }))}
+      onClose={() => {
+        groupPickerIncludeOverall = false;
+        appState.update((state) => ({ ...state, showGroupPicker: false }));
+      }}
     />
     <SeriesModal
       open={$appState.showSeriesPicker}
@@ -719,7 +787,7 @@
     max-width: 100%;
     height: 100dvh;
     min-height: 100dvh;
-    padding: 0.7rem;
+    padding: var(--space-3);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -738,9 +806,10 @@
   .login-card {
     width: min(28rem, 92vw);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: #0d1b2c;
-    padding: 1rem;
+    border-radius: var(--radius-2);
+    background: var(--surface-1);
+    padding: var(--space-4);
+    box-shadow: var(--shadow-soft);
   }
 
   .login-card h1 {
@@ -763,7 +832,7 @@
     font-family: inherit;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-1);
     color: var(--text);
     padding: 0.45rem 0.68rem;
   }
@@ -782,25 +851,29 @@
   }
 
   .header-row {
-    margin-bottom: 0.45rem;
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
   }
 
   .header-row :global(.header) {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
   }
 
   .search-panel {
     display: grid;
     grid-template-columns: 1fr auto auto;
-    gap: 0.4rem;
-    margin: 0 0 0.45rem;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
   }
 
   .search-panel input {
     font-family: inherit;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-1);
     color: var(--text);
     padding: 0.52rem 0.68rem;
     min-height: 2.35rem;
@@ -820,12 +893,13 @@
     right: 0.5rem;
     bottom: calc(4.9rem + env(safe-area-inset-bottom, 0));
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: var(--radius-2);
     background: var(--surface-1);
-    padding: 0.38rem;
+    padding: var(--space-2);
     display: grid;
-    gap: 0.34rem;
+    gap: var(--space-1);
     z-index: 320;
+    box-shadow: var(--shadow-soft);
   }
 
   .sheet-btn {
@@ -833,7 +907,7 @@
     border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     background: var(--surface-2);
     color: var(--text);
-    border-radius: 10px;
+    border-radius: var(--radius-1);
     min-height: 2.6rem;
     padding: 0.5rem 0.7rem;
     text-align: left;
@@ -847,23 +921,23 @@
   .mobile-action-bar {
     position: sticky;
     bottom: 0;
-    margin-top: 0.45rem;
-    padding: 0.38rem;
+    margin-top: var(--space-2);
+    padding: var(--space-1);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: var(--radius-2);
     background: rgb(15 23 40 / 96%);
     display: flex;
     gap: 0.25rem;
     justify-content: space-between;
     z-index: 330;
-    box-shadow: 0 -8px 18px rgb(0 0 0 / 24%);
+    box-shadow: var(--shadow-soft);
   }
 
   .nav-btn {
     flex: 1;
     border: 0;
     background: transparent;
-    border-radius: 10px;
+    border-radius: var(--radius-1);
     min-height: 3rem;
     color: var(--text-dim);
     display: grid;
@@ -891,6 +965,10 @@
   }
 
   @media (max-width: 768px) {
+    .header-row {
+      display: block;
+    }
+
     .search-panel {
       grid-template-columns: 1fr;
     }
@@ -903,7 +981,7 @@
   @media (max-width: 768px) {
     main {
       height: 100dvh;
-      padding: 0.4rem;
+      padding: var(--space-2);
     }
   }
 </style>
