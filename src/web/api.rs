@@ -107,7 +107,7 @@ pub async fn reset_preferences(State(state): State<WebAppState>, headers: Header
 }
 
 pub async fn healthz() -> impl IntoResponse {
-    StatusCode::OK
+    (StatusCode::OK, "ok\n")
 }
 
 pub async fn readyz(State(state): State<WebAppState>) -> impl IntoResponse {

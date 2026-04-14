@@ -141,7 +141,7 @@ docker compose up -d
 docker compose ps
 docker compose logs -f imsa-web
 
-# verify local health endpoint
+# verify local health endpoint (returns: ok)
 curl http://127.0.0.1:18080/healthz
 ```
 
