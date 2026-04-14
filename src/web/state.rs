@@ -2,7 +2,9 @@
 // latest snapshot per series, per-profile preferences, and broadcast channels for SSE fanout.
 
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::HashMap,
+    hash::{Hash, Hasher},
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -12,6 +14,7 @@ use tokio::sync::broadcast;
 
 use crate::timing::{Series, TimingEntry, TimingHeader, TimingMessage};
 
+use crate::demo;
 use crate::favourites;
 
 use super::prefs::{load_preferences, reset_preferences, save_preferences, Preferences};
@@ -35,8 +38,22 @@ pub struct SnapshotResponse {
 pub struct WebAppState {
     snapshots: Arc<RwLock<HashMap<Series, SeriesSnapshot>>>,
     preferences: Arc<RwLock<HashMap<String, Preferences>>>,
+    session_demo: Arc<RwLock<HashMap<String, SessionDemoState>>>,
     profile_cookie_secure: bool,
     streams: Arc<HashMap<Series, broadcast::Sender<()>>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SessionDemoState {
+    enabled: bool,
+    seed: u64,
+    started_unix_ms: u64,
+    last_seen_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct DemoSessionResponse {
+    pub enabled: bool,
 }
 
 impl WebAppState {
@@ -65,6 +82,7 @@ impl WebAppState {
         Self {
             snapshots: Arc::new(RwLock::new(snapshots)),
             preferences: Arc::new(RwLock::new(HashMap::new())),
+            session_demo: Arc::new(RwLock::new(HashMap::new())),
             profile_cookie_secure,
             streams: Arc::new(streams),
         }
@@ -114,6 +132,93 @@ impl WebAppState {
         if let Some(stream) = self.streams.get(&series) {
             let _ = stream.send(());
         }
+    }
+
+    pub fn demo_state_for_session(&self, session_token: &str) -> DemoSessionResponse {
+        let now = now_unix_ms();
+        let mut guard = match self.session_demo.write() {
+            Ok(g) => g,
+            Err(_) => {
+                return DemoSessionResponse { enabled: false };
+            }
+        };
+        retain_recent_sessions(&mut guard, now);
+
+        let entry = guard
+            .entry(session_token.to_string())
+            .or_insert_with(|| SessionDemoState {
+                enabled: false,
+                seed: session_seed(session_token),
+                started_unix_ms: now,
+                last_seen_unix_ms: now,
+            });
+        entry.last_seen_unix_ms = now;
+
+        DemoSessionResponse {
+            enabled: entry.enabled,
+        }
+    }
+
+    pub fn set_demo_for_session(&self, session_token: &str, enabled: bool) -> DemoSessionResponse {
+        let now = now_unix_ms();
+        let mut guard = match self.session_demo.write() {
+            Ok(g) => g,
+            Err(_) => {
+                return DemoSessionResponse { enabled: false };
+            }
+        };
+        retain_recent_sessions(&mut guard, now);
+
+        let entry = guard
+            .entry(session_token.to_string())
+            .or_insert_with(|| SessionDemoState {
+                enabled: false,
+                seed: session_seed(session_token),
+                started_unix_ms: now,
+                last_seen_unix_ms: now,
+            });
+        if enabled && !entry.enabled {
+            entry.started_unix_ms = now;
+        }
+        entry.enabled = enabled;
+        entry.last_seen_unix_ms = now;
+
+        DemoSessionResponse { enabled }
+    }
+
+    pub fn demo_snapshot_response_for(
+        &self,
+        series: Series,
+        session_token: &str,
+    ) -> Option<SnapshotResponse> {
+        let now = now_unix_ms();
+        let mut guard = self.session_demo.write().ok()?;
+        retain_recent_sessions(&mut guard, now);
+
+        let entry = guard
+            .entry(session_token.to_string())
+            .or_insert_with(|| SessionDemoState {
+                enabled: false,
+                seed: session_seed(session_token),
+                started_unix_ms: now,
+                last_seen_unix_ms: now,
+            });
+        entry.last_seen_unix_ms = now;
+        if !entry.enabled {
+            return None;
+        }
+
+        let elapsed_secs = now.saturating_sub(entry.started_unix_ms) / 1000;
+        let (header, entries) = demo::demo_snapshot_at(series, entry.seed, elapsed_secs);
+        let snapshot = SeriesSnapshot {
+            header,
+            entries,
+            status: format!("{} demo data", series.label()),
+            last_error: None,
+            last_update_unix_ms: Some(now),
+        };
+
+        Some(SnapshotResponse { series, snapshot })
     }
 
     pub fn subscribe_series(&self, series: Series) -> Option<broadcast::Receiver<()>> {
@@ -184,4 +289,17 @@ fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn session_seed(token: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    token.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn retain_recent_sessions(sessions: &mut HashMap<String, SessionDemoState>, now_unix_ms: u64) {
+    const SESSION_RETENTION_MS: u64 = 60 * 60 * 1000;
+    sessions.retain(|_, state| {
+        now_unix_ms.saturating_sub(state.last_seen_unix_ms) <= SESSION_RETENTION_MS
+    });
 }

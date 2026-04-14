@@ -122,6 +122,10 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),
         )
+        .route(
+            "/api/demo",
+            get(api::get_demo_state).put(api::put_demo_state),
+        )
         .route("/api/preferences/reset", post(api::reset_preferences))
         .layer(middleware::from_fn_with_state(
             auth_config.clone(),

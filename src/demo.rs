@@ -12,6 +12,69 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
     }
 }
 
+pub fn demo_snapshot_at(
+    series: Series,
+    seed: u64,
+    elapsed_secs: u64,
+) -> (TimingHeader, Vec<TimingEntry>) {
+    let (mut header, mut entries) = demo_snapshot(series);
+
+    let flag_names = ["Green", "Yellow", "Red", "White", "Checkered"];
+    let flag_idx =
+        ((elapsed_secs / 45) as usize + (seed as usize % flag_names.len())) % flag_names.len();
+    header.flag = flag_names[flag_idx].to_string();
+
+    match series {
+        Series::F1 => {
+            let base_lap = 34_u64;
+            let lap = base_lap.saturating_add(elapsed_secs / 12).min(57);
+            header.session_name = "Race".to_string();
+            header.time_to_go = format!("Lap {lap}/57");
+        }
+        _ => {
+            let hours = 6_u64.saturating_sub((elapsed_secs / 600).min(6));
+            let mins = (45_u64 + ((elapsed_secs / 17) % 15)) % 60;
+            let secs = (12_u64 + ((elapsed_secs + seed) % 48)) % 60;
+            header.time_to_go = format!("{hours:02}:{mins:02}:{secs:02}");
+        }
+    }
+
+    for (idx, entry) in entries.iter_mut().enumerate() {
+        if let Some(base_laps) = parse_laps(&entry.laps) {
+            let pace = if idx == 0 { 22 } else { 24 + (idx as u64 % 4) };
+            entry.laps = base_laps.saturating_add(elapsed_secs / pace).to_string();
+        }
+
+        if idx == 0 {
+            entry.gap_overall = "-".to_string();
+            entry.gap_class = "-".to_string();
+            entry.gap_next_in_class = "-".to_string();
+            continue;
+        }
+
+        let movement = (((elapsed_secs / 8) + seed + idx as u64) % 30) as f32 / 10.0;
+        let base = idx as f32 * 2.3;
+        let gap = base + movement;
+        let gap_text = format!("+{gap:.3}");
+        entry.gap_overall = gap_text.clone();
+        entry.gap_class = gap_text;
+        entry.gap_next_in_class = format!("+{:.3}", 1.1 + movement / 2.0);
+
+        let pit_cycle = ((elapsed_secs / 20) + seed + idx as u64) % 12;
+        entry.pit = if pit_cycle == 0 { "PIT" } else { "OUT" }.to_string();
+    }
+
+    (header, entries)
+}
+
+fn parse_laps(raw: &str) -> Option<u64> {
+    let digits: String = raw.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<u64>().ok()
+}
+
 pub fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
     for stable_id in demo_favourite_ids(series) {
         favourites.insert(format!("{}|{}", series.as_key_prefix(), stable_id));

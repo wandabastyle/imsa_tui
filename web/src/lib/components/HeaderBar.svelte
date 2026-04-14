@@ -54,7 +54,7 @@
   <div class="line">
     {snapshot?.status || 'Starting live timing...'} | {eventText} | {sessionDisplay} | TTE {snapshot?.header.time_to_go || '-'} | Mode {viewModeLabel} | <strong>{displayFlag}</strong> | {ageText} | Favs {favCount}
   </div>
-  <div class="line dim">Keys: h help | {searchLabel || 'Search: -'} {demoLabel}{errorText ? ` | Error: ${errorText}` : ''}</div>
+  <div class="line dim">Keys: h help | d demo | {searchLabel || 'Search: -'} {demoLabel}{errorText ? ` | Error: ${errorText}` : ''}</div>
 </section>
 
 <style>

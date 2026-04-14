@@ -11,6 +11,10 @@ interface ErrorPayload {
   retry_after_secs?: number;
 }
 
+export interface DemoStateResponse {
+  enabled: boolean;
+}
+
 export interface LoginResult {
   ok: boolean;
   error?: string;
@@ -32,6 +36,10 @@ function isSnapshotResponse(value: unknown): value is SnapshotResponse {
 
 function isSessionStateResponse(value: unknown): value is SessionStateResponse {
   return isRecord(value) && typeof value.authenticated === 'boolean';
+}
+
+function isDemoStateResponse(value: unknown): value is DemoStateResponse {
+  return isRecord(value) && typeof value.enabled === 'boolean';
 }
 
 function isPreferences(value: unknown): value is Preferences {
@@ -131,6 +139,36 @@ export async function updatePreferences(preferences: Preferences): Promise<Prefe
   const payload = await safeReadJson(response);
   if (!isPreferences(payload)) {
     throw new Error('preferences update payload is invalid');
+  }
+  return payload;
+}
+
+export async function fetchDemoState(): Promise<DemoStateResponse> {
+  const response = await fetch('/api/demo');
+  if (!response.ok) {
+    throw new Error(`demo state request failed (${String(response.status)})`);
+  }
+  const payload = await safeReadJson(response);
+  if (!isDemoStateResponse(payload)) {
+    throw new Error('demo state payload is invalid');
+  }
+  return payload;
+}
+
+export async function updateDemoState(enabled: boolean): Promise<DemoStateResponse> {
+  const response = await fetch('/api/demo', {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ enabled })
+  });
+  if (!response.ok) {
+    throw new Error(`demo state update failed (${String(response.status)})`);
+  }
+  const payload = await safeReadJson(response);
+  if (!isDemoStateResponse(payload)) {
+    throw new Error('demo state update payload is invalid');
   }
   return payload;
 }

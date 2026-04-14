@@ -1,7 +1,6 @@
 //! Shared crate surface for both binaries.
 //! `main.rs` uses the TUI modules, while `bin/web_server.rs` reuses feed and model code.
 
-#[cfg(feature = "dev-mode")]
 pub mod demo;
 pub mod f1;
 pub mod favourites;

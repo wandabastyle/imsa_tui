@@ -56,13 +56,7 @@ Development run:
 cargo run
 ```
 
-Development run with static demo data (no live feed connections):
-
-```bash
-cargo run --features dev-mode -- --dev
-```
-
-> `--dev` is only available when built with the `dev-mode` feature.
+Demo mode can be toggled at runtime with `d` in both TUI and Web.
 
 Release run:
 
@@ -173,8 +167,7 @@ Detailed deployment and operations docs are in the wiki:
 - `g` — cycle view modes (Overall → Grouped → each class → Favourites)
 - `o` — jump to Overall view
 - `t` — switch series (IMSA → NLS → F1)
-- `r` — cycle demo flag (enables demo mode if disabled)
-- `0` — return to live flag (disable demo mode)
+- `d` — toggle demo/live data source
 - `space` — toggle favourite for selected row
 - `f` — jump to next favourite in current view
 - `s` — start search mode (car #, driver, or team), `Enter` to apply, `Esc` to cancel
