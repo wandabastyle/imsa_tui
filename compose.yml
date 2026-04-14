@@ -1,0 +1,29 @@
+services:
+  imsa-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: imsa-web:local
+    container_name: imsa-web
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    environment:
+      WEBUI_AUTO_FUNNEL: "0"
+      WEBUI_COOKIE_SECURE: "1"
+      BIND_ADDR: "0.0.0.0"
+      PORT: "8080"
+      XDG_DATA_HOME: "/data"
+    volumes:
+      - imsa-web-data:/data
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  imsa-web-data:
