@@ -90,3 +90,43 @@ jobs:
 
       - name: cargo check --all-targets --all-features
         run: cargo check --all-targets --all-features
+
+  docker-compose-smoke:
+    name: Docker Compose smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build Docker image via Compose
+        run: docker compose build
+
+      - name: Start Compose stack
+        run: docker compose up -d
+
+      - name: Probe /healthz
+        run: |
+          for attempt in {1..20}; do
+            body="$(curl -fsS http://127.0.0.1:18080/healthz | tr -d '\r\n' || true)"
+            if [ "$body" = "ok" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "healthz probe failed"
+          docker compose ps
+          docker compose logs imsa-web
+          exit 1
+
+      - name: Compose status
+        if: always()
+        run: docker compose ps
+
+      - name: Compose logs
+        if: always()
+        run: docker compose logs imsa-web
+
+      - name: Tear down Compose stack
+        if: always()
+        run: docker compose down -v
