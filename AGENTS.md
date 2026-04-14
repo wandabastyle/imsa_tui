@@ -50,6 +50,17 @@
 ## Docs and Tests Sync
 
 - If behavior, runtime flags, storage paths, or operational flow changes, update `README.md` in the same branch.
+- Keep `README.md` concise for quick-start usage and high-level project context.
+- For operator runbooks, deployment variants, reverse-proxy setup, and deeper troubleshooting, update the GitHub Wiki in the same workstream.
+- When wiki content changes, keep the local mirror in `docs/wiki/` in sync so wiki updates are reproducible from the repository.
+- Decide README vs Wiki by scope: put essential, frequently-needed commands in `README.md`; put detailed procedures and extended references in Wiki pages.
+- Wiki publish workflow (after updating `docs/wiki/`):
+  1. Ensure wiki git repo exists (create/edit one page in GitHub UI once if needed).
+  2. Clone wiki repo locally (for example to `/tmp/imsa_tui.wiki`).
+  3. Copy `docs/wiki/*.md` into the cloned wiki repo.
+  4. Commit with a docs-scoped message.
+  5. Push to `wandabastyle/imsa_tui.wiki.git`.
+  6. Verify navigation links/pages render on the GitHub wiki.
 - If a tracked phase/plan item changes status, update `docs/TODO.md` in the same branch.
 - For behavior changes, add or update regression/unit tests in the same branch.
 

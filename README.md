@@ -4,6 +4,10 @@ A terminal user interface (TUI) for live IMSA, NLS, and F1 timing data.
 
 `imsa_tui` is a Rust application that pulls live timing feeds and renders a continuously updating leaderboard in your terminal using `ratatui`.
 
+Project wiki (operator-focused deployment/runbooks):
+
+- https://github.com/wandabastyle/imsa_tui/wiki
+
 ## Features
 
 - Live IMSA polling (JSONP), NLS websocket streaming, and F1 SignalR-style live streaming.
@@ -145,51 +149,23 @@ docker compose logs -f imsa-web
 curl http://127.0.0.1:18080/healthz
 ```
 
-Docker deployment notes:
+Docker/web quick notes:
 
-- `compose.yml` maps host port `18080` to container port `8080`.
-- The container disables automatic Funnel/Tailscale startup by default (`WEBUI_AUTO_FUNNEL=0`).
-- Runtime/auth artifacts are persisted in the named volume `imsa-web-data` mounted at `/data` (`XDG_DATA_HOME=/data`).
-- Compose includes a one-shot init service that fixes `/data` volume ownership for the distroless nonroot runtime user.
-- Put nginx (or nginx-proxy-manager) in front of `http://127.0.0.1:18080` and terminate TLS at the proxy.
+- `compose.yml` maps host `18080` to container `8080`.
+- `WEBUI_AUTO_FUNNEL=0` is the default in container deployment.
+- Runtime/auth data persists in volume `imsa-web-data` mounted at `/data`.
+- Put nginx or nginx-proxy-manager in front of `http://127.0.0.1:18080` and terminate TLS at the proxy.
 
-Notes:
+Detailed deployment and operations docs are in the wiki:
 
-- On first start, the server auto-generates a strong shared access code, saves it, and prints it.
-- On later starts, the saved access code is reused automatically.
-- Set `WEBUI_ROTATE_PASSWORD=1` to generate and persist a new access code on startup.
-- The web app shows a login screen first; enter the shared access code to continue.
-- Auth uses a browser-session cookie, so restarting the browser requires login again.
-- Login attempts are rate-limited per client address to reduce brute-force retries.
-- Cookie security defaults to `Secure` when `WEBUI_AUTO_FUNNEL` is enabled; override with `WEBUI_COOKIE_SECURE=1` or `WEBUI_COOKIE_SECURE=0`.
-- `/healthz` and `/readyz` are intentionally public for probes.
-- `tailscale funnel --bg http://127.0.0.1:<port>` is started automatically by default (set `WEBUI_AUTO_FUNNEL=0` to disable).
-- `WEBUI_EMBED_UI=1`/`0` toggles embedded vs disk mode only when binaries are compiled with the `embed-ui` feature (enabled by default on this branch).
-- Web auth/runtime artifacts are stored in the app data-local directory (Linux: `~/.local/share/imsa_tui/`): `web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`.
-- WebUI preferences are profile-scoped and stored at `~/.local/share/imsa_tui/profiles/<profile_id>.toml` (profile id is an opaque cookie value).
-- Stale WebUI profile files older than 180 days are cleaned up automatically on server startup.
-- `POST /api/preferences/reset` resets the active browser profile preferences to defaults (authentication required).
-
-Auth defaults:
-
-- Access control uses one shared access code stored in `~/.local/share/imsa_tui/web_auth.toml`.
-- Successful login sets `imsa_session` as a browser-session cookie (`HttpOnly`, `SameSite=Lax`, optional `Secure`), so browser restart requires login again.
-- Server-side session entries are in-memory with a `30d` TTL and are cleared on web server restart.
-- Login retry protection is enabled by default per client key (`X-Forwarded-For`, then `X-Real-IP`, fallback `unknown-client`): `6` attempts per `60s`, then block for `300s`.
-
-Operator notes:
-
-- Private network / personal use: current defaults are usually sufficient.
-- Public exposure (for example with Funnel): keep defaults or tighten them; keep `WEBUI_COOKIE_SECURE=1`.
-- If repeatedly locked out while testing, wait 5 minutes or rotate/restart and retry once lockout expires.
-
-Manual Tailscale Funnel commands (new CLI):
-
-```bash
-tailscale funnel --bg http://127.0.0.1:8080
-tailscale funnel status
-tailscale funnel reset
-```
+- Quick Start (Compose + NPM): https://github.com/wandabastyle/imsa_tui/wiki/Quick-Start-Compose-and-NPM
+- Docker Compose deployment: https://github.com/wandabastyle/imsa_tui/wiki/Deployment-Docker-Compose
+- Plain Docker deployment: https://github.com/wandabastyle/imsa_tui/wiki/Deployment-Docker
+- Reverse proxy (Nginx Proxy Manager): https://github.com/wandabastyle/imsa_tui/wiki/Reverse-Proxy-Nginx-Proxy-Manager
+- Reverse proxy (Nginx): https://github.com/wandabastyle/imsa_tui/wiki/Reverse-Proxy-Nginx
+- Web auth and sessions: https://github.com/wandabastyle/imsa_tui/wiki/Web-Auth-and-Sessions
+- Operations runbook: https://github.com/wandabastyle/imsa_tui/wiki/Operations-Runbook
+- Troubleshooting: https://github.com/wandabastyle/imsa_tui/wiki/Troubleshooting
 
 ## Controls
 
@@ -245,63 +221,15 @@ F1:
 
 If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
-## NLS Header Field Map
+NLS protocol/header mapping details are documented in the wiki:
 
-Quick reference for how websocket payload keys map into the displayed header.
-
-| Header field | Source payload field(s) | Notes |
-| --- | --- | --- |
-| `session_name` | `HEAT` (preferred), else `HEATTYPE` | `HEATTYPE` is normalized (`R` -> `Race`, `Q` -> `Qualifying`, `T` -> `Practice`). |
-| `event_name` | Website event name (if available), else `CUP`/`EVENTNAME` | Website value wins when present. |
-| `track_name` | `TRACKNAME` or `TRACK` | Falls back to `NLS` if empty during `PID=4`. |
-| `flag` | `TRACKSTATE` | Mapped as `0` -> `Green`, `1` -> `Yellow`, `2` -> `Code 60`, otherwise raw value. |
-| `day_time` | `TIME` | Raw feed value. |
-| `time_to_go` | Computed from `ENDTIME` + `TIMESTATE` | Refreshed on each emitted snapshot using countdown state captured from `PID=4`. |
-
-Checkered auto-promotion rule (NLS):
-
-- If current flag is `Green` or `-`, set flag to `Checkered` only when both are true:
-  - computed `time_to_go` reaches zero (`0`, `0:00`, `00:00`, `00:00:00`) or is unknown (`-`), and
-  - `HEATTYPE=R` on the websocket metadata update (`PID=4`).
-- Do not override non-green control states (`Yellow`, `Red`, `Code 60`, etc.).
-
-Flow sketch (`PID=4` update path):
-
-```text
-PID=4 payload
-  |
-  +--> TRACKSTATE ---------> header.flag
-  +--> TIME ---------------> header.day_time
-  +--> TRACKNAME/TRACK ----> header.track_name
-  +--> CUP/EVENTNAME ------> header.event_name (unless website name is present)
-  +--> ENDTIME + TIMESTATE -> countdown state -> refresh_header_time_to_go()
-                                             |
-                                             +--> header.time_to_go
-                                             +--> optional flag promotion to Checkered
-```
-
-NLS row sector mapping (from `PID=0` `RESULT` rows):
-
-- `sector_1..sector_5` now read explicit keys `S1TIME..S5TIME` (with direct `S1..S5` fallback only).
-- Non-standard sector aliases are intentionally ignored to keep mapping predictable.
+- https://github.com/wandabastyle/imsa_tui/wiki/NLS-Header-Field-Map
 
 ## Troubleshooting
 
-Web auth/profile quick checklist:
+See the dedicated troubleshooting page:
 
-- Run `web_server --status` first, then `web_server --logs` for immediate daemon diagnostics.
-- Verify storage paths: TUI config is `~/.config/imsa_tui/config.toml`, web runtime/auth/profile files are under `~/.local/share/imsa_tui/`.
-- Browser restart requires login again (`imsa_session` is session-scoped), while profile preferences persist via `imsa_profile`.
-- Per-profile preferences are stored at `~/.local/share/imsa_tui/profiles/<profile_id>.toml`.
-- Lockout defaults: after `6` failed logins in `60s`, login is blocked for `300s`.
-
-- If the table stays empty, wait a few polling cycles for the first successful snapshot.
-- If you see repeated errors in the header, confirm outbound HTTPS access is available.
-- If rendering looks off, resize your terminal to provide more width for table columns.
-- If `--status` reports stale pid/runtime files, run `web_server --stop` once to clean them, then `web_server --daemon` or `web_server --restart`.
-- If daemon startup info is delayed, check `web_server --logs` (or `web_server --logs=<n>` for more history).
-- If you cannot find web artifacts, check `~/.local/share/imsa_tui/` (`web_auth.toml`, `web_server.log`, `web_server.pid`, `web_server.info.toml`) and `~/.local/share/imsa_tui/profiles/` for WebUI preference files.
-- If login returns "too many login attempts", wait for lockout expiry (`300s` default) and retry with the correct access code.
+- https://github.com/wandabastyle/imsa_tui/wiki/Troubleshooting
 
 ## Development
 
