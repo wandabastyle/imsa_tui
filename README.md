@@ -150,6 +150,7 @@ Docker deployment notes:
 - `compose.yml` maps host port `18080` to container port `8080`.
 - The container disables automatic Funnel/Tailscale startup by default (`WEBUI_AUTO_FUNNEL=0`).
 - Runtime/auth artifacts are persisted in the named volume `imsa-web-data` mounted at `/data` (`XDG_DATA_HOME=/data`).
+- Compose includes a one-shot init service that fixes `/data` volume ownership for the distroless nonroot runtime user.
 - Put nginx (or nginx-proxy-manager) in front of `http://127.0.0.1:18080` and terminate TLS at the proxy.
 
 Notes:
