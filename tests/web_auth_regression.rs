@@ -18,6 +18,10 @@ fn test_app() -> Router {
     let app_state = WebAppState::new();
     let auth_config = WebAuthConfig::new("secret-code".to_string(), false);
 
+    let public_routes = Router::new()
+        .route("/healthz", get(api::healthz))
+        .route("/readyz", get(api::readyz));
+
     let protected_api_routes = Router::new()
         .route("/api/snapshot/:series", get(api::get_snapshot))
         .route("/api/stream/:series", get(sse::stream_series))
@@ -37,7 +41,8 @@ fn test_app() -> Router {
         .route("/auth/logout", post(auth::logout))
         .with_state(auth_config);
 
-    protected_api_routes
+    public_routes
+        .merge(protected_api_routes)
         .merge(auth_routes)
         .with_state(app_state)
 }
@@ -223,6 +228,26 @@ async fn auth_login_session_logout_and_protected_routes() {
     assert_eq!(session_after_logout.status(), StatusCode::OK);
     let body = response_body_text(session_after_logout).await;
     assert!(body.contains("\"authenticated\":false"));
+}
+
+#[tokio::test]
+async fn healthz_is_public_and_returns_ok_body() {
+    let app = test_app();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/healthz")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("healthz request");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_body_text(response).await;
+    assert_eq!(body, "ok\n");
 }
 
 #[tokio::test]
