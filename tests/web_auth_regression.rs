@@ -16,7 +16,8 @@ use tower::ServiceExt;
 
 fn test_app() -> Router {
     let app_state = WebAppState::new();
-    let auth_config = WebAuthConfig::new("secret-code".to_string(), false);
+    let secret_hash = auth::hash_access_code("secret-code").expect("hash secret-code");
+    let auth_config = WebAuthConfig::new(secret_hash, false);
 
     let public_routes = Router::new()
         .route("/healthz", get(api::healthz))
