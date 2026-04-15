@@ -9,7 +9,7 @@
   import GroupModal from '$lib/components/GroupModal.svelte';
   import SeriesModal from '$lib/components/SeriesModal.svelte';
   import TimingTable from '$lib/components/TimingTable.svelte';
-  import { fetchSessionState, loginWithAccessCode, logoutSession } from '$lib/api';
+  import { fetchSessionState, loginWithAccessCode, logoutSession, updateDemoState } from '$lib/api';
   import { appState, destroyStreams, favouriteKey, initializeAppState, persistPreferences } from '$lib/stores/app';
   import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from '$lib/types';
 
@@ -218,17 +218,8 @@
         case 'p':
           jumpSearch(-1);
           break;
-        case 'r':
-          appState.update((state) => ({
-            ...state,
-            demoFlag: {
-              enabled: true,
-              index: state.demoFlag.enabled ? (state.demoFlag.index + 1) % 5 : 0
-            }
-          }));
-          break;
-        case '0':
-          appState.update((state) => ({ ...state, demoFlag: { ...state.demoFlag, enabled: false } }));
+        case 'd':
+          void toggleDemoMode();
           break;
         default:
           return;
@@ -424,6 +415,14 @@
     await persistPreferences();
   }
 
+  async function toggleDemoMode(): Promise<void> {
+    const nextEnabled = !$appState.demoEnabled;
+    const result = await updateDemoState(nextEnabled);
+    appState.update((state) => ({ ...state, demoEnabled: result.enabled }));
+    destroyStreams();
+    await initializeAppState();
+  }
+
   function pickGroup(index: number): void {
     if (groups.length === 0) {
       appState.update((state) => ({ ...state, showGroupPicker: false }));
@@ -483,14 +482,8 @@
   $: searchLabel = $appState.search.query
     ? `Search: ${$appState.search.query}${$appState.search.inputActive ? '_' : ''} (${searchMatches.length === 0 ? 0 : searchCurrentMatch + 1}/${searchMatches.length})`
     : '';
-  $: demoFlagName = (() => {
-    const names = ['Green', 'Yellow', 'Red', 'White', 'Checkered'];
-    return names[$appState.demoFlag.index % names.length];
-  })();
-  $: effectiveFlag = $appState.demoFlag.enabled
-    ? demoFlagName
-    : (activeSnapshot?.header.flag && activeSnapshot.header.flag.trim()) || '-';
-  $: demoLabel = $appState.demoFlag.enabled ? `| DEMO ${$appState.demoFlag.index}` : '';
+  $: effectiveFlag = (activeSnapshot?.header.flag && activeSnapshot.header.flag.trim()) || '-';
+  $: demoLabel = $appState.demoEnabled ? '| DEMO' : '';
   $: favCountForSeries = Array.from($appState.favourites).filter((value) =>
     value.startsWith(`${$appState.activeSeries}|`)
   ).length;

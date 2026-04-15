@@ -18,8 +18,7 @@ space toggle favourite
 f jump favourite
 s search mode (type, Enter apply, Esc cancel)
 n/p next/prev match
-r demo flag
-0 live flag
+d toggle demo/live data source
 Esc close popup</pre>
     </section>
   </div>

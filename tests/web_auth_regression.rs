@@ -26,6 +26,10 @@ fn test_app() -> Router {
         .route("/api/snapshot/:series", get(api::get_snapshot))
         .route("/api/stream/:series", get(sse::stream_series))
         .route(
+            "/api/demo",
+            get(api::get_demo_state).put(api::put_demo_state),
+        )
+        .route(
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),
         )
@@ -256,12 +260,14 @@ async fn protected_api_and_sse_require_authentication() {
 
     for (method, uri) in [
         (Method::GET, "/api/preferences"),
+        (Method::GET, "/api/demo"),
         (Method::GET, "/api/snapshot/imsa"),
         (Method::GET, "/api/stream/imsa"),
+        (Method::PUT, "/api/demo"),
         (Method::PUT, "/api/preferences"),
         (Method::POST, "/api/preferences/reset"),
     ] {
-        let body = if method == Method::PUT {
+        let body = if method == Method::PUT && uri == "/api/preferences" {
             Body::from(
                 serde_json::to_vec(&serde_json::json!({
                     "favourites": [],
@@ -269,13 +275,20 @@ async fn protected_api_and_sse_require_authentication() {
                 }))
                 .expect("put payload"),
             )
+        } else if method == Method::PUT && uri == "/api/demo" {
+            Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "enabled": true
+                }))
+                .expect("demo payload"),
+            )
         } else {
             Body::empty()
         };
 
-        let is_put_preferences = method == Method::PUT && uri == "/api/preferences";
+        let is_json_put = method == Method::PUT;
         let mut builder = Request::builder().method(method).uri(uri);
-        if is_put_preferences {
+        if is_json_put {
             builder = builder.header(header::CONTENT_TYPE, "application/json");
         }
 
@@ -474,4 +487,141 @@ async fn preferences_are_isolated_per_profile_cookie() {
     if let Some(path) = profile_path(&second_profile_cookie) {
         let _ = std::fs::remove_file(path);
     }
+}
+
+#[tokio::test]
+async fn demo_mode_is_isolated_per_session_cookie() {
+    let app = test_app();
+
+    let login_a = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({ "access_code": "secret-code" }))
+                        .expect("login payload"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("login request");
+    assert_eq!(login_a.status(), StatusCode::OK);
+    let session_a = session_cookie_pair(
+        login_a
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("set-cookie present")
+            .to_str()
+            .expect("set-cookie utf8"),
+    );
+
+    let login_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({ "access_code": "secret-code" }))
+                        .expect("login payload"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("login request");
+    assert_eq!(login_b.status(), StatusCode::OK);
+    let session_b = session_cookie_pair(
+        login_b
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("set-cookie present")
+            .to_str()
+            .expect("set-cookie utf8"),
+    );
+
+    let enable_demo_a = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/api/demo")
+                .header(header::COOKIE, &session_a)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({ "enabled": true }))
+                        .expect("put payload"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("put demo request");
+    assert_eq!(enable_demo_a.status(), StatusCode::OK);
+
+    let demo_state_a = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/demo")
+                .header(header::COOKIE, &session_a)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get demo request");
+    assert_eq!(demo_state_a.status(), StatusCode::OK);
+    let demo_body_a = response_body_text(demo_state_a).await;
+    assert!(demo_body_a.contains("\"enabled\":true"));
+
+    let demo_state_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/demo")
+                .header(header::COOKIE, &session_b)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("get demo request");
+    assert_eq!(demo_state_b.status(), StatusCode::OK);
+    let demo_body_b = response_body_text(demo_state_b).await;
+    assert!(demo_body_b.contains("\"enabled\":false"));
+
+    let snapshot_a = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/snapshot/imsa")
+                .header(header::COOKIE, &session_a)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("snapshot request");
+    assert_eq!(snapshot_a.status(), StatusCode::OK);
+    let snapshot_body_a = response_body_text(snapshot_a).await;
+    assert!(snapshot_body_a.contains("demo data"));
+
+    let snapshot_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/snapshot/imsa")
+                .header(header::COOKIE, &session_b)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("snapshot request");
+    assert_eq!(snapshot_b.status(), StatusCode::OK);
+    let snapshot_body_b = response_body_text(snapshot_b).await;
+    assert!(!snapshot_body_b.contains("demo data"));
 }

@@ -3,7 +3,13 @@
 
 import { get, writable } from 'svelte/store';
 
-import { fetchPreferences, fetchSnapshot, openSeriesStream, updatePreferences } from '$lib/api';
+import {
+  fetchDemoState,
+  fetchPreferences,
+  fetchSnapshot,
+  openSeriesStream,
+  updatePreferences
+} from '$lib/api';
 import type { Preferences, Series, SnapshotResponse, ViewMode } from '$lib/types';
 import { ALL_SERIES } from '$lib/types';
 
@@ -12,11 +18,6 @@ interface SearchState {
   matches: number[];
   currentMatch: number;
   inputActive: boolean;
-}
-
-interface DemoFlagState {
-  enabled: boolean;
-  index: number;
 }
 
 export interface AppState {
@@ -32,7 +33,7 @@ export interface AppState {
   showGroupPicker: boolean;
   groupPickerIndex: number;
   search: SearchState;
-  demoFlag: DemoFlagState;
+  demoEnabled: boolean;
   connectionErrors: string[];
 }
 
@@ -54,10 +55,7 @@ const initialState: AppState = {
     currentMatch: 0,
     inputActive: false
   },
-  demoFlag: {
-    enabled: false,
-    index: 0
-  },
+  demoEnabled: false,
   connectionErrors: []
 };
 
@@ -66,8 +64,9 @@ export const appState = writable<AppState>(initialState);
 let streamHandles: EventSource[] = [];
 
 export async function initializeAppState(): Promise<void> {
-  const [prefs, ...snapshots] = await Promise.all([
+  const [prefs, demo, ...snapshots] = await Promise.all([
     fetchPreferences(),
+    fetchDemoState(),
     ...ALL_SERIES.map((series) => fetchSnapshot(series))
   ]);
 
@@ -80,7 +79,8 @@ export async function initializeAppState(): Promise<void> {
       ...state,
       activeSeries: prefs.selected_series,
       favourites: new Set(prefs.favourites),
-      snapshots: nextSnapshots
+      snapshots: nextSnapshots,
+      demoEnabled: demo.enabled
     };
   });
 

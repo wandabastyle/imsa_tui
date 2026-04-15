@@ -25,7 +25,6 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "dev-mode")]
 use crate::demo;
 use crate::{
     f1::signalr_worker,
@@ -54,12 +53,6 @@ enum ViewMode {
     Grouped,
     Class(usize),
     Favourites,
-}
-
-#[derive(Debug, Clone, Default)]
-struct DemoFlagState {
-    enabled: bool,
-    idx: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -116,7 +109,7 @@ struct SeriesChangeCtx<'a> {
     feed: &'a mut Option<ActiveFeed>,
     tx: &'a Sender<TimingMessage>,
     source_id_ctr: &'a mut u64,
-    dev_mode: bool,
+    demo_mode: bool,
     header: &'a mut TimingHeader,
     entries: &'a mut Vec<TimingEntry>,
     status: &'a mut String,
@@ -126,7 +119,6 @@ struct SeriesChangeCtx<'a> {
     selected_row: &'a mut usize,
     view_mode: &'a mut ViewMode,
     search: &'a mut SearchState,
-    demo_flag: &'a mut DemoFlagState,
     config: &'a mut AppConfig,
 }
 
@@ -134,33 +126,13 @@ fn favourite_key(series: Series, stable_id: &str) -> String {
     favourites::favourite_key(series, stable_id)
 }
 
-fn demo_flag_name(idx: usize) -> &'static str {
-    match idx % 5 {
-        0 => "Green",
-        1 => "Yellow",
-        2 => "Red",
-        3 => "White",
-        _ => "Checkered",
-    }
-}
-
-#[cfg(feature = "dev-mode")]
 fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
     demo::demo_snapshot(series)
 }
 
-#[cfg(not(feature = "dev-mode"))]
-fn demo_snapshot(_series: Series) -> (TimingHeader, Vec<TimingEntry>) {
-    (TimingHeader::default(), Vec::new())
-}
-
-#[cfg(feature = "dev-mode")]
 fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
     demo::seed_demo_favourites(series, favourites);
 }
-
-#[cfg(not(feature = "dev-mode"))]
-fn seed_demo_favourites(_series: Series, _favourites: &mut HashSet<String>) {}
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
@@ -200,8 +172,7 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("f      jump to next favourite in current view"),
         Line::from("s      search by car #, driver, or team"),
         Line::from("n/p    next/prev search result"),
-        Line::from("r      cycle demo flag"),
-        Line::from("0      return to live flag"),
+        Line::from("d      toggle demo/live data source"),
         Line::from("q      quit"),
         Line::from("Enter  confirm popup selection"),
         Line::from("Esc    close popup/help / quit app"),
@@ -1241,7 +1212,7 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     stop_feed(ctx.feed);
     *ctx.active_series = next_series;
 
-    if ctx.dev_mode {
+    if ctx.demo_mode {
         (*ctx.header, *ctx.entries) = demo_snapshot(*ctx.active_series);
         *ctx.status = format!("{} demo data", ctx.active_series.label());
         seed_demo_favourites(*ctx.active_series, ctx.favourites);
@@ -1262,7 +1233,6 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     *ctx.selected_row = 0;
     *ctx.view_mode = ViewMode::Overall;
     *ctx.search = SearchState::default();
-    ctx.demo_flag.enabled = false;
 
     ctx.config.selected_series = *ctx.active_series;
     if let Err(err) = save_config(ctx.config) {
@@ -1270,32 +1240,20 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     }
 }
 
-pub fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    dev_mode: bool,
-) -> io::Result<()> {
+pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let (tx, rx) = mpsc::channel::<TimingMessage>();
     let tick_rate = Duration::from_millis(250);
 
     let mut config = load_config();
     let mut active_series = config.selected_series;
     let mut source_id_ctr = 1_u64;
-    let mut feed = if dev_mode {
-        None
-    } else {
-        Some(start_feed(active_series, tx.clone(), source_id_ctr))
-    };
+    let mut demo_mode = false;
+    let mut demo_started_at = Instant::now();
+    let mut demo_seed = 1_u64;
+    let mut feed = Some(start_feed(active_series, tx.clone(), source_id_ctr));
 
-    let (mut header, mut entries) = if dev_mode {
-        demo_snapshot(active_series)
-    } else {
-        (TimingHeader::default(), Vec::new())
-    };
-    let mut status = if dev_mode {
-        format!("{} demo data", active_series.label())
-    } else {
-        format!("Starting {} live timing...", active_series.label())
-    };
+    let (mut header, mut entries) = (TimingHeader::default(), Vec::new());
+    let mut status = format!("Starting {} live timing...", active_series.label());
     let mut last_error: Option<String> = None;
     let mut last_update: Option<Instant> = None;
     let mut previous_flag = "-".to_string();
@@ -1303,10 +1261,6 @@ pub fn run_app(
     let mut view_mode = ViewMode::Overall;
     let mut selected_row = 0usize;
     let mut favourites: HashSet<String> = config.favourites.clone();
-    if dev_mode {
-        seed_demo_favourites(active_series, &mut favourites);
-    }
-    let mut demo_flag = DemoFlagState::default();
     let mut show_help = false;
     let mut search = SearchState::default();
     let mut series_picker = SeriesPickerState::closed();
@@ -1318,7 +1272,16 @@ pub fn run_app(
     loop {
         // This loop drives the app like a tiny state machine:
         // 1) pull feed updates, 2) compute derived view data, 3) render, 4) process one key event.
-        if let Some(active_feed) = &feed {
+        if demo_mode {
+            let elapsed_secs = demo_started_at.elapsed().as_secs();
+            let (next_header, next_entries) =
+                demo::demo_snapshot_at(active_series, demo_seed, elapsed_secs);
+            header = next_header;
+            entries = next_entries;
+            status = format!("{} demo data", active_series.label());
+            last_error = None;
+            last_update = Some(Instant::now());
+        } else if let Some(active_feed) = &feed {
             drain_messages(
                 &rx,
                 active_feed.source_id,
@@ -1379,15 +1342,10 @@ pub fn run_app(
             .and_then(|idx| current_view_entries.get(*idx))
             .map(|entry| entry.stable_id.as_str());
 
-        let live_flag = if header.flag.is_empty() {
+        let effective_flag = if header.flag.is_empty() {
             "-"
         } else {
             &header.flag
-        };
-        let effective_flag = if demo_flag.enabled {
-            demo_flag_name(demo_flag.idx)
-        } else {
-            live_flag
         };
 
         let transition_from_flag = previous_flag.clone();
@@ -1449,7 +1407,7 @@ pub fn run_app(
                 Span::styled(flag_text, flag_span_style),
             ];
 
-            if demo_flag.enabled {
+            if demo_mode {
                 header_spans.push(Span::styled(
                     " | DEMO",
                     header_style.add_modifier(Modifier::BOLD),
@@ -1465,7 +1423,7 @@ pub fn run_app(
                 header_style,
             ));
 
-            let mut key_hint_spans = vec![Span::styled("Keys: h help | q quit", header_style)];
+            let mut key_hint_spans = vec![Span::styled("Keys: h help | d demo | q quit", header_style)];
 
             if search.input_active {
                 key_hint_spans.push(Span::styled(
@@ -1764,7 +1722,7 @@ pub fn run_app(
                                 feed: &mut feed,
                                 tx: &tx,
                                 source_id_ctr: &mut source_id_ctr,
-                                dev_mode,
+                                demo_mode,
                                 header: &mut header,
                                 entries: &mut entries,
                                 status: &mut status,
@@ -1774,7 +1732,6 @@ pub fn run_app(
                                 selected_row: &mut selected_row,
                                 view_mode: &mut view_mode,
                                 search: &mut search,
-                                demo_flag: &mut demo_flag,
                                 config: &mut config,
                             };
                             apply_series_change(next_series, &mut series_change_ctx);
@@ -1929,15 +1886,34 @@ pub fn run_app(
                             selected_row = search.matches[search.current_match];
                         }
                     }
-                    KeyCode::Char('r') if !show_help => {
-                        if demo_flag.enabled {
-                            demo_flag.idx = (demo_flag.idx + 1) % 5;
+                    KeyCode::Char('d') if !show_help => {
+                        demo_mode = !demo_mode;
+                        last_error = None;
+                        gap_anchor_stable_id = None;
+                        selected_row = 0;
+                        view_mode = ViewMode::Overall;
+                        search = SearchState::default();
+
+                        if demo_mode {
+                            stop_feed(&mut feed);
+                            demo_started_at = Instant::now();
+                            demo_seed = demo_seed.saturating_add(1);
+                            let (next_header, next_entries) =
+                                demo::demo_snapshot_at(active_series, demo_seed, 0);
+                            header = next_header;
+                            entries = next_entries;
+                            status = format!("{} demo data", active_series.label());
+                            last_update = Some(Instant::now());
+                            seed_demo_favourites(active_series, &mut favourites);
                         } else {
-                            demo_flag.enabled = true;
-                            demo_flag.idx = 0;
+                            source_id_ctr += 1;
+                            feed = Some(start_feed(active_series, tx.clone(), source_id_ctr));
+                            header = TimingHeader::default();
+                            entries.clear();
+                            status = format!("Starting {} live timing...", active_series.label());
+                            last_update = None;
                         }
                     }
-                    KeyCode::Char('0') if !show_help => demo_flag.enabled = false,
                     _ => {}
                 }
             }

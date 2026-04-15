@@ -5,7 +5,6 @@ edition = "2021"
 
 [features]
 default = ["embed-ui"]
-dev-mode = []
 embed-ui = ["dep:include_dir"]
 
 [dependencies]
@@ -19,7 +18,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 tungstenite = { version = "0.23", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 axum = { version = "0.7", features = ["json"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["sync", "time"] }
 tower-http = { version = "0.5", features = ["fs", "trace"] }
 mime_guess = "2"
 base64 = "0.22"

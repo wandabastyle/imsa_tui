@@ -19,13 +19,21 @@ use crate::timing::Series;
 
 use super::{prefs::Preferences, state::WebAppState};
 
+const SESSION_COOKIE_NAME: &str = "imsa_session";
+
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
     error: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct PutDemoRequest {
+    pub enabled: bool,
+}
+
 pub async fn get_snapshot(
     State(state): State<WebAppState>,
+    headers: HeaderMap,
     Path(series_raw): Path<String>,
 ) -> impl IntoResponse {
     let series = match Series::from_str(&series_raw) {
@@ -34,6 +42,13 @@ pub async fn get_snapshot(
             return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: err })).into_response();
         }
     };
+
+    let session_token = session_token_from_headers(&headers);
+    if let Some(token) = session_token.as_deref() {
+        if let Some(snapshot) = state.demo_snapshot_response_for(series, token) {
+            return (StatusCode::OK, Json(snapshot)).into_response();
+        }
+    }
 
     match state.snapshot_response_for(series) {
         Some(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
@@ -45,6 +60,40 @@ pub async fn get_snapshot(
         )
             .into_response(),
     }
+}
+
+pub async fn get_demo_state(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
+    let Some(session_token) = session_token_from_headers(&headers) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "authentication required".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let response = state.demo_state_for_session(&session_token);
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+pub async fn put_demo_state(
+    State(state): State<WebAppState>,
+    headers: HeaderMap,
+    Json(payload): Json<PutDemoRequest>,
+) -> Response {
+    let Some(session_token) = session_token_from_headers(&headers) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "authentication required".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let response = state.set_demo_for_session(&session_token, payload.enabled);
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 pub async fn get_preferences(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
@@ -220,4 +269,8 @@ fn valid_profile_id(value: &str) -> bool {
     value
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
+fn session_token_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+    cookie_value(headers, SESSION_COOKIE_NAME).map(ToString::to_string)
 }
