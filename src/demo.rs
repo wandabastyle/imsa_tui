@@ -1,6 +1,8 @@
 // Deterministic demo snapshots used for UI development without live network feeds.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 
 use crate::timing::{Series, TimingEntry, TimingHeader};
 
@@ -45,6 +47,8 @@ pub fn demo_snapshot_at(
             entry.laps = base_laps.saturating_add(elapsed_secs / pace).to_string();
         }
 
+        apply_demo_pit_state(series, entry, seed, elapsed_secs, idx as u64);
+
         if idx == 0 {
             entry.gap_overall = "-".to_string();
             entry.gap_class = "-".to_string();
@@ -59,9 +63,6 @@ pub fn demo_snapshot_at(
         entry.gap_overall = gap_text.clone();
         entry.gap_class = gap_text;
         entry.gap_next_in_class = format!("+{:.3}", 1.1 + movement / 2.0);
-
-        let pit_cycle = ((elapsed_secs / 20) + seed + idx as u64) % 12;
-        entry.pit = if pit_cycle == 0 { "PIT" } else { "OUT" }.to_string();
     }
 
     (header, entries)
@@ -73,6 +74,46 @@ fn parse_laps(raw: &str) -> Option<u64> {
         return None;
     }
     digits.parse::<u64>().ok()
+}
+
+fn apply_demo_pit_state(
+    series: Series,
+    entry: &mut TimingEntry,
+    seed: u64,
+    elapsed_secs: u64,
+    row_idx: u64,
+) {
+    let lane = stable_lane_seed(seed, &entry.stable_id, row_idx);
+    let cycle_secs = 180_u64 + (lane % 240);
+    let pit_duration_secs = 18_u64 + ((lane / 7) % 18);
+    let phase_offset = lane % cycle_secs;
+    let in_pit = (elapsed_secs + phase_offset) % cycle_secs < pit_duration_secs;
+
+    let extra_stops = (elapsed_secs + phase_offset) / cycle_secs;
+    let base_stops = parse_stop_count(&entry.pit_stops).unwrap_or(0);
+    entry.pit_stops = base_stops.saturating_add(extra_stops).to_string();
+
+    match series {
+        Series::Nls => {
+            entry.pit = if in_pit { "Yes" } else { "No" }.to_string();
+            entry.sector_5 = if in_pit { "PIT" } else { "OUT" }.to_string();
+        }
+        Series::Imsa | Series::F1 => {
+            entry.pit = if in_pit { "Yes" } else { "No" }.to_string();
+        }
+    }
+}
+
+fn stable_lane_seed(seed: u64, stable_id: &str, row_idx: u64) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    seed.hash(&mut hasher);
+    stable_id.hash(&mut hasher);
+    row_idx.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn parse_stop_count(raw: &str) -> Option<u64> {
+    raw.trim().parse::<u64>().ok()
 }
 
 pub fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
@@ -253,6 +294,7 @@ fn f1_entries() -> Vec<TimingEntry> {
         ),
     ]
 }
+
 fn imsa_entries() -> Vec<TimingEntry> {
     vec![
         entry!(
@@ -781,4 +823,42 @@ fn nls_entries() -> Vec<TimingEntry> {
             "nls:608",
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn imsa_demo_uses_yes_no_for_pit_signal() {
+        let (_, entries) = demo_snapshot_at(Series::Imsa, 99, 240);
+        assert!(!entries.is_empty());
+        assert!(entries
+            .iter()
+            .all(|entry| entry.pit == "Yes" || entry.pit == "No"));
+    }
+
+    #[test]
+    fn nls_demo_sets_sector_5_pit_markers() {
+        let mut saw_pit = false;
+        let mut saw_out = false;
+
+        for t in (0..=1800).step_by(10) {
+            let (_, entries) = demo_snapshot_at(Series::Nls, 7, t);
+            for entry in &entries {
+                if entry.sector_5 == "PIT" {
+                    saw_pit = true;
+                }
+                if entry.sector_5 == "OUT" {
+                    saw_out = true;
+                }
+            }
+            if saw_pit && saw_out {
+                break;
+            }
+        }
+
+        assert!(saw_pit);
+        assert!(saw_out);
+    }
 }
