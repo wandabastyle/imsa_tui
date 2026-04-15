@@ -96,12 +96,22 @@ fn apply_demo_pit_state(
     match series {
         Series::Nls => {
             entry.pit = if in_pit { "Yes" } else { "No" }.to_string();
-            entry.sector_5 = if in_pit { "PIT" } else { "OUT" }.to_string();
+            entry.sector_5 = if in_pit {
+                "PIT".to_string()
+            } else {
+                demo_nls_sector_5_time(lane, elapsed_secs)
+            };
         }
         Series::Imsa | Series::F1 => {
             entry.pit = if in_pit { "Yes" } else { "No" }.to_string();
         }
     }
+}
+
+fn demo_nls_sector_5_time(lane: u64, elapsed_secs: u64) -> String {
+    let base_secs = 92.0 + ((lane % 17) as f32) * 0.7;
+    let wobble = ((elapsed_secs % 19) as f32) * 0.031;
+    format!("{:.3}", base_secs + wobble)
 }
 
 fn stable_lane_seed(seed: u64, stable_id: &str, row_idx: u64) -> u64 {
@@ -839,9 +849,9 @@ mod tests {
     }
 
     #[test]
-    fn nls_demo_sets_sector_5_pit_markers() {
+    fn nls_demo_sector_5_is_pit_or_time() {
         let mut saw_pit = false;
-        let mut saw_out = false;
+        let mut saw_time = false;
 
         for t in (0..=1800).step_by(10) {
             let (_, entries) = demo_snapshot_at(Series::Nls, 7, t);
@@ -849,16 +859,23 @@ mod tests {
                 if entry.sector_5 == "PIT" {
                     saw_pit = true;
                 }
-                if entry.sector_5 == "OUT" {
-                    saw_out = true;
+                if entry.sector_5 != "PIT"
+                    && !entry.sector_5.is_empty()
+                    && entry.sector_5 != "-"
+                    && entry
+                        .sector_5
+                        .chars()
+                        .all(|ch| ch.is_ascii_digit() || ch == '.')
+                {
+                    saw_time = true;
                 }
             }
-            if saw_pit && saw_out {
+            if saw_pit && saw_time {
                 break;
             }
         }
 
         assert!(saw_pit);
-        assert!(saw_out);
+        assert!(saw_time);
     }
 }
