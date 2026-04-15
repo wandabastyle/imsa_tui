@@ -1,5 +1,6 @@
 // SSE endpoint for live snapshot streaming per series.
 
+use std::sync::Arc;
 use std::{convert::Infallible, str::FromStr};
 
 use axum::{
@@ -34,6 +35,8 @@ pub async fn stream_series(
         return (StatusCode::NOT_FOUND, "unknown series").into_response();
     };
 
+    let live_guard = Arc::new(state.open_live_series(series));
+
     let initial_event = state
         .snapshot_response_for(series)
         .and_then(|snapshot| serde_json::to_string(&snapshot).ok())
@@ -42,7 +45,9 @@ pub async fn stream_series(
     // Clients get one immediate snapshot, then one event per worker update.
     let update_stream = BroadcastStream::new(rx).filter_map({
         let state = state.clone();
+        let live_guard = Arc::clone(&live_guard);
         move |event| {
+            let _keep_alive = Arc::clone(&live_guard);
             if event.is_err() {
                 return None;
             }

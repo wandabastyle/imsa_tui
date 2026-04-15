@@ -17,6 +17,7 @@ use crate::timing::{Series, TimingEntry, TimingHeader, TimingMessage};
 use crate::demo;
 use crate::favourites;
 
+use super::bridge::FeedController;
 use super::prefs::{load_preferences, reset_preferences, save_preferences, Preferences};
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -39,8 +40,22 @@ pub struct WebAppState {
     snapshots: Arc<RwLock<HashMap<Series, SeriesSnapshot>>>,
     preferences: Arc<RwLock<HashMap<String, Preferences>>>,
     session_demo: Arc<RwLock<HashMap<String, SessionDemoState>>>,
+    feed_controller: Arc<RwLock<Option<FeedController>>>,
     profile_cookie_secure: bool,
     streams: Arc<HashMap<Series, broadcast::Sender<()>>>,
+}
+
+pub struct LiveSeriesGuard {
+    controller: Option<FeedController>,
+    series: Series,
+}
+
+impl Drop for LiveSeriesGuard {
+    fn drop(&mut self) {
+        if let Some(controller) = self.controller.as_ref() {
+            controller.unregister_client(self.series);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,6 +98,7 @@ impl WebAppState {
             snapshots: Arc::new(RwLock::new(snapshots)),
             preferences: Arc::new(RwLock::new(HashMap::new())),
             session_demo: Arc::new(RwLock::new(HashMap::new())),
+            feed_controller: Arc::new(RwLock::new(None)),
             profile_cookie_secure,
             streams: Arc::new(streams),
         }
@@ -223,6 +239,26 @@ impl WebAppState {
 
     pub fn subscribe_series(&self, series: Series) -> Option<broadcast::Receiver<()>> {
         self.streams.get(&series).map(|tx| tx.subscribe())
+    }
+
+    pub fn set_feed_controller(&self, controller: FeedController) {
+        if let Ok(mut guard) = self.feed_controller.write() {
+            *guard = Some(controller);
+        }
+    }
+
+    pub fn open_live_series(&self, series: Series) -> LiveSeriesGuard {
+        let controller = self
+            .feed_controller
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned());
+
+        if let Some(active) = controller.as_ref() {
+            active.register_client(series);
+        }
+
+        LiveSeriesGuard { controller, series }
     }
 
     pub fn profile_cookie_secure(&self) -> bool {
