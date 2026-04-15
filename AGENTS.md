@@ -68,4 +68,6 @@
 
 - Keep feature/fix commits separate from version bump commits.
 - Bump crate version only when preparing a release.
-- Ensure release tag points to the version bump commit.
+- A dedicated release branch is not required; do the version bump as a separate commit on the active working branch.
+- Merge to `main` through the PR flow (no direct pushes to protected `main`).
+- After merge, create the annotated release tag on `main` and ensure the tag points to the version bump commit.
