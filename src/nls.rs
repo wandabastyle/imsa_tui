@@ -7,6 +7,7 @@ use std::{
 };
 
 use reqwest::blocking::Client;
+use reqwest::Url;
 use serde_json::{json, Value};
 use tungstenite::{
     client::IntoClientRequest,
@@ -39,6 +40,13 @@ struct CalendarDate {
     year: i32,
     month: u32,
     day: u32,
+}
+
+#[derive(Debug, Clone)]
+struct TermineScheduleEntry {
+    start: CalendarDate,
+    end: CalendarDate,
+    title: String,
 }
 
 fn now_millis() -> u128 {
@@ -91,6 +99,229 @@ fn strip_tags(raw: &str) -> String {
 
 fn normalize_spaces(raw: &str) -> String {
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn find_anchor_elements(html: &str) -> Vec<(String, String)> {
+    let mut anchors = Vec::new();
+    let mut offset = 0;
+
+    while let Some(anchor_start_rel) = html[offset..].find("<a") {
+        let anchor_start = offset + anchor_start_rel;
+        let Some(tag_end_rel) = html[anchor_start..].find('>') else {
+            break;
+        };
+        let tag_end = anchor_start + tag_end_rel;
+        let Some(close_rel) = html[tag_end + 1..].find("</a>") else {
+            break;
+        };
+        let close = tag_end + 1 + close_rel;
+
+        let tag = &html[anchor_start..=tag_end];
+        let body = &html[tag_end + 1..close];
+        anchors.push((tag.to_string(), normalize_spaces(&strip_tags(body))));
+
+        offset = close + 4;
+    }
+
+    anchors
+}
+
+fn extract_href_attr(anchor_tag: &str) -> Option<String> {
+    let href_pos = anchor_tag.find("href=")?;
+    let rest = &anchor_tag[href_pos + 5..];
+    let quoted = rest.trim_start();
+    let quote = quoted.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let value_with_quote = &quoted[1..];
+    let end = value_with_quote.find(quote)?;
+    Some(value_with_quote[..end].to_string())
+}
+
+fn resolve_url(base: &str, href: &str) -> Option<String> {
+    let base_url = Url::parse(base).ok()?;
+    base_url.join(href).ok().map(|url| url.to_string())
+}
+
+fn discover_termine_url_from_homepage_html(homepage_html: &str) -> Option<String> {
+    let mut generic_candidate: Option<String> = None;
+
+    for (tag, label) in find_anchor_elements(homepage_html) {
+        let normalized_label = label.trim();
+        if !normalized_label.to_ascii_lowercase().contains("termine") {
+            continue;
+        }
+
+        let href = extract_href_attr(&tag)?;
+        if href.trim().is_empty() || href.trim() == "#" {
+            continue;
+        }
+
+        let absolute = resolve_url(NLS_HOME_URL, href.trim())?;
+        let looks_like_year_link = normalized_label.chars().any(|ch| ch.is_ascii_digit())
+            || absolute.to_ascii_lowercase().contains("termine-");
+
+        if looks_like_year_link {
+            return Some(absolute);
+        }
+        if generic_candidate.is_none() {
+            generic_candidate = Some(absolute);
+        }
+    }
+
+    generic_candidate
+}
+
+fn discover_termine_url(client: &Client) -> Result<String, String> {
+    let response = client
+        .get(NLS_HOME_URL)
+        .send()
+        .map_err(|err| format!("failed to fetch NLS homepage: {err}"))?;
+    let html = response
+        .text()
+        .map_err(|err| format!("failed to read NLS homepage: {err}"))?;
+
+    discover_termine_url_from_homepage_html(&html)
+        .ok_or_else(|| "failed to discover Termine URL from homepage".to_string())
+}
+
+fn parse_single_german_date(raw: &str) -> Option<CalendarDate> {
+    let normalized = normalize_spaces(raw).replace(' ', "");
+    let parts: Vec<&str> = normalized
+        .split('.')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if parts.len() != 3 {
+        return None;
+    }
+
+    let day = parts[0].parse::<u32>().ok()?;
+    let month = parts[1].parse::<u32>().ok()?;
+    let year = parts[2].parse::<i32>().ok()?;
+    let max_day = days_in_month(year, month)?;
+    if day == 0 || day > max_day {
+        return None;
+    }
+
+    Some(CalendarDate { year, month, day })
+}
+
+fn parse_termine_date_window(raw: &str) -> Option<(CalendarDate, CalendarDate)> {
+    parse_german_date_range(raw).or_else(|| parse_single_german_date(raw).map(|date| (date, date)))
+}
+
+fn extract_table_cells(row_html: &str) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut offset = 0;
+
+    while let Some(cell_start_rel) = row_html[offset..].find("<td") {
+        let cell_start = offset + cell_start_rel;
+        let Some(open_end_rel) = row_html[cell_start..].find('>') else {
+            break;
+        };
+        let open_end = cell_start + open_end_rel;
+        let Some(close_rel) = row_html[open_end + 1..].find("</td>") else {
+            break;
+        };
+        let close = open_end + 1 + close_rel;
+        cells.push(row_html[open_end + 1..close].to_string());
+        offset = close + 5;
+    }
+
+    cells
+}
+
+fn parse_termine_entries(html: &str) -> Vec<TermineScheduleEntry> {
+    let mut entries = Vec::new();
+    let mut offset = 0;
+
+    while let Some(row_start_rel) = html[offset..].find("<tr") {
+        let row_start = offset + row_start_rel;
+        let Some(open_end_rel) = html[row_start..].find('>') else {
+            break;
+        };
+        let open_end = row_start + open_end_rel;
+        let Some(close_rel) = html[open_end + 1..].find("</tr>") else {
+            break;
+        };
+        let close = open_end + 1 + close_rel;
+        let row_html = &html[open_end + 1..close];
+        let cells = extract_table_cells(row_html);
+        if cells.len() >= 2 {
+            let date_text = normalize_spaces(&strip_tags(&cells[0]));
+            let Some((start, end)) = parse_termine_date_window(&date_text) else {
+                offset = close + 5;
+                continue;
+            };
+
+            let title_text = find_anchor_elements(&cells[1])
+                .into_iter()
+                .map(|(_, body)| body)
+                .find(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| normalize_spaces(&strip_tags(&cells[1])));
+            if title_text.trim().is_empty() {
+                offset = close + 5;
+                continue;
+            }
+
+            entries.push(TermineScheduleEntry {
+                start,
+                end,
+                title: title_text,
+            });
+        }
+
+        offset = close + 5;
+    }
+
+    entries
+}
+
+fn select_active_termine_event_title(
+    entries: &[TermineScheduleEntry],
+    today: CalendarDate,
+) -> Option<String> {
+    if let Some(active) = entries
+        .iter()
+        .find(|entry| today >= entry.start && today <= entry.end)
+    {
+        return Some(active.title.clone());
+    }
+
+    if let Some(next_upcoming) = entries
+        .iter()
+        .filter(|entry| entry.start >= today)
+        .min_by_key(|entry| entry.start)
+    {
+        return Some(next_upcoming.title.clone());
+    }
+
+    entries
+        .iter()
+        .filter(|entry| entry.end <= today)
+        .max_by_key(|entry| entry.end)
+        .map(|entry| entry.title.clone())
+}
+
+fn fetch_termine_event_name(client: &Client) -> Result<String, String> {
+    let termine_url = discover_termine_url(client)?;
+    let response = client
+        .get(&termine_url)
+        .send()
+        .map_err(|err| format!("failed to fetch Termine page: {err}"))?;
+    let html = response
+        .text()
+        .map_err(|err| format!("failed to read Termine page: {err}"))?;
+
+    let entries = parse_termine_entries(&html);
+    if entries.is_empty() {
+        return Err("failed to parse Termine entries".to_string());
+    }
+
+    let today = local_today().ok_or_else(|| "failed to resolve local date".to_string())?;
+    select_active_termine_event_title(&entries, today)
+        .ok_or_else(|| "no active Termine entry for current date".to_string())
 }
 
 fn extract_between<'a>(haystack: &'a str, start: &str, end: &str) -> Option<&'a str> {
@@ -491,7 +722,8 @@ fn session_text(raw: &str) -> String {
 fn parse_ws_message(
     text: &str,
     header: &mut TimingHeader,
-    website_event_name: Option<&str>,
+    termine_event_name: Option<&str>,
+    homepage_event_name: Option<&str>,
     countdown: &mut Option<CountdownState>,
     is_race_session: &mut bool,
 ) -> Option<(Option<Vec<TimingEntry>>, bool)> {
@@ -509,8 +741,9 @@ fn parse_ws_message(
                 header.session_name = session_text(get_str(&parsed, "HEATTYPE").unwrap_or("-"));
             }
 
-            if let Some(event_name) =
-                website_event_name.or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
+            if let Some(event_name) = termine_event_name
+                .or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
+                .or(homepage_event_name)
             {
                 header.event_name = event_name.to_string();
             }
@@ -546,8 +779,9 @@ fn parse_ws_message(
                 header.track_name = "NLS".to_string();
             }
 
-            if let Some(event_name) =
-                website_event_name.or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
+            if let Some(event_name) = termine_event_name
+                .or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
+                .or(homepage_event_name)
             {
                 header.event_name = event_name.to_string();
             } else if header.event_name.is_empty() {
@@ -575,8 +809,45 @@ fn parse_ws_message(
 }
 
 fn set_socket_timeout(socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>) {
-    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    const READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+    match socket.get_mut() {
+        MaybeTlsStream::Plain(stream) => set_tcp_read_timeout(stream, READ_TIMEOUT),
+        MaybeTlsStream::Rustls(stream) => {
+            set_tcp_read_timeout(stream.get_mut(), READ_TIMEOUT);
+        }
+        _ => {}
+    }
+}
+
+fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
+    let _ = stream.set_read_timeout(Some(timeout));
+}
+
+fn should_emit_connected_status_on_update(
+    header_changed: bool,
+    connected_status_already_sent: bool,
+) -> bool {
+    !header_changed && !connected_status_already_sent
+}
+
+fn refresh_active_event_id(
+    active_event_id: &mut &'static str,
+    refresh_result: Result<&'static str, String>,
+) -> Option<String> {
+    match refresh_result {
+        Ok(event_id) => {
+            if *active_event_id != event_id {
+                *active_event_id = event_id;
+                Some(format!("NLS switching to eventId {event_id}"))
+            } else {
+                None
+            }
+        }
+        Err(err) => Some(format!(
+            "NLS 24h schedule refresh failed ({err}); keeping eventId {}",
+            *active_event_id
+        )),
     }
 }
 
@@ -591,7 +862,8 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
         .timeout(Duration::from_secs(10))
         .build()
         .ok();
-    let mut website_event_name: Option<String> = None;
+    let mut termine_event_name: Option<String> = None;
+    let mut homepage_event_name: Option<String> = None;
     let mut next_website_refresh = Instant::now();
     let mut countdown: Option<CountdownState> = None;
     let mut is_race_session = false;
@@ -604,31 +876,27 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
 
         if Instant::now() >= next_website_refresh {
             if let Some(client) = website_client.as_ref() {
-                if let Some(parsed_name) = fetch_homepage_event_name(client) {
-                    website_event_name = Some(parsed_name.clone());
+                if let Ok(parsed_name) = fetch_termine_event_name(client) {
+                    termine_event_name = Some(parsed_name.clone());
                     header.event_name = parsed_name;
                 }
 
-                match determine_active_nuerburgring_event_id(client) {
-                    Ok(event_id) => {
-                        if active_event_id != event_id {
-                            let _ = tx.send(TimingMessage::Status {
-                                source_id,
-                                text: format!("NLS switching to eventId {event_id}"),
-                            });
-                        }
-                        active_event_id = event_id;
+                homepage_event_name = fetch_homepage_event_name(client);
+
+                if termine_event_name.is_none() {
+                    if let Some(parsed_name) = homepage_event_name.as_ref() {
+                        header.event_name = parsed_name.clone();
                     }
-                    Err(err) => {
-                        active_event_id = DEFAULT_NLS_EVENT_ID;
-                        let _ = tx.send(TimingMessage::Status {
-                            source_id,
-                            text: format!(
-                                "NLS 24h schedule fallback to eventId {} ({err})",
-                                DEFAULT_NLS_EVENT_ID
-                            ),
-                        });
-                    }
+                }
+
+                if let Some(status_text) = refresh_active_event_id(
+                    &mut active_event_id,
+                    determine_active_nuerburgring_event_id(client),
+                ) {
+                    let _ = tx.send(TimingMessage::Status {
+                        source_id,
+                        text: status_text,
+                    });
                 }
             }
             next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
@@ -662,6 +930,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: format!("NLS connected ({})", response.status()),
         });
+        let mut connected_status_sent = true;
 
         let subscribe = json!({
             "clientLocalTime": now_millis(),
@@ -690,7 +959,8 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                     if let Some((entries, header_changed)) = parse_ws_message(
                         &text,
                         &mut header,
-                        website_event_name.as_deref(),
+                        termine_event_name.as_deref(),
+                        homepage_event_name.as_deref(),
                         &mut countdown,
                         &mut is_race_session,
                     ) {
@@ -703,11 +973,15 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                             header: header.clone(),
                             entries: latest_entries.clone(),
                         });
-                        if header_changed {
+                        if should_emit_connected_status_on_update(
+                            header_changed,
+                            connected_status_sent,
+                        ) {
                             let _ = tx.send(TimingMessage::Status {
                                 source_id,
                                 text: "NLS live timing connected".to_string(),
                             });
+                            connected_status_sent = true;
                         }
                     }
                 }
@@ -716,7 +990,8 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                         if let Some((entries, header_changed)) = parse_ws_message(
                             text,
                             &mut header,
-                            website_event_name.as_deref(),
+                            termine_event_name.as_deref(),
+                            homepage_event_name.as_deref(),
                             &mut countdown,
                             &mut is_race_session,
                         ) {
@@ -729,11 +1004,15 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                 header: header.clone(),
                                 entries: latest_entries.clone(),
                             });
-                            if header_changed {
+                            if should_emit_connected_status_on_update(
+                                header_changed,
+                                connected_status_sent,
+                            ) {
                                 let _ = tx.send(TimingMessage::Status {
                                     source_id,
                                     text: "NLS live timing connected".to_string(),
                                 });
+                                connected_status_sent = true;
                             }
                         }
                     }
@@ -922,6 +1201,7 @@ mod tests {
             first,
             &mut header,
             None,
+            None,
             &mut countdown,
             &mut is_race_session,
         );
@@ -930,6 +1210,7 @@ mod tests {
         let _ = parse_ws_message(
             second,
             &mut header,
+            None,
             None,
             &mut countdown,
             &mut is_race_session,
@@ -1083,6 +1364,152 @@ mod tests {
     }
 
     #[test]
+    fn discovers_termine_url_from_homepage_navigation() {
+        let html = r##"
+            <nav>
+              <a href="#">Termine</a>
+              <a href="/language/de/termine-adac-ravenol-nuerburgring-langstrecken-serie-2027/">Termine 2027</a>
+            </nav>
+        "##;
+
+        let url = discover_termine_url_from_homepage_html(html).expect("termine url");
+        assert_eq!(
+            url,
+            "https://www.nuerburgring-langstrecken-serie.de/language/de/termine-adac-ravenol-nuerburgring-langstrecken-serie-2027/"
+        );
+    }
+
+    #[test]
+    fn parse_termine_entries_preserves_linked_titles_without_dates() {
+        let html = r#"
+            <table>
+              <tbody>
+                <tr>
+                  <td>11.04.2026</td>
+                  <td><a href="https://example.invalid/r3">NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)</a></td>
+                </tr>
+                <tr>
+                  <td>18.-19.04.2026</td>
+                  <td><a href="https://example.invalid/24hq">ADAC 24h Qualifiers (2x4h)</a></td>
+                </tr>
+              </tbody>
+            </table>
+        "#;
+
+        let entries = parse_termine_entries(html);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            entries[0].title,
+            "NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)"
+        );
+        assert_eq!(entries[1].title, "ADAC 24h Qualifiers (2x4h)");
+    }
+
+    #[test]
+    fn picks_active_termine_title_by_date_range() {
+        let entries = vec![
+            TermineScheduleEntry {
+                start: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 11,
+                },
+                end: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 11,
+                },
+                title: "NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)".to_string(),
+            },
+            TermineScheduleEntry {
+                start: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 18,
+                },
+                end: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 19,
+                },
+                title: "ADAC 24h Qualifiers (2x4h)".to_string(),
+            },
+        ];
+
+        let today = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 19,
+        };
+        let title = select_active_termine_event_title(&entries, today).expect("active title");
+
+        assert_eq!(title, "ADAC 24h Qualifiers (2x4h)");
+    }
+
+    #[test]
+    fn picks_upcoming_termine_title_when_none_active_today() {
+        let entries = vec![
+            TermineScheduleEntry {
+                start: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 11,
+                },
+                end: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 11,
+                },
+                title: "NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)".to_string(),
+            },
+            TermineScheduleEntry {
+                start: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 18,
+                },
+                end: CalendarDate {
+                    year: 2026,
+                    month: 4,
+                    day: 19,
+                },
+                title: "ADAC 24h Qualifiers (2x4h)".to_string(),
+            },
+        ];
+
+        let today = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 16,
+        };
+        let title = select_active_termine_event_title(&entries, today).expect("fallback title");
+
+        assert_eq!(title, "ADAC 24h Qualifiers (2x4h)");
+    }
+
+    #[test]
+    fn pid4_prefers_ws_event_name_before_homepage_fallback() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+        let payload = r#"{"PID":"4","CUP":"NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)","TRACKSTATE":"0","HEATTYPE":"R","ENDTIME":"0","TIMESTATE":"0","TIME":"12:00:00"}"#;
+
+        let _ = parse_ws_message(
+            payload,
+            &mut header,
+            None,
+            Some("24hQ - 18.-19.04.2026 ADAC 24h Nürburgring Qualifiers (2x4h)"),
+            &mut countdown,
+            &mut is_race_session,
+        );
+
+        assert_eq!(
+            header.event_name,
+            "NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)"
+        );
+    }
+
+    #[test]
     fn chooses_24h_event_when_today_in_range() {
         let start = CalendarDate {
             year: 2026,
@@ -1106,5 +1533,42 @@ mod tests {
             DEFAULT_NLS_EVENT_ID
         };
         assert_eq!(event_id, N24_EVENT_ID);
+    }
+
+    #[test]
+    fn timeout_helper_sets_tcp_read_timeout() {
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let mut client = TcpStream::connect(addr).expect("connect client");
+        let _server = listener.accept().expect("accept client");
+
+        set_tcp_read_timeout(&mut client, Duration::from_millis(1234));
+        assert_eq!(
+            client.read_timeout().expect("read timeout"),
+            Some(Duration::from_millis(1234))
+        );
+    }
+
+    #[test]
+    fn pid4_header_updates_do_not_emit_connected_status_updates() {
+        assert!(!should_emit_connected_status_on_update(true, true));
+        assert!(!should_emit_connected_status_on_update(true, false));
+    }
+
+    #[test]
+    fn refresh_failure_keeps_previous_event_id() {
+        let mut active_event_id = N24_EVENT_ID;
+        let status = refresh_active_event_id(
+            &mut active_event_id,
+            Err("temporary schedule parse error".to_string()),
+        )
+        .expect("status message");
+
+        assert_eq!(active_event_id, N24_EVENT_ID);
+        assert!(status.contains("keeping eventId"));
+        assert!(status.contains(N24_EVENT_ID));
     }
 }
