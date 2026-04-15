@@ -575,8 +575,45 @@ fn parse_ws_message(
 }
 
 fn set_socket_timeout(socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>) {
-    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    const READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+    match socket.get_mut() {
+        MaybeTlsStream::Plain(stream) => set_tcp_read_timeout(stream, READ_TIMEOUT),
+        MaybeTlsStream::Rustls(stream) => {
+            set_tcp_read_timeout(stream.get_mut(), READ_TIMEOUT);
+        }
+        _ => {}
+    }
+}
+
+fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
+    let _ = stream.set_read_timeout(Some(timeout));
+}
+
+fn should_emit_connected_status_on_update(
+    header_changed: bool,
+    connected_status_already_sent: bool,
+) -> bool {
+    !header_changed && !connected_status_already_sent
+}
+
+fn refresh_active_event_id(
+    active_event_id: &mut &'static str,
+    refresh_result: Result<&'static str, String>,
+) -> Option<String> {
+    match refresh_result {
+        Ok(event_id) => {
+            if *active_event_id != event_id {
+                *active_event_id = event_id;
+                Some(format!("NLS switching to eventId {event_id}"))
+            } else {
+                None
+            }
+        }
+        Err(err) => Some(format!(
+            "NLS 24h schedule refresh failed ({err}); keeping eventId {}",
+            *active_event_id
+        )),
     }
 }
 
@@ -609,26 +646,14 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                     header.event_name = parsed_name;
                 }
 
-                match determine_active_nuerburgring_event_id(client) {
-                    Ok(event_id) => {
-                        if active_event_id != event_id {
-                            let _ = tx.send(TimingMessage::Status {
-                                source_id,
-                                text: format!("NLS switching to eventId {event_id}"),
-                            });
-                        }
-                        active_event_id = event_id;
-                    }
-                    Err(err) => {
-                        active_event_id = DEFAULT_NLS_EVENT_ID;
-                        let _ = tx.send(TimingMessage::Status {
-                            source_id,
-                            text: format!(
-                                "NLS 24h schedule fallback to eventId {} ({err})",
-                                DEFAULT_NLS_EVENT_ID
-                            ),
-                        });
-                    }
+                if let Some(status_text) = refresh_active_event_id(
+                    &mut active_event_id,
+                    determine_active_nuerburgring_event_id(client),
+                ) {
+                    let _ = tx.send(TimingMessage::Status {
+                        source_id,
+                        text: status_text,
+                    });
                 }
             }
             next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
@@ -662,6 +687,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: format!("NLS connected ({})", response.status()),
         });
+        let mut connected_status_sent = true;
 
         let subscribe = json!({
             "clientLocalTime": now_millis(),
@@ -703,11 +729,15 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                             header: header.clone(),
                             entries: latest_entries.clone(),
                         });
-                        if header_changed {
+                        if should_emit_connected_status_on_update(
+                            header_changed,
+                            connected_status_sent,
+                        ) {
                             let _ = tx.send(TimingMessage::Status {
                                 source_id,
                                 text: "NLS live timing connected".to_string(),
                             });
+                            connected_status_sent = true;
                         }
                     }
                 }
@@ -729,11 +759,15 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                 header: header.clone(),
                                 entries: latest_entries.clone(),
                             });
-                            if header_changed {
+                            if should_emit_connected_status_on_update(
+                                header_changed,
+                                connected_status_sent,
+                            ) {
                                 let _ = tx.send(TimingMessage::Status {
                                     source_id,
                                     text: "NLS live timing connected".to_string(),
                                 });
+                                connected_status_sent = true;
                             }
                         }
                     }
@@ -1106,5 +1140,42 @@ mod tests {
             DEFAULT_NLS_EVENT_ID
         };
         assert_eq!(event_id, N24_EVENT_ID);
+    }
+
+    #[test]
+    fn timeout_helper_sets_tcp_read_timeout() {
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+
+        let mut client = TcpStream::connect(addr).expect("connect client");
+        let _server = listener.accept().expect("accept client");
+
+        set_tcp_read_timeout(&mut client, Duration::from_millis(1234));
+        assert_eq!(
+            client.read_timeout().expect("read timeout"),
+            Some(Duration::from_millis(1234))
+        );
+    }
+
+    #[test]
+    fn pid4_header_updates_do_not_emit_connected_status_updates() {
+        assert!(!should_emit_connected_status_on_update(true, true));
+        assert!(!should_emit_connected_status_on_update(true, false));
+    }
+
+    #[test]
+    fn refresh_failure_keeps_previous_event_id() {
+        let mut active_event_id = N24_EVENT_ID;
+        let status = refresh_active_event_id(
+            &mut active_event_id,
+            Err("temporary schedule parse error".to_string()),
+        )
+        .expect("status message");
+
+        assert_eq!(active_event_id, N24_EVENT_ID);
+        assert!(status.contains("keeping eventId"));
+        assert!(status.contains(N24_EVENT_ID));
     }
 }
