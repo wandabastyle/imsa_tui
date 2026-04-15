@@ -57,6 +57,10 @@ impl FeedController {
             let source_id = source_id_for(series);
             let (stop_tx, stop_rx) = mpsc::channel::<()>();
             (self.inner.worker_spawner)(series, self.inner.worker_tx.clone(), source_id, stop_rx);
+            eprintln!(
+                "{} feed worker started: first client connected.",
+                series.label()
+            );
             runtime.running = true;
             runtime.stop_tx = Some(stop_tx);
         }
@@ -115,6 +119,10 @@ impl FeedController {
 
         if let Some(stop_tx) = stop_tx {
             let _ = stop_tx.send(());
+            eprintln!(
+                "{} feed worker stopped: idle timeout reached.",
+                series.label()
+            );
             self.inner.state.apply_timing_message(
                 series,
                 &TimingMessage::Status {
