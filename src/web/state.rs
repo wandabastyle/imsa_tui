@@ -125,9 +125,20 @@ impl WebAppState {
 
         // This mirrors the TUI update semantics: status updates frequently, while
         // successful snapshots clear previous errors and refresh age.
+        // Special case for IMSA: suppress the transient "Fetching IMSA live timing..."
+        // status after first successful snapshot unless we're recovering from an error.
         match message {
             TimingMessage::Status { text, .. } => {
-                snapshot.status = text.clone();
+                let is_imsa_fetching_status =
+                    series == Series::Imsa && text == "Fetching IMSA live timing...";
+                if is_imsa_fetching_status {
+                    // Only show fetching status before first snapshot or during error recovery.
+                    if snapshot.last_update_unix_ms.is_none() || snapshot.last_error.is_some() {
+                        snapshot.status = text.clone();
+                    }
+                } else {
+                    snapshot.status = text.clone();
+                }
             }
             TimingMessage::Error { text, .. } => {
                 snapshot.last_error = Some(text.clone());
@@ -338,4 +349,202 @@ fn retain_recent_sessions(sessions: &mut HashMap<String, SessionDemoState>, now_
     sessions.retain(|_, state| {
         now_unix_ms.saturating_sub(state.last_seen_unix_ms) <= SESSION_RETENTION_MS
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_header() -> TimingHeader {
+        TimingHeader {
+            session_name: "Race1".to_string(),
+            event_name: "Test Event".to_string(),
+            track_name: "Daytona".to_string(),
+            day_time: "12:00".to_string(),
+            flag: "green".to_string(),
+            time_to_go: "1:00:00".to_string(),
+        }
+    }
+
+    fn test_entries() -> Vec<TimingEntry> {
+        vec![TimingEntry {
+            position: 1,
+            car_number: "31".to_string(),
+            class_name: "GTP".to_string(),
+            class_rank: "1".to_string(),
+            driver: "Driver A".to_string(),
+            vehicle: "Porsche 963".to_string(),
+            team: "Team 1".to_string(),
+            laps: "10".to_string(),
+            gap_overall: "-".to_string(),
+            gap_class: "-".to_string(),
+            gap_next_in_class: "-".to_string(),
+            last_lap: "1:45.000".to_string(),
+            best_lap: "1:44.500".to_string(),
+            sector_1: "30.000".to_string(),
+            sector_2: "35.000".to_string(),
+            sector_3: "39.500".to_string(),
+            sector_4: "".to_string(),
+            sector_5: "".to_string(),
+            best_lap_no: "5".to_string(),
+            pit: "No".to_string(),
+            pit_stops: "0".to_string(),
+            fastest_driver: "".to_string(),
+            stable_id: "31:A".to_string(),
+        }]
+    }
+
+    #[test]
+    fn imsa_fetching_status_appears_before_first_snapshot() {
+        let state = WebAppState::new();
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Status {
+                source_id: 1,
+                text: "Fetching IMSA live timing...".to_string(),
+            },
+        );
+
+        let snapshot = state.snapshot_for(Series::Imsa).unwrap();
+        assert_eq!(snapshot.status, "Fetching IMSA live timing...");
+    }
+
+    #[test]
+    fn imsa_fetching_status_ignored_after_connection() {
+        let state = WebAppState::new();
+
+        // First, simulate a successful connection.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Snapshot {
+                source_id: 1,
+                header: test_header(),
+                entries: test_entries(),
+            },
+        );
+
+        assert_eq!(
+            state.snapshot_for(Series::Imsa).unwrap().status,
+            "Live timing connected"
+        );
+
+        // Now send another fetching status - it should be ignored.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Status {
+                source_id: 1,
+                text: "Fetching IMSA live timing...".to_string(),
+            },
+        );
+
+        let snapshot = state.snapshot_for(Series::Imsa).unwrap();
+        assert_eq!(snapshot.status, "Live timing connected");
+    }
+
+    #[test]
+    fn imsa_fetching_status_allowed_during_error_recovery() {
+        let state = WebAppState::new();
+
+        // First, simulate a successful connection.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Snapshot {
+                source_id: 1,
+                header: test_header(),
+                entries: test_entries(),
+            },
+        );
+
+        // Then an error occurs.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Error {
+                source_id: 1,
+                text: "Connection failed".to_string(),
+            },
+        );
+
+        assert!(state
+            .snapshot_for(Series::Imsa)
+            .unwrap()
+            .last_error
+            .is_some());
+
+        // Now send fetching status - it should be allowed during recovery.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Status {
+                source_id: 1,
+                text: "Fetching IMSA live timing...".to_string(),
+            },
+        );
+
+        let snapshot = state.snapshot_for(Series::Imsa).unwrap();
+        assert_eq!(snapshot.status, "Fetching IMSA live timing...");
+    }
+
+    #[test]
+    fn other_series_status_unaffected() {
+        let state = WebAppState::new();
+
+        // For NLS, fetching status should work normally.
+        state.apply_timing_message(
+            Series::Nls,
+            &TimingMessage::Status {
+                source_id: 2,
+                text: "Fetching NLS live timing...".to_string(),
+            },
+        );
+
+        let snapshot = state.snapshot_for(Series::Nls).unwrap();
+        assert_eq!(snapshot.status, "Fetching NLS live timing...");
+
+        // After snapshot, send another status.
+        state.apply_timing_message(
+            Series::Nls,
+            &TimingMessage::Snapshot {
+                source_id: 2,
+                header: test_header(),
+                entries: test_entries(),
+            },
+        );
+
+        state.apply_timing_message(
+            Series::Nls,
+            &TimingMessage::Status {
+                source_id: 2,
+                text: "Fetching NLS live timing...".to_string(),
+            },
+        );
+
+        let snapshot = state.snapshot_for(Series::Nls).unwrap();
+        assert_eq!(snapshot.status, "Fetching NLS live timing...");
+    }
+
+    #[test]
+    fn non_fetching_imsa_status_unaffected() {
+        let state = WebAppState::new();
+
+        // First, simulate a successful connection.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Snapshot {
+                source_id: 1,
+                header: test_header(),
+                entries: test_entries(),
+            },
+        );
+
+        // Send a non-fetching status - it should be applied.
+        state.apply_timing_message(
+            Series::Imsa,
+            &TimingMessage::Status {
+                source_id: 1,
+                text: "Idle (waiting for client)".to_string(),
+            },
+        );
+
+        let snapshot = state.snapshot_for(Series::Imsa).unwrap();
+        assert_eq!(snapshot.status, "Idle (waiting for client)");
+    }
 }
