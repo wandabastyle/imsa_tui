@@ -32,3 +32,11 @@ docker compose restart imsa-web
 docker compose down
 docker compose up -d
 ```
+
+## Rotate Web Access Code
+
+```bash
+docker compose stop imsa-web
+docker compose run --rm -e WEBUI_ROTATE_PASSWORD=1 imsa-web
+docker compose up -d imsa-web
+```

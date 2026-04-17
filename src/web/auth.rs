@@ -3,6 +3,10 @@
 // - issues in-memory cookie sessions
 // - guards protected API routes
 
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use axum::{
     extract::{Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -26,7 +30,7 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct WebAuthConfig {
-    pub access_code: String,
+    pub access_code_hash: String,
     pub cookie_name: String,
     pub cookie_secure: bool,
     pub session_ttl_secs: u64,
@@ -44,10 +48,16 @@ pub enum PasswordState {
     GeneratedEphemeral,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResolvedAccessCode {
+    pub access_code_hash: String,
+    pub one_time_access_code: Option<String>,
+    pub state: PasswordState,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredWebAuth {
-    #[serde(alias = "password")]
-    access_code: String,
+    access_code_hash: String,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -58,9 +68,9 @@ struct LoginAttemptState {
 }
 
 impl WebAuthConfig {
-    pub fn new(access_code: String, cookie_secure: bool) -> Self {
+    pub fn new(access_code_hash: String, cookie_secure: bool) -> Self {
         Self {
-            access_code,
+            access_code_hash,
             cookie_name: "imsa_session".to_string(),
             cookie_secure,
             session_ttl_secs: 60 * 60 * 24 * 30,
@@ -210,7 +220,8 @@ pub async fn login(
         );
     }
 
-    if payload.access_code != config.access_code {
+    let valid = verify_access_code(&payload.access_code, &config.access_code_hash).unwrap_or(false);
+    if !valid {
         config.record_login_failure(&login_key);
         log_auth_event("auth_login", "failure", None, Some(client.as_str()));
         return error_response(StatusCode::UNAUTHORIZED, "invalid access code", None);
@@ -338,26 +349,86 @@ fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u6
     response
 }
 
-pub fn load_or_initialize_password(rotate: bool) -> (String, PasswordState) {
+pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
     if rotate {
         let generated = generate_password(24);
-        return match save_stored_auth(&generated) {
-            Ok(_) => (generated, PasswordState::GeneratedPersisted),
-            Err(_) => (generated, PasswordState::GeneratedEphemeral),
+        let hash = match hash_access_code(&generated) {
+            Ok(value) => value,
+            Err(_) => {
+                return ResolvedAccessCode {
+                    access_code_hash: String::new(),
+                    one_time_access_code: Some(generated),
+                    state: PasswordState::GeneratedEphemeral,
+                }
+            }
+        };
+
+        return match save_stored_auth(&hash) {
+            Ok(_) => ResolvedAccessCode {
+                access_code_hash: hash,
+                one_time_access_code: Some(generated),
+                state: PasswordState::GeneratedPersisted,
+            },
+            Err(_) => ResolvedAccessCode {
+                access_code_hash: hash,
+                one_time_access_code: Some(generated),
+                state: PasswordState::GeneratedEphemeral,
+            },
         };
     }
 
     if let Some(stored) = load_stored_auth() {
-        if !stored.access_code.trim().is_empty() {
-            return (stored.access_code, PasswordState::Loaded);
+        if !stored.access_code_hash.trim().is_empty()
+            && PasswordHash::new(stored.access_code_hash.trim()).is_ok()
+        {
+            return ResolvedAccessCode {
+                access_code_hash: stored.access_code_hash,
+                one_time_access_code: None,
+                state: PasswordState::Loaded,
+            };
         }
     }
 
     let generated = generate_password(24);
-    match save_stored_auth(&generated) {
-        Ok(_) => (generated, PasswordState::GeneratedPersisted),
-        Err(_) => (generated, PasswordState::GeneratedEphemeral),
+    let hash = match hash_access_code(&generated) {
+        Ok(value) => value,
+        Err(_) => {
+            return ResolvedAccessCode {
+                access_code_hash: String::new(),
+                one_time_access_code: Some(generated),
+                state: PasswordState::GeneratedEphemeral,
+            }
+        }
+    };
+
+    match save_stored_auth(&hash) {
+        Ok(_) => ResolvedAccessCode {
+            access_code_hash: hash,
+            one_time_access_code: Some(generated),
+            state: PasswordState::GeneratedPersisted,
+        },
+        Err(_) => ResolvedAccessCode {
+            access_code_hash: hash,
+            one_time_access_code: Some(generated),
+            state: PasswordState::GeneratedEphemeral,
+        },
     }
+}
+
+pub fn hash_access_code(access_code: &str) -> Result<String, String> {
+    let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+    Argon2::default()
+        .hash_password(access_code.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|err| format!("access code hash failed: {err}"))
+}
+
+fn verify_access_code(access_code: &str, access_code_hash: &str) -> Result<bool, String> {
+    let parsed = PasswordHash::new(access_code_hash)
+        .map_err(|err| format!("access code hash parse failed: {err}"))?;
+    Ok(Argon2::default()
+        .verify_password(access_code.as_bytes(), &parsed)
+        .is_ok())
 }
 
 pub fn stored_auth_path() -> Option<PathBuf> {
@@ -379,7 +450,7 @@ fn load_stored_auth() -> Option<StoredWebAuth> {
     toml::from_str::<StoredWebAuth>(&text).ok()
 }
 
-fn save_stored_auth(access_code: &str) -> Result<(), String> {
+fn save_stored_auth(access_code_hash: &str) -> Result<(), String> {
     let Some(path) = stored_auth_path() else {
         return Err("unable to resolve config directory".to_string());
     };
@@ -388,7 +459,7 @@ fn save_stored_auth(access_code: &str) -> Result<(), String> {
     }
 
     let payload = StoredWebAuth {
-        access_code: access_code.to_string(),
+        access_code_hash: access_code_hash.to_string(),
     };
     let encoded =
         toml::to_string_pretty(&payload).map_err(|e| format!("encode auth config failed: {e}"))?;
@@ -442,11 +513,92 @@ fn now_unix_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    struct AuthFileRestore {
+        path: PathBuf,
+        previous: Option<Vec<u8>>,
+    }
+
+    impl AuthFileRestore {
+        fn capture() -> Self {
+            let path = stored_auth_path().expect("stored auth path");
+            let previous = fs::read(&path).ok();
+            Self { path, previous }
+        }
+
+        fn overwrite(&self, content: &str) {
+            if let Some(parent) = self.path.parent() {
+                fs::create_dir_all(parent).expect("create auth dir");
+            }
+            fs::write(&self.path, content).expect("write auth fixture");
+        }
+
+        fn read_current(&self) -> String {
+            fs::read_to_string(&self.path).expect("read current auth file")
+        }
+    }
+
+    impl Drop for AuthFileRestore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.as_ref() {
+                if let Some(parent) = self.path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let _ = fs::write(&self.path, previous);
+            } else {
+                let _ = fs::remove_file(&self.path);
+            }
+        }
+    }
 
     #[test]
     fn stored_auth_path_uses_data_local_dir() {
         let path = stored_auth_path().expect("stored auth path");
         let dirs = ProjectDirs::from("", "", "imsa_tui").expect("project dirs");
         assert_eq!(path, dirs.data_local_dir().join("web_auth.toml"));
+    }
+
+    #[test]
+    fn access_code_hash_roundtrip_verifies_plaintext() {
+        let hash = hash_access_code("secret-code").expect("hash access code");
+        assert!(verify_access_code("secret-code", &hash).expect("verify access code"));
+        assert!(!verify_access_code("wrong", &hash).expect("verify wrong code"));
+    }
+
+    #[test]
+    fn bootstrap_replaces_non_hash_auth_file_with_hash_only_format() {
+        let restore = AuthFileRestore::capture();
+        restore.overwrite("access_code = \"legacy-plaintext\"\n");
+
+        let resolved = load_or_initialize_password(false);
+        let access_code = resolved.one_time_access_code.expect("one-time access code");
+        assert!(
+            verify_access_code(&access_code, &resolved.access_code_hash).expect("verify generated")
+        );
+
+        if matches!(resolved.state, PasswordState::GeneratedPersisted) {
+            let saved = restore.read_current();
+            assert!(saved.contains("access_code_hash"));
+            assert!(!saved.contains("access_code ="));
+            assert!(!saved.contains("password ="));
+        }
+    }
+
+    #[test]
+    fn rotate_generates_new_secret_and_hash() {
+        let _restore = AuthFileRestore::capture();
+
+        let first = load_or_initialize_password(false);
+        let rotated = load_or_initialize_password(true);
+
+        let rotated_secret = rotated
+            .one_time_access_code
+            .as_deref()
+            .expect("rotated access code");
+        assert!(
+            verify_access_code(rotated_secret, &rotated.access_code_hash).expect("verify rotated")
+        );
+        assert_ne!(first.access_code_hash, rotated.access_code_hash);
     }
 }

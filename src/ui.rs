@@ -5,7 +5,7 @@
 // - handles one keyboard event
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fs, io,
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
@@ -29,7 +29,7 @@ use crate::demo;
 use crate::{
     f1::signalr_worker,
     favourites,
-    imsa::{normalize_class_name, polling_worker},
+    imsa::{normalize_class_name, polling_worker_with_debug, ImsaDebugOutput},
     nls::websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
 };
@@ -45,6 +45,7 @@ struct AppConfig {
 struct ActiveFeed {
     source_id: u64,
     stop_tx: Sender<()>,
+    imsa_debug_rx: Option<Receiver<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +84,23 @@ struct GroupPickerState {
     is_open: bool,
     selected_idx: usize,
 }
+
+#[derive(Debug, Clone, Copy)]
+struct LogsPanelState {
+    is_open: bool,
+    scroll: usize,
+}
+
+impl LogsPanelState {
+    fn closed() -> Self {
+        Self {
+            is_open: false,
+            scroll: 0,
+        }
+    }
+}
+
+const IMSA_DEBUG_LOG_CAPACITY: usize = 150;
 
 impl GroupPickerState {
     fn closed() -> Self {
@@ -173,6 +191,7 @@ fn help_popup() -> Paragraph<'static> {
         Line::from("s      search by car #, driver, or team"),
         Line::from("n/p    next/prev search result"),
         Line::from("d      toggle demo/live data source"),
+        Line::from("L      toggle IMSA debug logs"),
         Line::from("q      quit"),
         Line::from("Enter  confirm popup selection"),
         Line::from("Esc    close popup/help / quit app"),
@@ -999,18 +1018,51 @@ fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
 
 fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let mut imsa_debug_rx = None;
+    let imsa_debug_output = if series == Series::Imsa {
+        let (debug_tx, debug_rx) = mpsc::channel::<String>();
+        imsa_debug_rx = Some(debug_rx);
+        ImsaDebugOutput::Channel(debug_tx)
+    } else {
+        ImsaDebugOutput::Silent
+    };
+
     thread::spawn(move || match series {
-        Series::Imsa => polling_worker(tx, source_id, stop_rx),
+        Series::Imsa => polling_worker_with_debug(tx, source_id, stop_rx, imsa_debug_output),
         Series::Nls => websocket_worker(tx, source_id, stop_rx),
         Series::F1 => signalr_worker(tx, source_id, stop_rx),
     });
 
-    ActiveFeed { source_id, stop_tx }
+    ActiveFeed {
+        source_id,
+        stop_tx,
+        imsa_debug_rx,
+    }
 }
 
 fn stop_feed(feed: &mut Option<ActiveFeed>) {
     if let Some(active_feed) = feed.take() {
         let _ = active_feed.stop_tx.send(());
+    }
+}
+
+fn push_imsa_debug_log(logs: &mut VecDeque<String>, line: String) {
+    logs.push_back(line);
+    while logs.len() > IMSA_DEBUG_LOG_CAPACITY {
+        logs.pop_front();
+    }
+}
+
+fn drain_imsa_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
+    let Some(active_feed) = feed.as_ref() else {
+        return;
+    };
+    let Some(debug_rx) = active_feed.imsa_debug_rx.as_ref() else {
+        return;
+    };
+
+    while let Ok(line) = debug_rx.try_recv() {
+        push_imsa_debug_log(logs, line);
     }
 }
 
@@ -1265,6 +1317,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut search = SearchState::default();
     let mut series_picker = SeriesPickerState::closed();
     let mut group_picker = GroupPickerState::closed();
+    let mut logs_panel = LogsPanelState::closed();
+    let mut imsa_debug_logs = VecDeque::new();
     let mut gap_anchor_stable_id: Option<String> = None;
     let mut pit_trackers: HashMap<String, PitTracker> = HashMap::new();
     let ui_started_at = Instant::now();
@@ -1292,6 +1346,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 &mut last_update,
             );
         }
+        drain_imsa_debug_logs(&feed, &mut imsa_debug_logs);
 
         let current_groups = grouped_entries(&entries, active_series);
         let now = Instant::now();
@@ -1423,7 +1478,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 header_style,
             ));
 
-            let mut key_hint_spans = vec![Span::styled("Keys: h help | d demo | q quit", header_style)];
+            let mut key_hint_spans = vec![Span::styled(
+                "Keys: h help | L logs | d demo | q quit",
+                header_style,
+            )];
 
             if search.input_active {
                 key_hint_spans.push(Span::styled(
@@ -1672,6 +1730,37 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     .collect();
                 f.render_widget(group_picker_popup(&group_names, group_picker.selected_idx), area);
             }
+
+            if logs_panel.is_open {
+                let area = centered_rect(65, 60, size);
+                f.render_widget(Clear, area);
+
+                let visible_lines = area.height.saturating_sub(3) as usize;
+                let total = imsa_debug_logs.len();
+                let max_scroll = total.saturating_sub(1);
+                let scroll = logs_panel.scroll.min(max_scroll);
+                let end_exclusive = total.saturating_sub(scroll);
+                let start = end_exclusive.saturating_sub(visible_lines);
+
+                let mut lines = vec![];
+                if imsa_debug_logs.is_empty() {
+                    lines.push(Line::from("No IMSA debug events yet."));
+                } else {
+                    for entry in imsa_debug_logs.range(start..end_exclusive) {
+                        lines.push(Line::from(entry.as_str()));
+                    }
+                }
+                lines.push(Line::from(""));
+                lines.push(Line::from("↑/↓ scroll | c clear | Esc or L close"));
+
+                let title = format!("IMSA Logs ({total}/{IMSA_DEBUG_LOG_CAPACITY})");
+
+                let logs_popup = Paragraph::new(lines)
+                    .alignment(Alignment::Left)
+                    .wrap(Wrap { trim: false })
+                    .block(Block::default().title(title).borders(Borders::ALL));
+                f.render_widget(logs_popup, area);
+            }
         })?;
 
         if event::poll(tick_rate)? {
@@ -1690,10 +1779,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         KeyCode::Backspace => {
                             search.query.pop();
                         }
-                        KeyCode::Char(c) => {
-                            if !c.is_control() {
-                                search.query.push(c);
-                            }
+                        KeyCode::Char(c) if !c.is_control() => {
+                            search.query.push(c);
                         }
                         _ => {}
                     }
@@ -1746,19 +1833,15 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 if group_picker.is_open {
                     match key.code {
                         KeyCode::Esc => group_picker.is_open = false,
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if !current_groups.is_empty() {
-                                group_picker.selected_idx =
-                                    (group_picker.selected_idx + 1) % current_groups.len();
-                            }
+                        KeyCode::Down | KeyCode::Char('j') if !current_groups.is_empty() => {
+                            group_picker.selected_idx =
+                                (group_picker.selected_idx + 1) % current_groups.len();
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if !current_groups.is_empty() {
-                                if group_picker.selected_idx == 0 {
-                                    group_picker.selected_idx = current_groups.len() - 1;
-                                } else {
-                                    group_picker.selected_idx -= 1;
-                                }
+                        KeyCode::Up | KeyCode::Char('k') if !current_groups.is_empty() => {
+                            if group_picker.selected_idx == 0 {
+                                group_picker.selected_idx = current_groups.len() - 1;
+                            } else {
+                                group_picker.selected_idx -= 1;
                             }
                         }
                         KeyCode::Enter => {
@@ -1775,8 +1858,50 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     continue;
                 }
 
+                if logs_panel.is_open {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('L') => logs_panel.is_open = false,
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            logs_panel.scroll = logs_panel.scroll.saturating_sub(1);
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            logs_panel.scroll = logs_panel
+                                .scroll
+                                .saturating_add(1)
+                                .min(imsa_debug_logs.len().saturating_sub(1));
+                        }
+                        KeyCode::PageDown => {
+                            logs_panel.scroll = logs_panel.scroll.saturating_sub(10);
+                        }
+                        KeyCode::PageUp => {
+                            logs_panel.scroll = logs_panel
+                                .scroll
+                                .saturating_add(10)
+                                .min(imsa_debug_logs.len().saturating_sub(1));
+                        }
+                        KeyCode::Home => {
+                            logs_panel.scroll = imsa_debug_logs.len().saturating_sub(1);
+                        }
+                        KeyCode::End => {
+                            logs_panel.scroll = 0;
+                        }
+                        KeyCode::Char('c') => {
+                            imsa_debug_logs.clear();
+                            logs_panel.scroll = 0;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                     KeyCode::Char('h') => show_help = !show_help,
+                    KeyCode::Char('L') if !show_help => {
+                        logs_panel.is_open = !logs_panel.is_open;
+                        logs_panel.scroll = 0;
+                        series_picker.is_open = false;
+                        group_picker.is_open = false;
+                    }
                     KeyCode::Esc => {
                         if show_help {
                             show_help = false;
@@ -1846,20 +1971,16 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             }
                         }
                     }
-                    KeyCode::Char('f') if !show_help => {
-                        if !current_view_entries.is_empty() {
-                            for offset in 1..=current_view_entries.len() {
-                                let idx = (selected_row + offset) % current_view_entries.len();
-                                let fav_key = favourite_key(
-                                    active_series,
-                                    &current_view_entries[idx].stable_id,
-                                );
-                                if favourites.contains(&fav_key) {
-                                    selected_row = idx;
-                                    gap_anchor_stable_id =
-                                        Some(current_view_entries[idx].stable_id.clone());
-                                    break;
-                                }
+                    KeyCode::Char('f') if !show_help && !current_view_entries.is_empty() => {
+                        for offset in 1..=current_view_entries.len() {
+                            let idx = (selected_row + offset) % current_view_entries.len();
+                            let fav_key =
+                                favourite_key(active_series, &current_view_entries[idx].stable_id);
+                            if favourites.contains(&fav_key) {
+                                selected_row = idx;
+                                gap_anchor_stable_id =
+                                    Some(current_view_entries[idx].stable_id.clone());
+                                break;
                             }
                         }
                     }
@@ -1869,22 +1990,17 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         search.current_match = 0;
                         search.input_active = true;
                     }
-                    KeyCode::Char('n') if !show_help => {
-                        if !search.matches.is_empty() {
-                            search.current_match =
-                                (search.current_match + 1) % search.matches.len();
-                            selected_row = search.matches[search.current_match];
-                        }
+                    KeyCode::Char('n') if !show_help && !search.matches.is_empty() => {
+                        search.current_match = (search.current_match + 1) % search.matches.len();
+                        selected_row = search.matches[search.current_match];
                     }
-                    KeyCode::Char('p') if !show_help => {
-                        if !search.matches.is_empty() {
-                            if search.current_match == 0 {
-                                search.current_match = search.matches.len() - 1;
-                            } else {
-                                search.current_match -= 1;
-                            }
-                            selected_row = search.matches[search.current_match];
+                    KeyCode::Char('p') if !show_help && !search.matches.is_empty() => {
+                        if search.current_match == 0 {
+                            search.current_match = search.matches.len() - 1;
+                        } else {
+                            search.current_match -= 1;
                         }
+                        selected_row = search.matches[search.current_match];
                     }
                     KeyCode::Char('d') if !show_help => {
                         demo_mode = !demo_mode;
@@ -2006,5 +2122,21 @@ mod tests {
         assert_eq!(favourite_key(Series::Imsa, "fallback:7"), "imsa|fallback:7");
         assert_eq!(favourite_key(Series::Nls, "stnr:632"), "nls|stnr:632");
         assert_eq!(favourite_key(Series::F1, "f1:driver:12"), "f1|f1:driver:12");
+    }
+
+    #[test]
+    fn imsa_debug_log_ring_buffer_drops_oldest_lines() {
+        let mut logs = VecDeque::new();
+        for idx in 0..(IMSA_DEBUG_LOG_CAPACITY + 10) {
+            push_imsa_debug_log(&mut logs, format!("line-{idx}"));
+        }
+
+        assert_eq!(logs.len(), IMSA_DEBUG_LOG_CAPACITY);
+        assert_eq!(logs.front().map(String::as_str), Some("line-10"));
+        let expected_last = format!("line-{}", IMSA_DEBUG_LOG_CAPACITY + 9);
+        assert_eq!(
+            logs.back().map(String::as_str),
+            Some(expected_last.as_str())
+        );
     }
 }

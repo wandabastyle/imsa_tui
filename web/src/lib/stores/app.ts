@@ -61,7 +61,7 @@ const initialState: AppState = {
 
 export const appState = writable<AppState>(initialState);
 
-let streamHandles: EventSource[] = [];
+let activeStream: { series: Series; handle: EventSource } | null = null;
 
 export async function initializeAppState(): Promise<void> {
   const [prefs, demo, ...snapshots] = await Promise.all([
@@ -84,37 +84,16 @@ export async function initializeAppState(): Promise<void> {
     };
   });
 
-  // One stream per series keeps data warm, even when user switches tabs/views.
-  streamHandles = ALL_SERIES.map((series) =>
-    openSeriesStream(series, (payload) => {
-      appState.update((state) => ({
-        ...state,
-        snapshots: {
-          ...state.snapshots,
-          [payload.series]: payload.snapshot
-        }
-      }));
-    })
-  );
-
-  for (const [index, handle] of streamHandles.entries()) {
-    handle.onerror = () => {
-      appState.update((state) => ({
-        ...state,
-        connectionErrors: [
-          ...state.connectionErrors.slice(-4),
-          `stream reconnect: ${ALL_SERIES[index]}`
-        ]
-      }));
-    };
-  }
+  connectSeriesStream(prefs.selected_series);
 }
 
 export function destroyStreams(): void {
-  for (const handle of streamHandles) {
-    handle.close();
-  }
-  streamHandles = [];
+  activeStream?.handle.close();
+  activeStream = null;
+}
+
+export function switchSeriesStream(series: Series): void {
+  connectSeriesStream(series);
 }
 
 export function favouriteKey(series: Series, stableId: string): string {
@@ -155,4 +134,31 @@ export async function persistPreferences(): Promise<void> {
     favourites: new Set(persisted.favourites),
     activeSeries: persisted.selected_series
   }));
+}
+
+function connectSeriesStream(series: Series): void {
+  if (activeStream?.series === series) {
+    return;
+  }
+
+  activeStream?.handle.close();
+
+  const handle = openSeriesStream(series, (payload) => {
+    appState.update((state) => ({
+      ...state,
+      snapshots: {
+        ...state.snapshots,
+        [payload.series]: payload.snapshot
+      }
+    }));
+  });
+
+  handle.onerror = () => {
+    appState.update((state) => ({
+      ...state,
+      connectionErrors: [...state.connectionErrors.slice(-4), `stream reconnect: ${series}`]
+    }));
+  };
+
+  activeStream = { series, handle };
 }

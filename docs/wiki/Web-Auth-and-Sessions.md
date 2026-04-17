@@ -6,6 +6,14 @@
 - If persistence works, code is saved and reused on next starts.
 - Rotate manually with `WEBUI_ROTATE_PASSWORD=1` for one startup.
 
+```bash
+docker compose stop imsa-web
+docker compose run --rm -e WEBUI_ROTATE_PASSWORD=1 imsa-web
+docker compose up -d imsa-web
+```
+
+- The rotate run prints the new shared access code once.
+
 ## Cookies
 
 - Session cookie name: `imsa_session`.

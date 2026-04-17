@@ -10,7 +10,14 @@
   import SeriesModal from '$lib/components/SeriesModal.svelte';
   import TimingTable from '$lib/components/TimingTable.svelte';
   import { fetchSessionState, loginWithAccessCode, logoutSession, updateDemoState } from '$lib/api';
-  import { appState, destroyStreams, favouriteKey, initializeAppState, persistPreferences } from '$lib/stores/app';
+  import {
+    appState,
+    destroyStreams,
+    favouriteKey,
+    initializeAppState,
+    persistPreferences,
+    switchSeriesStream
+  } from '$lib/stores/app';
   import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from '$lib/types';
 
   let loading = true;
@@ -412,6 +419,7 @@
       selectedRow: 0,
       gapAnchorStableId: null
     }));
+    switchSeriesStream(series);
     await persistPreferences();
   }
 

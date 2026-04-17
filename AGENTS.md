@@ -19,7 +19,7 @@
 
 - Rust-only changes must pass:
   - `cargo fmt --check`
-  - `cargo clippy --all-targets --all-features`
+  - `cargo clippy --all-targets --no-default-features -- -D warnings`
   - `cargo test`
 - Web-only changes must pass (in `web/`):
   - `pnpm run verify`

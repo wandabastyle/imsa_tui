@@ -29,7 +29,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 struct ResolvedAuth {
-    access_code: String,
+    access_code_hash: String,
+    one_time_access_code: Option<String>,
     state: PasswordState,
 }
 
@@ -54,7 +55,6 @@ struct RuntimeInfo {
     pid: u32,
     local_url: String,
     public_url: Option<String>,
-    access_code: String,
     auth_file: Option<String>,
     log_file: Option<String>,
     started_unix_secs: u64,
@@ -107,11 +107,12 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = WebAppState::with_profile_cookie_secure(auth_options.cookie_secure);
     let feed_controller = start_feed_bridge(app_state.clone());
+    app_state.set_feed_controller(feed_controller.clone());
 
     let static_config = resolve_static_config(static_root);
 
     let auth_config = WebAuthConfig::new(
-        resolved_auth.access_code.clone(),
+        resolved_auth.access_code_hash.clone(),
         auth_options.cookie_secure,
     );
 
@@ -184,7 +185,6 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
         pid: std::process::id(),
         local_url: local_url.clone(),
         public_url,
-        access_code: resolved_auth.access_code.clone(),
         auth_file: auth::stored_auth_path().map(|p| p.display().to_string()),
         log_file: log_path().map(|p| p.display().to_string()),
         started_unix_secs: now_unix_secs(),
@@ -192,6 +192,7 @@ async fn run_server(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
 
     print_startup_info(
         &runtime_info,
+        resolved_auth.one_time_access_code.as_deref(),
         resolved_auth.state,
         auth_options,
         static_config.source,
@@ -337,7 +338,6 @@ fn start_daemon_parent() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(url) = info.public_url.as_ref() {
                 println!("public web UI: {url}");
             }
-            println!("shared access code: {}", info.access_code);
             if let Some(path) = info.auth_file.as_ref() {
                 println!("web auth file: {path}");
             }
@@ -454,7 +454,6 @@ fn print_status() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(url) = info.public_url.as_ref() {
                     println!("public web UI: {url}");
                 }
-                println!("shared access code: {}", info.access_code);
                 if let Some(path) = info.auth_file.as_ref() {
                     println!("web auth file: {path}");
                 }
@@ -501,8 +500,12 @@ fn print_status() -> Result<(), Box<dyn std::error::Error>> {
 
 fn resolve_auth() -> ResolvedAuth {
     let rotate = env_flag("WEBUI_ROTATE_PASSWORD", false);
-    let (access_code, state) = auth::load_or_initialize_password(rotate);
-    ResolvedAuth { access_code, state }
+    let resolved = auth::load_or_initialize_password(rotate);
+    ResolvedAuth {
+        access_code_hash: resolved.access_code_hash,
+        one_time_access_code: resolved.one_time_access_code,
+        state: resolved.state,
+    }
 }
 
 fn resolve_static_config(root_dir: PathBuf) -> StaticConfig {
@@ -533,6 +536,7 @@ fn resolve_auth_options() -> AuthRuntimeOptions {
 
 fn print_startup_info(
     info: &RuntimeInfo,
+    one_time_access_code: Option<&str>,
     state: PasswordState,
     options: AuthRuntimeOptions,
     static_source: StaticSource,
@@ -547,7 +551,9 @@ fn print_startup_info(
             println!("web auth enabled (generated access code but could not save).")
         }
     }
-    println!("shared access code: {}", info.access_code);
+    if let Some(access_code) = one_time_access_code {
+        println!("shared access code: {access_code}");
+    }
     println!("session cookie secure: {}", options.cookie_secure);
     println!("web assets source: {}", static_source_label(static_source));
     if let Some(path) = info.auth_file.as_ref() {

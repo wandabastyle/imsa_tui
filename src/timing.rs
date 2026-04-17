@@ -48,7 +48,7 @@ impl FromStr for Series {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingHeader {
     pub session_name: String,
     pub event_name: String,
@@ -58,7 +58,7 @@ pub struct TimingHeader {
     pub time_to_go: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingEntry {
     pub position: u32,
     pub car_number: String,
