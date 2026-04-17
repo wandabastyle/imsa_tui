@@ -510,8 +510,8 @@ fn f1_table_widths() -> [Constraint; 12] {
     [
         Constraint::Length(4),
         Constraint::Length(5),
-        Constraint::Length(26),
-        Constraint::Length(16),
+        Constraint::Min(24),
+        Constraint::Min(16),
         Constraint::Length(7),
         Constraint::Length(11),
         Constraint::Length(11),
@@ -800,8 +800,8 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                 Series::F1 => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
-                    Cell::from(marquee_if_needed(&e.driver, 26, selected, ctx.marquee_tick)),
-                    Cell::from(marquee_if_needed(&e.team, 16, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 32, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.team, 22, selected, ctx.marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(relative_gap_text(
                         e,

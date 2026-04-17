@@ -77,14 +77,12 @@ impl DriverState {
     }
 
     fn driver_label(&self) -> String {
-        if self.code != "-" {
-            if self.full_name != "-" {
-                format!("{} ({})", self.code, self.full_name)
-            } else {
-                self.code.clone()
-            }
-        } else {
+        if self.full_name != "-" {
             self.full_name.clone()
+        } else if self.code != "-" {
+            self.code.clone()
+        } else {
+            "-".to_string()
         }
     }
 
@@ -280,6 +278,40 @@ fn parse_u32(value: Option<&Value>) -> Option<u32> {
     v.as_str().and_then(|s| s.trim().parse::<u32>().ok())
 }
 
+fn format_short_driver_name(first: &str, last: &str) -> Option<String> {
+    let first = first.trim();
+    let last = last.trim();
+
+    match (first.is_empty(), last.is_empty()) {
+        (false, false) => first
+            .chars()
+            .next()
+            .map(|initial| format!("{initial}. {last}")),
+        (true, false) => Some(last.to_string()),
+        (false, true) => Some(first.to_string()),
+        (true, true) => None,
+    }
+}
+
+fn format_short_driver_name_from_full(full_name: &str) -> Option<String> {
+    let mut parts = full_name.split_whitespace();
+    let first = parts.next()?;
+    let mut last = first;
+
+    for part in parts {
+        last = part;
+    }
+
+    if first == last {
+        return Some(first.to_string());
+    }
+
+    first
+        .chars()
+        .next()
+        .map(|initial| format!("{initial}. {last}"))
+}
+
 fn merge_driver_list(drivers: &mut HashMap<String, DriverState>, payload: &Value) {
     let Some(map) = payload.as_object() else {
         return;
@@ -308,8 +340,15 @@ fn merge_driver_list(drivers: &mut HashMap<String, DriverState>, payload: &Value
 
         let first = as_text(obj.get("FirstName")).unwrap_or_default();
         let last = as_text(obj.get("LastName")).unwrap_or_default();
-        if !first.is_empty() || !last.is_empty() {
-            state.full_name = format!("{} {}", first, last).trim().to_string();
+        if let Some(short_name) = format_short_driver_name(&first, &last) {
+            state.full_name = short_name;
+        } else if let Some(full_name) = as_text(obj.get("FullName"))
+            .or_else(|| as_text(obj.get("BroadcastName")))
+            .or_else(|| as_text(obj.get("Name")))
+        {
+            if let Some(short_name) = format_short_driver_name_from_full(&full_name) {
+                state.full_name = short_name;
+            }
         }
 
         if let Some(team) = as_text(obj.get("TeamName")) {
@@ -733,5 +772,43 @@ pub fn signalr_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiv
         if stop_rx.recv_timeout(Duration::from_secs(4)).is_ok() {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_short_driver_name, format_short_driver_name_from_full};
+
+    #[test]
+    fn short_name_uses_first_initial_and_last_name() {
+        assert_eq!(
+            format_short_driver_name("Lando", "Norris"),
+            Some("L. Norris".to_string())
+        );
+    }
+
+    #[test]
+    fn short_name_handles_missing_name_parts() {
+        assert_eq!(
+            format_short_driver_name("", "Leclerc"),
+            Some("Leclerc".to_string())
+        );
+        assert_eq!(
+            format_short_driver_name("Oscar", ""),
+            Some("Oscar".to_string())
+        );
+        assert_eq!(format_short_driver_name("", ""), None);
+    }
+
+    #[test]
+    fn short_name_can_be_derived_from_full_name() {
+        assert_eq!(
+            format_short_driver_name_from_full("  Max   Verstappen  "),
+            Some("M. Verstappen".to_string())
+        );
+        assert_eq!(
+            format_short_driver_name_from_full("Hamilton"),
+            Some("Hamilton".to_string())
+        );
     }
 }
