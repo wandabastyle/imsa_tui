@@ -506,7 +506,7 @@ fn nls_table_widths() -> [Constraint; 16] {
     ]
 }
 
-fn f1_table_widths() -> [Constraint; 12] {
+fn f1_table_widths() -> [Constraint; 11] {
     [
         Constraint::Length(4),
         Constraint::Length(5),
@@ -519,7 +519,6 @@ fn f1_table_widths() -> [Constraint; 12] {
         Constraint::Length(10),
         Constraint::Length(5),
         Constraint::Length(5),
-        Constraint::Length(7),
     ]
 }
 
@@ -819,7 +818,6 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(e.best_lap.clone()),
                     Cell::from(e.pit.clone()),
                     Cell::from(e.pit_stops.clone()),
-                    Cell::from(e.class_rank.clone()),
                 ]),
                 Series::Wec => Row::new(vec![
                     Cell::from(e.position.to_string()),
@@ -1015,7 +1013,6 @@ fn build_table<'a>(
         Series::F1 => (
             vec![
                 "Pos", "#", "Driver", "Team", "Laps", "Gap", "Int", "Last", "Best", "Pit", "Stops",
-                "PIC",
             ],
             f1_table_widths().to_vec(),
         ),
