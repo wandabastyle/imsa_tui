@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde_json::Value;
 
-use crate::timing::{TimingEntry, TimingHeader};
+use crate::timing::{TimingClassColor, TimingEntry, TimingHeader};
 
 use super::{model::parse_standings_data, store::CollectionStore};
 
@@ -79,6 +79,7 @@ fn build_header(store: &CollectionStore) -> TimingHeader {
         .or_else(|| infer_flag_from_race_control(race_control_doc))
         .unwrap_or_else(|| "-".to_string()),
         time_to_go: build_time_to_go(session_status_doc),
+        class_colors: extract_class_colors(store),
     }
 }
 
@@ -478,6 +479,57 @@ fn build_time_to_go(session_status_doc: Option<&Value>) -> String {
     }
 
     "-".to_string()
+}
+
+fn extract_class_colors(store: &CollectionStore) -> BTreeMap<String, TimingClassColor> {
+    let mut out = BTreeMap::new();
+    let Some(class_docs) = store.collection("session_classes") else {
+        return out;
+    };
+
+    for doc in class_docs.values() {
+        let Some(class_map) = lookup_path(doc, "classes.classes").and_then(Value::as_object) else {
+            continue;
+        };
+
+        for (key, class_def) in class_map {
+            let class_name = pick_text(Some(class_def), &["shortName", "name"])
+                .unwrap_or_else(|| key.to_string());
+            let foreground =
+                pick_text(Some(class_def), &["foreground", "lightForeground"]).unwrap_or_default();
+            let background =
+                pick_text(Some(class_def), &["background", "lightBackground"]).unwrap_or_default();
+
+            if !looks_like_hex_color(&foreground) || !looks_like_hex_color(&background) {
+                continue;
+            }
+
+            out.insert(
+                normalize_class_key(&class_name),
+                TimingClassColor {
+                    foreground,
+                    background,
+                },
+            );
+        }
+    }
+
+    out
+}
+
+fn normalize_class_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .collect::<String>()
+        .to_ascii_uppercase()
+}
+
+fn looks_like_hex_color(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.len() == 7
+        && trimmed.starts_with('#')
+        && trimmed.chars().skip(1).all(|ch| ch.is_ascii_hexdigit())
 }
 
 fn infer_flag_from_race_control(race_control_doc: Option<&Value>) -> Option<String> {

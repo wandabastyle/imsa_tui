@@ -546,6 +546,7 @@
       title={viewModeLabel}
       series={$appState.activeSeries}
       entries={viewEntries}
+      classColors={activeSnapshot?.header.class_colors ?? {}}
       groupedSections={groupedSections}
       isGroupedMode={$appState.viewMode.kind === 'grouped'}
       selectedRow={$appState.selectedRow}

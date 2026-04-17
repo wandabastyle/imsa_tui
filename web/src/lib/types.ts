@@ -2,6 +2,11 @@
 
 export type Series = 'imsa' | 'nls' | 'f1' | 'wec';
 
+export interface TimingClassColor {
+  foreground: string;
+  background: string;
+}
+
 export interface TimingHeader {
   session_name: string;
   event_name: string;
@@ -9,6 +14,7 @@ export interface TimingHeader {
   day_time: string;
   flag: string;
   time_to_go: string;
+  class_colors: Record<string, TimingClassColor>;
 }
 
 export interface TimingEntry {

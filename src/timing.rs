@@ -1,5 +1,6 @@
 // Shared timing domain model used by feed workers, TUI rendering, and web API serialization.
 
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,14 @@ pub struct TimingHeader {
     pub day_time: String,
     pub flag: String,
     pub time_to_go: String,
+    #[serde(default)]
+    pub class_colors: BTreeMap<String, TimingClassColor>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimingClassColor {
+    pub foreground: String,
+    pub background: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -5,7 +5,7 @@
 // - handles one keyboard event
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs, io,
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
@@ -32,7 +32,7 @@ use crate::{
     favourites,
     imsa::{normalize_class_name, polling_worker_with_debug, ImsaDebugOutput},
     nls::websocket_worker as nls_websocket_worker,
-    timing::{Series, TimingEntry, TimingHeader, TimingMessage},
+    timing::{Series, TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
 };
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -120,6 +120,7 @@ struct TableRenderCtx<'a> {
     marquee_tick: usize,
     gap_anchor: Option<&'a GapAnchorInfo>,
     pit_trackers: &'a HashMap<String, PitTracker>,
+    class_colors: &'a BTreeMap<String, TimingClassColor>,
     now: Instant,
 }
 
@@ -390,22 +391,27 @@ fn animated_flag_theme(
     (flag_text, flag_span_style, header_style)
 }
 
-fn class_style(class_name: &str) -> Style {
+fn class_style(
+    class_name: &str,
+    active_series: Series,
+    class_colors: &BTreeMap<String, TimingClassColor>,
+) -> Style {
+    if active_series == Series::Wec {
+        let key = normalize_class_key(class_name);
+        if let Some(color) = class_colors.get(&key) {
+            if let Some(fg) = parse_hex_color(&color.foreground) {
+                return Style::default().fg(fg).add_modifier(Modifier::BOLD);
+            }
+        }
+        return class_style_wec_static(&key);
+    }
+
     match normalize_class_name(class_name).as_str() {
         "GTP" => Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
         "LMP2" => Style::default()
             .fg(Color::Rgb(63, 144, 218))
-            .add_modifier(Modifier::BOLD),
-        "LMP1" => Style::default()
-            .fg(Color::Rgb(255, 16, 83))
-            .add_modifier(Modifier::BOLD),
-        "LMGTE" => Style::default()
-            .fg(Color::Rgb(255, 169, 18))
-            .add_modifier(Modifier::BOLD),
-        "INV" => Style::default()
-            .fg(Color::White)
             .add_modifier(Modifier::BOLD),
         "GTDPRO" => Style::default()
             .fg(Color::Rgb(210, 38, 48))
@@ -421,6 +427,49 @@ fn class_style(class_name: &str) -> Style {
             .add_modifier(Modifier::BOLD),
         "LMGT3" => Style::default()
             .fg(Color::Rgb(30, 144, 255))
+            .add_modifier(Modifier::BOLD),
+        _ => Style::default(),
+    }
+}
+
+fn normalize_class_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .collect::<String>()
+        .to_ascii_uppercase()
+}
+
+fn parse_hex_color(value: &str) -> Option<Color> {
+    let trimmed = value.trim();
+    if trimmed.len() != 7 || !trimmed.starts_with('#') {
+        return None;
+    }
+    let r = u8::from_str_radix(&trimmed[1..3], 16).ok()?;
+    let g = u8::from_str_radix(&trimmed[3..5], 16).ok()?;
+    let b = u8::from_str_radix(&trimmed[5..7], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
+fn class_style_wec_static(class_key: &str) -> Style {
+    match class_key {
+        "LMH" => Style::default()
+            .fg(Color::Rgb(220, 20, 60))
+            .add_modifier(Modifier::BOLD),
+        "LMGT3" => Style::default()
+            .fg(Color::Rgb(30, 144, 255))
+            .add_modifier(Modifier::BOLD),
+        "LMP1" => Style::default()
+            .fg(Color::Rgb(255, 16, 83))
+            .add_modifier(Modifier::BOLD),
+        "LMP2" => Style::default()
+            .fg(Color::Rgb(63, 144, 218))
+            .add_modifier(Modifier::BOLD),
+        "LMGTE" => Style::default()
+            .fg(Color::Rgb(255, 169, 18))
+            .add_modifier(Modifier::BOLD),
+        "INV" => Style::default()
+            .fg(Color::White)
             .add_modifier(Modifier::BOLD),
         _ => Style::default(),
     }
@@ -847,7 +896,7 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                 ]),
             };
 
-            let mut style = class_style(&e.class_name);
+            let mut style = class_style(&e.class_name, ctx.active_series, ctx.class_colors);
             let pit_phase = pit_phase_for_entry(ctx.pit_trackers, e, ctx.now);
             if let Some(pit_style) = pit_phase_style(pit_phase) {
                 style = style.patch(pit_style);
@@ -1609,6 +1658,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             marquee_tick,
                             gap_anchor: gap_anchor.as_ref(),
                             pit_trackers: &pit_trackers,
+                            class_colors: &header.class_colors,
                             now,
                         };
                         let table = build_table(
@@ -1694,6 +1744,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                     marquee_tick,
                                     gap_anchor: gap_anchor.as_ref(),
                                     pit_trackers: &pit_trackers,
+                                    class_colors: &header.class_colors,
                                     now,
                                 };
                                 let table = build_table(
@@ -1721,6 +1772,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 marquee_tick,
                                 gap_anchor: gap_anchor.as_ref(),
                                 pit_trackers: &pit_trackers,
+                                class_colors: &header.class_colors,
                                 now,
                             };
                             let table = build_table(
@@ -1764,6 +1816,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 marquee_tick,
                                 gap_anchor: gap_anchor.as_ref(),
                                 pit_trackers: &pit_trackers,
+                                class_colors: &header.class_colors,
                                 now,
                             };
                             let table = build_table(

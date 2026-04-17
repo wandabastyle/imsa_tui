@@ -3,7 +3,7 @@
 
   import { afterUpdate, onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
-  import type { Series, TimingEntry } from '$lib/types';
+  import type { Series, TimingClassColor, TimingEntry } from '$lib/types';
 
   interface GroupSection {
     name: string;
@@ -20,6 +20,7 @@
   export let markedStableId: string | null = null;
   export let favourites = new Set<string>();
   export let gapAnchorStableId: string | null = null;
+  export let classColors: Record<string, TimingClassColor> = {};
   let scrollContainer: HTMLDivElement | null = null;
   let marqueeTick = 0;
   let gapAnchorEntry: TimingEntry | null = null;
@@ -144,6 +145,7 @@
   }
 
   function rowClass(entry: TimingEntry): string {
+    if (series === 'wec') return '';
     const className = entry.class_name.replaceAll(' ', '').replaceAll('_', '').toUpperCase();
     if (className === 'GTP') return 'class-gtp';
     if (className === 'LMP1') return 'class-lmp1';
@@ -153,6 +155,35 @@
     if (className === 'GTDPRO') return 'class-gtdpro';
     if (className === 'GTD') return 'class-gtd';
     return '';
+  }
+
+  function rowStyle(entry: TimingEntry, selected: boolean): string {
+    if (selected || series !== 'wec') return '';
+    const key = entry.class_name.replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '').toUpperCase();
+
+    const palette = classColors[key];
+    if (palette && looksLikeHexColor(palette.foreground)) {
+      return `color: ${palette.foreground};`;
+    }
+
+    const staticColors: Record<string, string> = {
+      'LMH': '#dc143c',
+      'LMGT3': '#1e90ff',
+      'LMP1': '#ff1053',
+      'LMP2': '#3f90da',
+      'LMGTE': '#ffa912',
+      'INV': '#ffffff'
+    };
+    if (staticColors[key]) {
+      return `color: ${staticColors[key]};`;
+    }
+
+    return '';
+  }
+
+  function looksLikeHexColor(value: string | undefined): boolean {
+    if (!value) return false;
+    return /^#[0-9a-fA-F]{6}$/.test(value.trim());
   }
 
   function pitSignalActive(entry: TimingEntry): boolean {
@@ -428,7 +459,7 @@
                 </thead>
                 <tbody>
                   {#each section.entries as entry, index (entry.stable_id)}
-                    <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+                    <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, section.start + index === selectedRow)}>
                       {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
                         <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
@@ -461,7 +492,7 @@
             </tr>
           {:else}
             {#each entries as entry, index (entry.stable_id)}
-              <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`}>
+              <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, index === selectedRow)}>
                 {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
                   <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
