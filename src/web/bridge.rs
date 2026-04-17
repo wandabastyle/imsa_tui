@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     f1::signalr_worker,
-    imsa::polling_worker,
+    imsa::{polling_worker_with_debug, ImsaDebugOutput},
     nls::websocket_worker,
     timing::{Series, TimingMessage},
 };
@@ -231,7 +231,9 @@ fn spawn_worker_thread(
     stop_rx: Receiver<()>,
 ) {
     thread::spawn(move || match series {
-        Series::Imsa => polling_worker(worker_tx, source_id, stop_rx),
+        Series::Imsa => {
+            polling_worker_with_debug(worker_tx, source_id, stop_rx, ImsaDebugOutput::Stderr)
+        }
         Series::Nls => websocket_worker(worker_tx, source_id, stop_rx),
         Series::F1 => signalr_worker(worker_tx, source_id, stop_rx),
     });
