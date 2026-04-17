@@ -142,7 +142,7 @@ fn build_entries(store: &CollectionStore) -> Vec<TimingEntry> {
                 format!("wec:{car_number}")
             };
 
-            let driver = display_driver(entry_doc);
+            let driver = display_driver(entry_doc, result_row);
             let sectors = sector_times_from_row(row);
 
             let last_lap = pick_text(result_row, &["time"])
@@ -159,15 +159,10 @@ fn build_entries(store: &CollectionStore) -> Vec<TimingEntry> {
                 .or_else(|| pick_text(result_row, &["time"]))
                 .unwrap_or_else(|| "-".to_string());
 
-            let pit = if pit_marker.eq_ignore_ascii_case("BOX")
+            let in_pit = pit_marker.eq_ignore_ascii_case("BOX")
                 || pit_marker.eq_ignore_ascii_case("PIT")
-                || pit_marker.eq_ignore_ascii_case("IN")
-            {
-                "Yes"
-            } else {
-                "No"
-            }
-            .to_string();
+                || pit_marker.eq_ignore_ascii_case("IN");
+            let pit = if in_pit { "Yes" } else { "No" }.to_string();
 
             entries.push(TimingEntry {
                 position,
@@ -195,7 +190,17 @@ fn build_entries(store: &CollectionStore) -> Vec<TimingEntry> {
                 best_lap,
                 sector_1: sectors.get("1").cloned().unwrap_or_else(|| "-".to_string()),
                 sector_2: sectors.get("2").cloned().unwrap_or_else(|| "-".to_string()),
-                sector_3: sectors.get("3").cloned().unwrap_or_else(|| "-".to_string()),
+                sector_3: sectors
+                    .get("3")
+                    .cloned()
+                    .map(|value| if in_pit { "PIT".to_string() } else { value })
+                    .unwrap_or_else(|| {
+                        if in_pit {
+                            "PIT".to_string()
+                        } else {
+                            "-".to_string()
+                        }
+                    }),
                 sector_4: "-".to_string(),
                 sector_5: "-".to_string(),
                 best_lap_no: pick_text(Some(row), &["bestLapNumber", "bestLapNo"])
@@ -286,25 +291,55 @@ fn strip_leading_zeroes(value: &str) -> &str {
     }
 }
 
-fn display_driver(entry_doc: Option<&Value>) -> String {
-    let Some(entry_doc) = entry_doc else {
-        return "-".to_string();
-    };
-
-    if let Some(name) = pick_text(Some(entry_doc), &["driver", "name"]) {
-        return name;
+fn display_driver(entry_doc: Option<&Value>, result_row: Option<&Value>) -> String {
+    if let Some(row) = result_row {
+        let first =
+            pick_text(Some(row), &["drivers.0.firstname", "driver_firstname"]).unwrap_or_default();
+        let last =
+            pick_text(Some(row), &["drivers.0.surname", "driver_surname"]).unwrap_or_default();
+        if let Some(formatted) = format_driver_name(&first, &last) {
+            return formatted;
+        }
     }
 
-    let first = pick_text(Some(entry_doc), &["firstname"]).unwrap_or_default();
-    let last = pick_text(Some(entry_doc), &["lastname"]).unwrap_or_default();
-    let label = format!("{} {}", first.trim(), last.trim())
-        .trim()
-        .to_string();
-    if label.is_empty() {
-        "-".to_string()
-    } else {
-        label
+    if let Some(entry) = entry_doc {
+        let first = pick_text(
+            Some(entry),
+            &["firstname", "drivers.1.firstname", "drivers.0.firstname"],
+        )
+        .unwrap_or_default();
+        let last = pick_text(
+            Some(entry),
+            &["lastname", "drivers.1.lastname", "drivers.0.lastname"],
+        )
+        .unwrap_or_default();
+        if let Some(formatted) = format_driver_name(&first, &last) {
+            return formatted;
+        }
+
+        if let Some(name) = pick_text(Some(entry), &["name", "driver"]) {
+            return name;
+        }
     }
+
+    "-".to_string()
+}
+
+fn format_driver_name(first: &str, last: &str) -> Option<String> {
+    let first = first.trim();
+    let last = last.trim();
+    if first.is_empty() && last.is_empty() {
+        return None;
+    }
+    if first.is_empty() {
+        return Some(last.to_string());
+    }
+    if last.is_empty() {
+        return Some(first.to_string());
+    }
+
+    let initial = first.chars().next().map(|ch| ch.to_ascii_uppercase())?;
+    Some(format!("{initial}. {}", last.to_ascii_uppercase()))
 }
 
 fn sector_times_from_row(row: &Value) -> BTreeMap<String, String> {
