@@ -29,7 +29,7 @@ fn has_legacy_class_suffix(series: Series, stable_id: &str) -> bool {
     match series {
         Series::Imsa => stable_id.starts_with("fallback:") && stable_id.matches(':').count() > 1,
         Series::Nls => stable_id.starts_with("stnr:") && stable_id.matches(':').count() > 1,
-        Series::F1 => false,
+        Series::F1 | Series::Wec => false,
     }
 }
 
@@ -38,6 +38,7 @@ fn parse_series_key(value: &str) -> Option<Series> {
         "imsa" => Some(Series::Imsa),
         "nls" => Some(Series::Nls),
         "f1" => Some(Series::F1),
+        "wec" => Some(Series::Wec),
         _ => None,
     }
 }

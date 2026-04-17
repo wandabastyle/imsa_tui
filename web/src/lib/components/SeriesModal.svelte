@@ -6,7 +6,7 @@
   export let selectedSeries: Series = 'imsa';
   export let onPick: (series: Series) => void;
 
-  const seriesList: Series[] = ['imsa', 'nls', 'f1'];
+  const seriesList: Series[] = ['imsa', 'nls', 'f1', 'wec'];
 </script>
 
 {#if open}

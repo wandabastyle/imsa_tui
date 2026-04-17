@@ -27,10 +27,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::demo;
 use crate::{
+    adapters::wec::websocket_worker as wec_websocket_worker,
     f1::signalr_worker,
     favourites,
     imsa::{normalize_class_name, polling_worker_with_debug, ImsaDebugOutput},
-    nls::websocket_worker,
+    nls::websocket_worker as nls_websocket_worker,
     timing::{Series, TimingEntry, TimingHeader, TimingMessage},
 };
 
@@ -397,6 +398,15 @@ fn class_style(class_name: &str) -> Style {
         "LMP2" => Style::default()
             .fg(Color::Rgb(63, 144, 218))
             .add_modifier(Modifier::BOLD),
+        "LMP1" => Style::default()
+            .fg(Color::Rgb(255, 16, 83))
+            .add_modifier(Modifier::BOLD),
+        "LMGTE" => Style::default()
+            .fg(Color::Rgb(255, 169, 18))
+            .add_modifier(Modifier::BOLD),
+        "INV" => Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
         "GTDPRO" => Style::default()
             .fg(Color::Rgb(210, 38, 48))
             .add_modifier(Modifier::BOLD),
@@ -405,6 +415,12 @@ fn class_style(class_name: &str) -> Style {
             .add_modifier(Modifier::BOLD),
         "SP9" => Style::default()
             .fg(Color::Rgb(255, 140, 0))
+            .add_modifier(Modifier::BOLD),
+        "LMH" => Style::default()
+            .fg(Color::Rgb(220, 20, 60))
+            .add_modifier(Modifier::BOLD),
+        "LMGT3" => Style::default()
+            .fg(Color::Rgb(30, 144, 255))
             .add_modifier(Modifier::BOLD),
         _ => Style::default(),
     }
@@ -415,8 +431,13 @@ fn class_display_name(name: &str) -> String {
     match normalized.as_str() {
         "GTP" => "GTP".to_string(),
         "LMP2" => "LMP2".to_string(),
+        "LMP1" => "LMP1".to_string(),
+        "LMGTE" => "LMGTE".to_string(),
+        "INV" => "INV".to_string(),
         "GTDPRO" => "GTD PRO".to_string(),
         "GTD" => "GTD".to_string(),
+        "LMH" => "LMH".to_string(),
+        "LMGT3" => "LMGT3".to_string(),
         _ => {
             let trimmed = name.trim();
             if trimmed.is_empty() {
@@ -499,6 +520,25 @@ fn f1_table_widths() -> [Constraint; 12] {
         Constraint::Length(5),
         Constraint::Length(5),
         Constraint::Length(7),
+    ]
+}
+
+fn wec_table_widths() -> [Constraint; 14] {
+    [
+        Constraint::Length(4),
+        Constraint::Length(5),
+        Constraint::Length(9),
+        Constraint::Length(5),
+        Constraint::Length(18),
+        Constraint::Min(18),
+        Constraint::Length(24),
+        Constraint::Length(7),
+        Constraint::Length(11),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
     ]
 }
 
@@ -781,6 +821,32 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(e.pit_stops.clone()),
                     Cell::from(e.class_rank.clone()),
                 ]),
+                Series::Wec => Row::new(vec![
+                    Cell::from(e.position.to_string()),
+                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    Cell::from(e.class_name.clone()),
+                    Cell::from(e.class_rank.clone()),
+                    Cell::from(marquee_if_needed(&e.driver, 18, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(
+                        &e.vehicle,
+                        18,
+                        selected,
+                        ctx.marquee_tick,
+                    )),
+                    Cell::from(marquee_if_needed(&e.team, 24, selected, ctx.marquee_tick)),
+                    Cell::from(e.laps.clone()),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_overall,
+                        GapColumn::Overall,
+                        ctx.gap_anchor,
+                    )),
+                    Cell::from(e.last_lap.clone()),
+                    Cell::from(e.best_lap.clone()),
+                    Cell::from(e.sector_1.clone()),
+                    Cell::from(e.sector_2.clone()),
+                    Cell::from(e.sector_3.clone()),
+                ]),
             };
 
             let mut style = class_style(&e.class_name);
@@ -829,7 +895,7 @@ fn marquee_if_needed(text: &str, width_hint: usize, selected: bool, tick: usize)
 
 fn pit_signal_active(active_series: Series, entry: &TimingEntry) -> bool {
     match active_series {
-        Series::Imsa | Series::F1 => entry.pit.eq_ignore_ascii_case("yes"),
+        Series::Imsa | Series::F1 | Series::Wec => entry.pit.eq_ignore_ascii_case("yes"),
         Series::Nls => entry.sector_5.trim().eq_ignore_ascii_case("PIT"),
     }
 }
@@ -953,6 +1019,13 @@ fn build_table<'a>(
             ],
             f1_table_widths().to_vec(),
         ),
+        Series::Wec => (
+            vec![
+                "Pos", "#", "Class", "PIC", "Driver", "Vehicle", "Team", "Laps", "Gap", "Last",
+                "Best", "S1", "S2", "S3",
+            ],
+            wec_table_widths().to_vec(),
+        ),
     };
 
     Table::new(build_rows(entries, ctx), widths)
@@ -1029,8 +1102,9 @@ fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> Acti
 
     thread::spawn(move || match series {
         Series::Imsa => polling_worker_with_debug(tx, source_id, stop_rx, imsa_debug_output),
-        Series::Nls => websocket_worker(tx, source_id, stop_rx),
+        Series::Nls => nls_websocket_worker(tx, source_id, stop_rx),
         Series::F1 => signalr_worker(tx, source_id, stop_rx),
+        Series::Wec => wec_websocket_worker(tx, source_id, stop_rx),
     });
 
     ActiveFeed {

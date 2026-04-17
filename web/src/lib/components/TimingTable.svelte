@@ -31,14 +31,16 @@
   const columnsBySeries: Record<Series, string[]> = {
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
     nls: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5'],
-    f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC']
+    f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC'],
+    wec: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3']
   };
 
   const widthBySeries: Record<Series, string[]> = {
     // Mirrors the TUI fixed-column intent so grouped sections line up perfectly.
     imsa: ['4ch', '7ch', '7ch', '4ch', '24ch', '20ch', '6ch', '11ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '5ch', '18ch'],
     nls: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch'],
-    f1: ['4ch', '7ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch']
+    f1: ['4ch', '7ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch'],
+    wec: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch']
   };
 
   function favouriteFlag(entry: TimingEntry): string {
@@ -87,6 +89,24 @@
         entry.fastest_driver
       ];
     }
+    if (series === 'wec') {
+      return [
+        String(entry.position),
+        `${favouriteFlag(entry)}${entry.car_number}`,
+        entry.class_name,
+        entry.class_rank,
+        entry.driver,
+        entry.vehicle,
+        entry.team,
+        entry.laps,
+        entry.gap_overall,
+        entry.last_lap,
+        entry.best_lap,
+        entry.sector_1,
+        entry.sector_2,
+        entry.sector_3
+      ];
+    }
     if (series === 'nls') {
       return [
         String(entry.position),
@@ -126,14 +146,17 @@
   function rowClass(entry: TimingEntry): string {
     const className = entry.class_name.replaceAll(' ', '').replaceAll('_', '').toUpperCase();
     if (className === 'GTP') return 'class-gtp';
+    if (className === 'LMP1') return 'class-lmp1';
     if (className === 'LMP2') return 'class-lmp2';
+    if (className === 'LMGTE') return 'class-lmgte';
+    if (className === 'INV') return 'class-inv';
     if (className === 'GTDPRO') return 'class-gtdpro';
     if (className === 'GTD') return 'class-gtd';
     return '';
   }
 
   function pitSignalActive(entry: TimingEntry): boolean {
-    if (series === 'imsa' || series === 'f1') {
+    if (series === 'imsa' || series === 'f1' || series === 'wec') {
       return entry.pit.toLowerCase() === 'yes';
     }
     return entry.sector_5.trim().toUpperCase() === 'PIT';
@@ -583,6 +606,18 @@
 
   tr.class-lmp2 {
     color: #3f90da;
+  }
+
+  tr.class-lmp1 {
+    color: #ff1053;
+  }
+
+  tr.class-lmgte {
+    color: #ffa912;
+  }
+
+  tr.class-inv {
+    color: #ffffff;
   }
 
   tr.class-gtdpro {

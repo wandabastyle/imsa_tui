@@ -11,9 +11,10 @@ use std::{
 };
 
 use crate::{
+    adapters::wec::websocket_worker as wec_websocket_worker,
     f1::signalr_worker,
     imsa::{polling_worker_with_debug, ImsaDebugOutput},
-    nls::websocket_worker,
+    nls::websocket_worker as nls_websocket_worker,
     timing::{Series, TimingMessage},
 };
 
@@ -221,6 +222,7 @@ fn source_id_for(series: Series) -> u64 {
         Series::Imsa => 1,
         Series::Nls => 2,
         Series::F1 => 3,
+        Series::Wec => 4,
     }
 }
 
@@ -234,8 +236,9 @@ fn spawn_worker_thread(
         Series::Imsa => {
             polling_worker_with_debug(worker_tx, source_id, stop_rx, ImsaDebugOutput::Stderr)
         }
-        Series::Nls => websocket_worker(worker_tx, source_id, stop_rx),
+        Series::Nls => nls_websocket_worker(worker_tx, source_id, stop_rx),
         Series::F1 => signalr_worker(worker_tx, source_id, stop_rx),
+        Series::Wec => wec_websocket_worker(worker_tx, source_id, stop_rx),
     });
 }
 
@@ -247,6 +250,8 @@ fn series_idle_ttl(series: Series) -> Duration {
         Series::Nls => Duration::from_secs(75),
         // F1 SignalR reconnect is heaviest; keep the longest idle window.
         Series::F1 => Duration::from_secs(120),
+        // WEC SockJS/DDP reconnect cost is close to NLS.
+        Series::Wec => Duration::from_secs(90),
     }
 }
 
