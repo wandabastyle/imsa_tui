@@ -1779,10 +1779,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         KeyCode::Backspace => {
                             search.query.pop();
                         }
-                        KeyCode::Char(c) => {
-                            if !c.is_control() {
-                                search.query.push(c);
-                            }
+                        KeyCode::Char(c) if !c.is_control() => {
+                            search.query.push(c);
                         }
                         _ => {}
                     }
@@ -1835,19 +1833,15 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 if group_picker.is_open {
                     match key.code {
                         KeyCode::Esc => group_picker.is_open = false,
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if !current_groups.is_empty() {
-                                group_picker.selected_idx =
-                                    (group_picker.selected_idx + 1) % current_groups.len();
-                            }
+                        KeyCode::Down | KeyCode::Char('j') if !current_groups.is_empty() => {
+                            group_picker.selected_idx =
+                                (group_picker.selected_idx + 1) % current_groups.len();
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if !current_groups.is_empty() {
-                                if group_picker.selected_idx == 0 {
-                                    group_picker.selected_idx = current_groups.len() - 1;
-                                } else {
-                                    group_picker.selected_idx -= 1;
-                                }
+                        KeyCode::Up | KeyCode::Char('k') if !current_groups.is_empty() => {
+                            if group_picker.selected_idx == 0 {
+                                group_picker.selected_idx = current_groups.len() - 1;
+                            } else {
+                                group_picker.selected_idx -= 1;
                             }
                         }
                         KeyCode::Enter => {
@@ -1977,20 +1971,16 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             }
                         }
                     }
-                    KeyCode::Char('f') if !show_help => {
-                        if !current_view_entries.is_empty() {
-                            for offset in 1..=current_view_entries.len() {
-                                let idx = (selected_row + offset) % current_view_entries.len();
-                                let fav_key = favourite_key(
-                                    active_series,
-                                    &current_view_entries[idx].stable_id,
-                                );
-                                if favourites.contains(&fav_key) {
-                                    selected_row = idx;
-                                    gap_anchor_stable_id =
-                                        Some(current_view_entries[idx].stable_id.clone());
-                                    break;
-                                }
+                    KeyCode::Char('f') if !show_help && !current_view_entries.is_empty() => {
+                        for offset in 1..=current_view_entries.len() {
+                            let idx = (selected_row + offset) % current_view_entries.len();
+                            let fav_key =
+                                favourite_key(active_series, &current_view_entries[idx].stable_id);
+                            if favourites.contains(&fav_key) {
+                                selected_row = idx;
+                                gap_anchor_stable_id =
+                                    Some(current_view_entries[idx].stable_id.clone());
+                                break;
                             }
                         }
                     }
@@ -2000,22 +1990,17 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         search.current_match = 0;
                         search.input_active = true;
                     }
-                    KeyCode::Char('n') if !show_help => {
-                        if !search.matches.is_empty() {
-                            search.current_match =
-                                (search.current_match + 1) % search.matches.len();
-                            selected_row = search.matches[search.current_match];
-                        }
+                    KeyCode::Char('n') if !show_help && !search.matches.is_empty() => {
+                        search.current_match = (search.current_match + 1) % search.matches.len();
+                        selected_row = search.matches[search.current_match];
                     }
-                    KeyCode::Char('p') if !show_help => {
-                        if !search.matches.is_empty() {
-                            if search.current_match == 0 {
-                                search.current_match = search.matches.len() - 1;
-                            } else {
-                                search.current_match -= 1;
-                            }
-                            selected_row = search.matches[search.current_match];
+                    KeyCode::Char('p') if !show_help && !search.matches.is_empty() => {
+                        if search.current_match == 0 {
+                            search.current_match = search.matches.len() - 1;
+                        } else {
+                            search.current_match -= 1;
                         }
+                        selected_row = search.matches[search.current_match];
                     }
                     KeyCode::Char('d') if !show_help => {
                         demo_mode = !demo_mode;
