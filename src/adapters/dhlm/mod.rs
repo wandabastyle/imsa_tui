@@ -59,8 +59,15 @@ fn dhlm_dump_path() -> Option<PathBuf> {
 
 fn extract_cup_from_message(text: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(text).ok()?;
-    let cup = parsed.get("CUP")?.as_str()?.to_string();
-    Some(cup)
+    parsed
+        .get("CUP")
+        .or_else(|| parsed.get("EVENTNAME"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+fn cup_is_dhlm(cup: &str) -> bool {
+    cup.to_ascii_lowercase().contains("dhlm")
 }
 
 fn now_millis() -> u128 {
@@ -159,28 +166,28 @@ pub fn websocket_worker_with_debug(
             continue;
         }
 
-        let mut use_dump_mode = false;
-
-        match socket.read() {
-            Ok(Message::Text(text)) => {
-                if let Some(cup) = extract_cup_from_message(&text) {
-                    let cup_is_dhlm = cup.to_ascii_lowercase().contains("dhlm");
-                    if !cup_is_dhlm {
-                        use_dump_mode = true;
-                        let _ = tx.send(TimingMessage::Status {
-                            source_id,
-                            text: "[SNAPSHOT] Using dump file (CUP != DHLM)".to_string(),
-                        });
+        let mut ws_cup: Option<String> = None;
+        for _ in 0..5 {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    if let Some(cup) = extract_cup_from_message(&text) {
+                        ws_cup = Some(cup);
+                        break;
                     }
                 }
+                _ => continue,
             }
-            Ok(_) => {}
-            Err(_) => {
-                if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
-                    break 'outer;
-                }
-                continue;
-            }
+        }
+
+        let use_dump_mode = ws_cup
+            .as_deref()
+            .map(|cup| !cup_is_dhlm(cup))
+            .unwrap_or(false);
+        if use_dump_mode {
+            let _ = tx.send(TimingMessage::Status {
+                source_id,
+                text: "[SNAPSHOT] Using dump file (CUP != DHLM)".to_string(),
+            });
         }
 
         if use_dump_mode {
@@ -399,4 +406,35 @@ fn load_dump_file(path: &Option<PathBuf>) -> Option<Vec<String>> {
         }
     }
     Some(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_cup_from_message_reads_cup_or_eventname() {
+        let cup_payload =
+            r#"{"PID":"4","CUP":"Deutsche Historische Langstrecken Meisterschaft (DHLM)"}"#;
+        let event_payload =
+            r#"{"PID":"4","EVENTNAME":"Deutsche Historische Langstrecken Meisterschaft (DHLM)"}"#;
+
+        assert_eq!(
+            extract_cup_from_message(cup_payload).as_deref(),
+            Some("Deutsche Historische Langstrecken Meisterschaft (DHLM)")
+        );
+        assert_eq!(
+            extract_cup_from_message(event_payload).as_deref(),
+            Some("Deutsche Historische Langstrecken Meisterschaft (DHLM)")
+        );
+    }
+
+    #[test]
+    fn cup_is_dhlm_matches_case_insensitively() {
+        assert!(cup_is_dhlm(
+            "Deutsche Historische Langstrecken Meisterschaft (DHLM)"
+        ));
+        assert!(cup_is_dhlm("dhlm support race"));
+        assert!(!cup_is_dhlm("ADAC 24h Nürburgring Qualifiers"));
+    }
 }

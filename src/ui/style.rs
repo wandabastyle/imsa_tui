@@ -84,7 +84,7 @@ pub(crate) fn class_style(
     active_series: Series,
     class_colors: &BTreeMap<String, TimingClassColor>,
 ) -> Style {
-    if active_series == Series::Nls {
+    if matches!(active_series, Series::Nls | Series::Dhlm) {
         return Style::default();
     }
 
@@ -110,9 +110,6 @@ pub(crate) fn class_style(
             .add_modifier(Modifier::BOLD),
         "GTD" => Style::default()
             .fg(Color::Rgb(0, 166, 81))
-            .add_modifier(Modifier::BOLD),
-        "SP9" => Style::default()
-            .fg(Color::Rgb(255, 140, 0))
             .add_modifier(Modifier::BOLD),
         "LMH" => Style::default()
             .fg(Color::Rgb(220, 20, 60))
@@ -187,5 +184,17 @@ pub(crate) fn class_display_name(name: &str) -> String {
                 trimmed.to_string()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn class_style_returns_default_for_dhlm() {
+        let colors = BTreeMap::new();
+        let style = class_style("SP9", Series::Dhlm, &colors);
+        assert_eq!(style, Style::default());
     }
 }
