@@ -68,7 +68,7 @@ pub(crate) fn build_table<'a>(
                     Some(imsa_widths),
                 )
             }
-            Series::Nls => (
+            Series::Nls | Series::Dhlm => (
                 vec![
                     "Pos", "#", "Class", "PIC", "Driver", "Vehicle", "Team", "Laps", "Gap", "Last",
                     "Best", "S1", "S2", "S3", "S4", "S5",
@@ -173,7 +173,7 @@ fn build_rows(
                         ctx.marquee_tick,
                     )),
                 ]),
-                Series::Nls => Row::new(vec![
+                Series::Nls | Series::Dhlm => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),

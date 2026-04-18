@@ -32,7 +32,7 @@ impl PitTracker {
 fn pit_signal_active(active_series: Series, entry: &TimingEntry) -> bool {
     match active_series {
         Series::Imsa | Series::F1 | Series::Wec => entry.pit.eq_ignore_ascii_case("yes"),
-        Series::Nls => entry.sector_5.trim().eq_ignore_ascii_case("PIT"),
+        Series::Nls | Series::Dhlm => entry.sector_5.trim().eq_ignore_ascii_case("PIT"),
     }
 }
 

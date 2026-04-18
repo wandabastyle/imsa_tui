@@ -234,8 +234,8 @@ fn series_idle_ttl(series: Series) -> Duration {
     match series {
         // IMSA polling reconnects quickly; keep the idle window short.
         Series::Imsa => Duration::from_secs(30),
-        // NLS websocket reconnect is moderate; keep a bit more cushion.
-        Series::Nls => Duration::from_secs(75),
+        // NLS/DHLM websocket reconnect is moderate; keep a bit more cushion.
+        Series::Nls | Series::Dhlm => Duration::from_secs(75),
         // F1 SignalR reconnect is heaviest; keep the longest idle window.
         Series::F1 => Duration::from_secs(120),
         // WEC SockJS/DDP reconnect cost is close to NLS.

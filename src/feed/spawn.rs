@@ -21,7 +21,9 @@ pub fn spawn_series_worker(
 ) {
     thread::spawn(move || match series {
         Series::Imsa => polling_worker_with_debug(worker_tx, source_id, stop_rx, debug_output),
-        Series::Nls => websocket_worker_with_debug(worker_tx, source_id, stop_rx, debug_output),
+        Series::Nls | Series::Dhlm => {
+            websocket_worker_with_debug(worker_tx, source_id, stop_rx, debug_output)
+        }
         Series::F1 => signalr_worker_with_debug(worker_tx, source_id, stop_rx, debug_output),
         Series::Wec => wec_websocket_worker(worker_tx, source_id, stop_rx, debug_output),
     });

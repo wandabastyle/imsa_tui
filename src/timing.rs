@@ -13,15 +13,23 @@ pub enum Series {
     Nls,
     F1,
     Wec,
+    Dhlm,
 }
 
 impl Series {
-    pub const fn all() -> [Series; 4] {
-        [Series::Imsa, Series::Nls, Series::F1, Series::Wec]
+    pub const fn all() -> [Series; 5] {
+        [
+            Series::Dhlm,
+            Series::F1,
+            Series::Imsa,
+            Series::Nls,
+            Series::Wec,
+        ]
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            Series::Dhlm => "DHLM",
             Series::Imsa => "IMSA",
             Series::Nls => "NLS",
             Series::F1 => "F1",
@@ -31,6 +39,7 @@ impl Series {
 
     pub fn as_key_prefix(self) -> &'static str {
         match self {
+            Series::Dhlm => "dhlm",
             Series::Imsa => "imsa",
             Series::Nls => "nls",
             Series::F1 => "f1",
@@ -44,6 +53,7 @@ impl FromStr for Series {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "dhlm" => Ok(Self::Dhlm),
             "imsa" => Ok(Self::Imsa),
             "nls" => Ok(Self::Nls),
             "f1" => Ok(Self::F1),
