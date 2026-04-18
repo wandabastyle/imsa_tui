@@ -84,6 +84,10 @@ pub(crate) fn class_style(
     active_series: Series,
     class_colors: &BTreeMap<String, TimingClassColor>,
 ) -> Style {
+    if active_series == Series::Nls {
+        return Style::default();
+    }
+
     if active_series == Series::Wec {
         let key = normalize_class_key(class_name);
         if let Some(color) = class_colors.get(&key) {
