@@ -516,7 +516,7 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
 fn imsa_table_widths() -> [Constraint; 16] {
     [
         // 0: Pos
-        Constraint::Length(2),
+        Constraint::Length(3),
         // 1: #
         Constraint::Length(2),
         // 2: Class
@@ -540,7 +540,7 @@ fn imsa_table_widths() -> [Constraint; 16] {
         // 11: Best
         Constraint::Length(9),
         // 12: BL#
-        Constraint::Length(2),
+        Constraint::Length(1),
         // 13: Pit
         Constraint::Length(2),
         // 14: Stop
