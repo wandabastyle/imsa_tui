@@ -11,7 +11,7 @@ use std::{
 };
 
 use reqwest::blocking::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use tungstenite::{
     client::IntoClientRequest,
     connect,
@@ -52,7 +52,6 @@ use self::schedule::{
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const DEFAULT_NLS_EVENT_ID: &str = "20";
-#[cfg(test)]
 const N24_EVENT_ID: &str = "50";
 #[cfg(test)]
 const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
@@ -111,6 +110,14 @@ pub fn websocket_worker_with_debug(
         source_id,
         &debug_output,
     );
+    if !latest_entries.is_empty() {
+        last_good_live_snapshot = Some(NlsSnapshot {
+            header: header.clone(),
+            entries: latest_entries.clone(),
+            session_id: last_session_id.clone(),
+            fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+        });
+    }
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
@@ -204,6 +211,49 @@ pub fn websocket_worker_with_debug(
                 break;
             }
             continue;
+        }
+
+        let mut ws_cup: Option<String> = None;
+        for _ in 0..5 {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let parsed: Value = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    if let Some(cup) = parsed
+                        .get("CUP")
+                        .or_else(|| parsed.get("EVENTNAME"))
+                        .and_then(|v| v.as_str())
+                    {
+                        ws_cup = Some(cup.to_string());
+                        break;
+                    }
+                }
+                _ => continue,
+            }
+        }
+
+        let cup_is_dhlm = active_event_id == N24_EVENT_ID
+            && ws_cup
+                .as_ref()
+                .map(|c| c.to_ascii_lowercase().contains("dhlm"))
+                .unwrap_or(false);
+
+        if cup_is_dhlm {
+            if let Some(snapshot) = last_good_live_snapshot.as_ref() {
+                let _ = tx.send(TimingMessage::Status {
+                    source_id,
+                    text: "CUP is DHLM: using snapshot".to_string(),
+                });
+                let _ = tx.send(TimingMessage::Snapshot {
+                    source_id,
+                    header: snapshot.header.clone(),
+                    entries: snapshot.entries.clone(),
+                });
+                log_series_debug(&debug_output, "NLS", "cup is dhlm, using snapshot");
+                return;
+            }
         }
 
         loop {

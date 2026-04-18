@@ -132,7 +132,7 @@ fn pit_flag_from_inout_state(inout_state: &str) -> String {
     "-".to_string()
 }
 
-pub(super) fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
+pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
     let car_number = parse_u32_field(v, "STNR")?.to_string();
     let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
     let stable_id = format!("stnr:{car_number}");
