@@ -33,7 +33,8 @@
     imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
     nls: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5'],
     f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC'],
-    wec: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3']
+    wec: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3'],
+    dhlm: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5']
   };
 
   const widthBySeries: Record<Series, string[]> = {
@@ -41,7 +42,8 @@
     imsa: ['4ch', '7ch', '7ch', '4ch', '24ch', '20ch', '6ch', '11ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '5ch', '18ch'],
     nls: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch'],
     f1: ['4ch', '7ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch'],
-    wec: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch']
+    wec: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch'],
+    dhlm: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch']
   };
 
   function favouriteFlag(entry: TimingEntry): string {
