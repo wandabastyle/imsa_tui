@@ -4,10 +4,10 @@ use std::{
 };
 
 use crate::{
-    adapters::wec::websocket_worker_with_debug as wec_websocket_worker,
-    f1::signalr_worker_with_debug,
-    imsa::polling_worker_with_debug,
-    nls::websocket_worker_with_debug,
+    adapters::{
+        f1::signalr_worker_with_debug, imsa::polling_worker_with_debug,
+        nls::websocket_worker_with_debug, wec::websocket_worker_with_debug as wec_websocket_worker,
+    },
     timing::{Series, TimingMessage},
     timing_persist::SeriesDebugOutput,
 };

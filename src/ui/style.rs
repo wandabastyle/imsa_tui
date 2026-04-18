@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, time::Instant};
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::{
-    imsa::normalize_class_name,
+    adapters::imsa::normalize_class_name,
     timing::{Series, TimingClassColor},
 };
 
