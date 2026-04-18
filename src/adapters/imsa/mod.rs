@@ -128,6 +128,10 @@ pub fn polling_worker_with_debug(
 
     let mut runtime = ImsaRuntimeState::new(debug_output);
     restore_snapshot_from_disk(&mut runtime, &tx, source_id);
+    let _ = tx.send(TimingMessage::Status {
+        source_id,
+        text: "[SNAPSHOT] Restored from saved data".to_string(),
+    });
 
     loop {
         if stop_rx.try_recv().is_ok() {

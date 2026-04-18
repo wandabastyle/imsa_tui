@@ -484,6 +484,12 @@ pub fn signalr_worker_with_debug(
 ) {
     let mut persist = PersistState::new(f1_snapshot_path());
     let mut last_snapshot = restore_snapshot_from_disk(&mut persist, &tx, source_id, &debug_output);
+    if last_snapshot.is_some() {
+        let _ = tx.send(TimingMessage::Status {
+            source_id,
+            text: "[SNAPSHOT] Restored from saved data".to_string(),
+        });
+    }
     let mut last_session_id = last_snapshot
         .as_ref()
         .and_then(|snap| snap.session_id.clone());

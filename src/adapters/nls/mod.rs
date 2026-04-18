@@ -244,7 +244,7 @@ pub fn websocket_worker_with_debug(
             if let Some(snapshot) = last_good_live_snapshot.as_ref() {
                 let _ = tx.send(TimingMessage::Status {
                     source_id,
-                    text: "CUP is DHLM: using snapshot".to_string(),
+                    text: "[SNAPSHOT] Using saved data (CUP is DHLM)".to_string(),
                 });
                 let _ = tx.send(TimingMessage::Snapshot {
                     source_id,

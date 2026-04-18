@@ -169,7 +169,7 @@ pub fn websocket_worker_with_debug(
                         use_dump_mode = true;
                         let _ = tx.send(TimingMessage::Status {
                             source_id,
-                            text: "CUP mismatch: using dump".to_string(),
+                            text: "[SNAPSHOT] Using dump file (CUP != DHLM)".to_string(),
                         });
                     }
                 }

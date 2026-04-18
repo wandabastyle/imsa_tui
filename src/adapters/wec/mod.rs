@@ -169,6 +169,12 @@ pub fn websocket_worker_with_debug(
     let emit_collection_stats = env_flag("WEC_COLLECTION_COUNTS", false);
     let mut persist = PersistState::new(wec_snapshot_path());
     let mut last_snapshot = restore_snapshot_from_disk(&mut persist, &tx, source_id, &debug_output);
+    if last_snapshot.is_some() {
+        let _ = tx.send(TimingMessage::Status {
+            source_id,
+            text: "[SNAPSHOT] Restored from saved data".to_string(),
+        });
+    }
     let mut last_session_id = last_snapshot
         .as_ref()
         .and_then(|snap| snap.session_id.clone());
