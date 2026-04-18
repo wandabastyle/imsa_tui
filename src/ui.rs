@@ -521,7 +521,7 @@ fn imsa_table_widths() -> [Constraint; 16] {
         Constraint::Length(4),
         Constraint::Length(24),
         Constraint::Min(16),
-        Constraint::Length(6),
+        Constraint::Length(5),
         Constraint::Length(11),
         Constraint::Length(11),
         Constraint::Length(11),
@@ -782,7 +782,7 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(marquee_if_needed(&e.driver, 24, selected, ctx.marquee_tick)),
                     Cell::from(marquee_if_needed(
                         &e.vehicle,
-                        20,
+                        24,
                         selected,
                         ctx.marquee_tick,
                     )),
