@@ -170,7 +170,7 @@ fn header(
         day_time: day_time.to_string(),
         flag: flag.to_string(),
         time_to_go: time_to_go.to_string(),
-        class_colors: Default::default(),
+        ..TimingHeader::default()
     }
 }
 

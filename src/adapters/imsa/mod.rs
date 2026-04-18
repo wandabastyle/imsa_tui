@@ -460,7 +460,7 @@ mod tests {
             day_time: "2026-01-01T12:00:00Z".to_string(),
             flag: "Green".to_string(),
             time_to_go: "00:45:00".to_string(),
-            class_colors: Default::default(),
+            ..TimingHeader::default()
         }
     }
 

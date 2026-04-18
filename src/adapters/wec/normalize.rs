@@ -37,7 +37,6 @@ fn build_header(store: &CollectionStore) -> TimingHeader {
             ],
         )
         .unwrap_or_else(|| "-".to_string()),
-        session_type_raw: "-".to_string(),
         event_name: pick_text(
             session_info_doc,
             &["info.eventName", "info.eventShortName", "info.champName"],
@@ -81,6 +80,7 @@ fn build_header(store: &CollectionStore) -> TimingHeader {
         .unwrap_or_else(|| "-".to_string()),
         time_to_go: build_time_to_go(session_status_doc),
         class_colors: extract_class_colors(store),
+        ..TimingHeader::default()
     }
 }
 
