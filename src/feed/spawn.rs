@@ -6,7 +6,8 @@ use std::{
 use crate::{
     adapters::{
         f1::signalr_worker_with_debug, imsa::polling_worker_with_debug,
-        nls::websocket_worker_with_debug, wec::websocket_worker_with_debug as wec_websocket_worker,
+        nls::websocket_worker_with_debug as nls_worker,
+        wec::websocket_worker_with_debug as wec_websocket_worker,
     },
     timing::{Series, TimingMessage},
     timing_persist::SeriesDebugOutput,
@@ -21,9 +22,7 @@ pub fn spawn_series_worker(
 ) {
     thread::spawn(move || match series {
         Series::Imsa => polling_worker_with_debug(worker_tx, source_id, stop_rx, debug_output),
-        Series::Nls | Series::Dhlm => {
-            websocket_worker_with_debug(worker_tx, source_id, stop_rx, debug_output)
-        }
+        Series::Nls | Series::Dhlm => nls_worker(worker_tx, source_id, stop_rx, debug_output),
         Series::F1 => signalr_worker_with_debug(worker_tx, source_id, stop_rx, debug_output),
         Series::Wec => wec_websocket_worker(worker_tx, source_id, stop_rx, debug_output),
     });

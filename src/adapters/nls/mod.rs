@@ -1,9 +1,9 @@
 // NLS websocket adapter: subscribes to livetiming hub events and maps payloads to timing rows.
 
-mod countdown;
-mod protocol;
+pub mod countdown;
+pub mod protocol;
 mod schedule;
-mod snapshot;
+pub mod snapshot;
 
 use std::{
     sync::mpsc::{Receiver, Sender},
