@@ -515,22 +515,22 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
 
 fn imsa_table_widths() -> [Constraint; 16] {
     [
-        Constraint::Length(4),
+        Constraint::Length(3),
+        Constraint::Length(3),
         Constraint::Length(5),
-        Constraint::Length(7),
         Constraint::Length(4),
         Constraint::Length(24),
         Constraint::Min(16),
+        Constraint::Length(4),
+        Constraint::Length(9),
+        Constraint::Length(7),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(3),
+        Constraint::Length(3),
         Constraint::Length(5),
-        Constraint::Length(11),
-        Constraint::Length(11),
-        Constraint::Length(11),
-        Constraint::Length(10),
-        Constraint::Length(10),
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Length(18),
+        Constraint::Length(24),
     ]
 }
 
@@ -812,7 +812,7 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(e.pit_stops.clone()),
                     Cell::from(marquee_if_needed(
                         &e.fastest_driver,
-                        18,
+                        24,
                         selected,
                         ctx.marquee_tick,
                     )),
