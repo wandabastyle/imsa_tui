@@ -337,9 +337,11 @@ fn parse_timing_message(
                 }
             }
             if let Some(heat) = parsed.get("HEATTYPE").and_then(|v| v.as_str()) {
+                header.session_type_raw = heat.trim().to_string();
                 header.session_name = match heat {
                     "R" => "Race".to_string(),
                     "Q" => "Qualifying".to_string(),
+                    "T" => "Practice".to_string(),
                     _ => heat.to_string(),
                 };
             }
@@ -367,9 +369,11 @@ fn parse_timing_message(
                 };
             }
             if let Some(heat) = parsed.get("HEATTYPE").and_then(|v| v.as_str()) {
+                header.session_type_raw = heat.trim().to_string();
                 header.session_name = match heat {
                     "R" => "Race".to_string(),
                     "Q" => "Qualifying".to_string(),
+                    "T" => "Practice".to_string(),
                     _ => heat.to_string(),
                 };
             }

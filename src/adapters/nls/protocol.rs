@@ -245,6 +245,9 @@ pub(super) fn parse_ws_message(
 
     match pid {
         "0" => {
+            if let Some(heat_type) = get_str(&parsed, "HEATTYPE") {
+                header.session_type_raw = heat_type.trim().to_string();
+            }
             if let Some(session_name) = first_non_empty(&parsed, &["HEAT"]) {
                 header.session_name = session_name.to_string();
             } else {
@@ -287,6 +290,7 @@ pub(super) fn parse_ws_message(
         }
         "4" => {
             if let Some(heat_type_raw) = get_str(&parsed, "HEATTYPE") {
+                header.session_type_raw = heat_type_raw.trim().to_string();
                 *is_race_session = heat_type_raw.trim() == "R";
             }
             if header.session_name.is_empty() || header.session_name == "-" {

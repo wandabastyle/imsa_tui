@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     io,
     sync::mpsc::{self, Sender},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crossterm::event::{self, Event, KeyCode};
@@ -58,6 +58,16 @@ struct SeriesChangeCtx<'a> {
     config: &'a mut AppConfig,
 }
 
+const DISMISSED_NOTICE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+const DISMISSED_NOTICE_MAX_PER_SERIES: usize = 500;
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
 fn extract_notice_car_numbers(text: &str) -> HashSet<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut car_numbers = HashSet::new();
@@ -100,6 +110,77 @@ fn notice_key(notice: &TimingNotice) -> String {
         notice.time.trim(),
         notice.text.trim()
     )
+}
+
+fn persisted_notice_key(series: Series, notice: &TimingNotice) -> String {
+    format!("{}|{}", series.as_key_prefix(), notice_key(notice))
+}
+
+fn prune_dismissed_notice_keys(dismissed: &mut HashMap<String, u64>, now_unix_secs: u64) -> bool {
+    let mut changed = false;
+
+    for timestamp in dismissed.values_mut() {
+        if *timestamp == 0 {
+            *timestamp = now_unix_secs;
+            changed = true;
+        }
+    }
+
+    let before_ttl = dismissed.len();
+    dismissed.retain(|_, timestamp| {
+        now_unix_secs.saturating_sub(*timestamp) <= DISMISSED_NOTICE_TTL_SECS
+    });
+    if dismissed.len() != before_ttl {
+        changed = true;
+    }
+
+    let mut by_series: HashMap<String, Vec<(String, u64)>> = HashMap::new();
+    for (key, timestamp) in dismissed.iter() {
+        let prefix = key
+            .split_once('|')
+            .map(|(series, _)| series)
+            .unwrap_or_default()
+            .to_string();
+        by_series
+            .entry(prefix)
+            .or_default()
+            .push((key.clone(), *timestamp));
+    }
+
+    let mut keys_to_remove = HashSet::new();
+    for (_, mut keys) in by_series {
+        if keys.len() <= DISMISSED_NOTICE_MAX_PER_SERIES {
+            continue;
+        }
+        keys.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        for (key, _) in keys.into_iter().skip(DISMISSED_NOTICE_MAX_PER_SERIES) {
+            keys_to_remove.insert(key);
+        }
+    }
+
+    if !keys_to_remove.is_empty() {
+        dismissed.retain(|key, _| !keys_to_remove.contains(key));
+        changed = true;
+    }
+
+    changed
+}
+
+fn clear_dismissed_notice_keys_for_series(series: Series, dismissed: &mut HashMap<String, u64>) {
+    let prefix = format!("{}|", series.as_key_prefix());
+    dismissed.retain(|key, _| !key.starts_with(&prefix));
+}
+
+fn persist_dismissed_notice_keys(
+    config: &mut AppConfig,
+    dismissed_notice_keys: &mut HashMap<String, u64>,
+    last_error: &mut Option<String>,
+) {
+    prune_dismissed_notice_keys(dismissed_notice_keys, now_unix_secs());
+    config.dismissed_notice_keys = dismissed_notice_keys.clone();
+    if let Err(err) = save_config(config) {
+        *last_error = Some(err);
+    }
 }
 
 fn rebuild_highlighted_notice_cars(notices: &[TimingNotice]) -> HashSet<String> {
@@ -176,6 +257,13 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let tick_rate = Duration::from_millis(250);
 
     let mut config = load_config();
+    let mut config_load_error = None;
+    if prune_dismissed_notice_keys(&mut config.dismissed_notice_keys, now_unix_secs()) {
+        if let Err(err) = save_config(&config) {
+            config_load_error = Some(err);
+        }
+    }
+
     let mut active_series = config.selected_series;
     let mut source_id_ctr = 1_u64;
     let mut demo_mode = false;
@@ -185,13 +273,14 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
 
     let (mut header, mut entries) = (TimingHeader::default(), Vec::new());
     let mut status = format!("Starting {} live timing...", active_series.label());
-    let mut last_error: Option<String> = None;
+    let mut last_error: Option<String> = config_load_error;
     let mut last_update: Option<Instant> = None;
     let mut previous_flag = "-".to_string();
     let mut transition_started_at = Instant::now();
     let mut view_mode = ViewMode::Overall;
     let mut selected_row = 0usize;
     let mut favourites: HashSet<String> = config.favourites.clone();
+    let mut dismissed_notice_keys: HashMap<String, u64> = config.dismissed_notice_keys.clone();
     let mut show_help = false;
     let mut search = SearchState::default();
     let mut series_picker = SeriesPickerState::closed();
@@ -233,6 +322,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
 
             for notice in incoming_notices {
                 let key = notice_key(&notice);
+                if dismissed_notice_keys.contains_key(&persisted_notice_key(active_series, &notice))
+                {
+                    continue;
+                }
                 if notice_keys.insert(key) {
                     notices.push(notice);
                 }
@@ -508,16 +601,47 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             let idx = messages_panel.selected_idx.min(notices.len() - 1);
                             let removed = notices.remove(idx);
                             notice_keys.remove(&notice_key(&removed));
+                            dismissed_notice_keys.insert(
+                                persisted_notice_key(active_series, &removed),
+                                now_unix_secs(),
+                            );
+                            persist_dismissed_notice_keys(
+                                &mut config,
+                                &mut dismissed_notice_keys,
+                                &mut last_error,
+                            );
                             highlighted_notice_cars = rebuild_highlighted_notice_cars(&notices);
                             messages_panel.selected_idx = messages_panel
                                 .selected_idx
                                 .min(notices.len().saturating_sub(1));
                         }
                         KeyCode::Char('c') => {
+                            for notice in &notices {
+                                dismissed_notice_keys.insert(
+                                    persisted_notice_key(active_series, notice),
+                                    now_unix_secs(),
+                                );
+                            }
+                            persist_dismissed_notice_keys(
+                                &mut config,
+                                &mut dismissed_notice_keys,
+                                &mut last_error,
+                            );
                             notices.clear();
                             notice_keys.clear();
                             highlighted_notice_cars.clear();
                             messages_panel.selected_idx = 0;
+                        }
+                        KeyCode::Char('C') => {
+                            clear_dismissed_notice_keys_for_series(
+                                active_series,
+                                &mut dismissed_notice_keys,
+                            );
+                            persist_dismissed_notice_keys(
+                                &mut config,
+                                &mut dismissed_notice_keys,
+                                &mut last_error,
+                            );
                         }
                         _ => {}
                     }
@@ -827,5 +951,68 @@ mod tests {
         assert!(highlighted.contains("155"));
         assert!(highlighted.contains("089"));
         assert!(highlighted.contains("89"));
+    }
+
+    #[test]
+    fn persisted_notice_key_is_series_scoped() {
+        let notice = TimingNotice {
+            id: "1".to_string(),
+            time: "15:04:42".to_string(),
+            text: "#999 penalty".to_string(),
+        };
+
+        let nls_key = persisted_notice_key(Series::Nls, &notice);
+        let dhlm_key = persisted_notice_key(Series::Dhlm, &notice);
+
+        assert_ne!(nls_key, dhlm_key);
+        assert!(nls_key.starts_with("nls|"));
+        assert!(dhlm_key.starts_with("dhlm|"));
+    }
+
+    #[test]
+    fn prune_dismissed_notice_keys_expires_old_entries_and_caps_per_series() {
+        let now = 1_000_000_u64;
+        let mut dismissed = HashMap::from([
+            (
+                "nls|old|entry".to_string(),
+                now.saturating_sub(DISMISSED_NOTICE_TTL_SECS + 1),
+            ),
+            ("nls|new-1".to_string(), now - 2),
+            ("nls|new-2".to_string(), now - 1),
+            ("nls|new-3".to_string(), now),
+        ]);
+
+        let changed = prune_dismissed_notice_keys(&mut dismissed, now);
+
+        assert!(changed);
+        assert!(!dismissed.contains_key("nls|old|entry"));
+
+        // reduce cap locally by trimming to top timestamps manually expected behavior
+        // (real cap is larger, so we emulate overflow with synthetic extra keys)
+        for idx in 0..(DISMISSED_NOTICE_MAX_PER_SERIES + 5) {
+            dismissed.insert(format!("dhlm|k-{idx}"), now + idx as u64);
+        }
+        let changed_again = prune_dismissed_notice_keys(&mut dismissed, now + 100);
+        assert!(changed_again);
+        let dhlm_count = dismissed
+            .keys()
+            .filter(|key| key.starts_with("dhlm|"))
+            .count();
+        assert_eq!(dhlm_count, DISMISSED_NOTICE_MAX_PER_SERIES);
+    }
+
+    #[test]
+    fn clear_dismissed_notice_keys_for_series_only_removes_selected_prefix() {
+        let mut dismissed = HashMap::from([
+            ("nls|one".to_string(), 1_u64),
+            ("nls|two".to_string(), 2_u64),
+            ("dhlm|one".to_string(), 3_u64),
+        ]);
+
+        clear_dismissed_notice_keys_for_series(Series::Nls, &mut dismissed);
+
+        assert!(!dismissed.contains_key("nls|one"));
+        assert!(!dismissed.contains_key("nls|two"));
+        assert!(dismissed.contains_key("dhlm|one"));
     }
 }

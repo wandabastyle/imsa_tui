@@ -66,6 +66,8 @@ impl FromStr for Series {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingHeader {
     pub session_name: String,
+    #[serde(default)]
+    pub session_type_raw: String,
     pub event_name: String,
     pub track_name: String,
     pub day_time: String,

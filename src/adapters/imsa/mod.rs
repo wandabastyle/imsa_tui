@@ -454,6 +454,7 @@ mod tests {
     fn test_header() -> TimingHeader {
         TimingHeader {
             session_name: "Race".to_string(),
+            session_type_raw: "R".to_string(),
             event_name: "12h Sebring".to_string(),
             track_name: "Sebring".to_string(),
             day_time: "2026-01-01T12:00:00Z".to_string(),

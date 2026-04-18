@@ -206,6 +206,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                     pit_trackers: ctx.pit_trackers,
                     class_colors: &ctx.header.class_colors,
                     now: ctx.now,
+                    session_type_raw: &ctx.header.session_type_raw,
                     session_name: &ctx.header.session_name,
                     highlighted_cars: ctx.highlighted_notice_cars,
                 };
@@ -295,6 +296,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                             pit_trackers: ctx.pit_trackers,
                             class_colors: &ctx.header.class_colors,
                             now: ctx.now,
+                            session_type_raw: &ctx.header.session_type_raw,
                             session_name: &ctx.header.session_name,
                             highlighted_cars: ctx.highlighted_notice_cars,
                         };
@@ -327,6 +329,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         pit_trackers: ctx.pit_trackers,
                         class_colors: &ctx.header.class_colors,
                         now: ctx.now,
+                        session_type_raw: &ctx.header.session_type_raw,
                         session_name: &ctx.header.session_name,
                         highlighted_cars: ctx.highlighted_notice_cars,
                     };
@@ -377,6 +380,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         pit_trackers: ctx.pit_trackers,
                         class_colors: &ctx.header.class_colors,
                         now: ctx.now,
+                        session_type_raw: &ctx.header.session_type_raw,
                         session_name: &ctx.header.session_name,
                         highlighted_cars: ctx.highlighted_notice_cars,
                     };

@@ -194,6 +194,7 @@ fn parse_flag_code(code: &str) -> String {
 fn build_results_header(root: &Value) -> TimingHeader {
     TimingHeader {
         session_name: first_present_string(root, &["S", "Session", "session", "sessionName"]),
+        session_type_raw: "-".to_string(),
         event_name: first_present_string(root, &["E", "Event", "event", "eventName"]),
         track_name: first_present_string(root, &["T", "Track", "track", "trackName"]),
         day_time: first_present_string(root, &["DT", "Day", "day", "dayTime", "timestamp"]),

@@ -70,7 +70,15 @@ fn parse_best_lap_time(raw: &str) -> Option<i64> {
     Some(total_ms)
 }
 
-fn is_qualifying_or_practice(session_name: &str) -> bool {
+fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool {
+    let raw = session_type_raw.trim().to_ascii_uppercase();
+    if raw == "R" {
+        return false;
+    }
+    if raw == "Q" || raw == "T" {
+        return true;
+    }
+
     let normalized = session_name.trim().to_ascii_lowercase();
     normalized != "race" && !normalized.is_empty() && normalized != "-"
 }
@@ -141,24 +149,41 @@ pub(crate) fn relative_gap_overall_text(
     entry: &TimingEntry,
     raw_value: &str,
     anchor: Option<&GapAnchorInfo>,
+    session_type_raw: &str,
     session_name: &str,
 ) -> String {
-    relative_gap_text(entry, raw_value, GapColumn::Overall, anchor, session_name)
+    relative_gap_text(
+        entry,
+        raw_value,
+        GapColumn::Overall,
+        anchor,
+        session_type_raw,
+        session_name,
+    )
 }
 
 pub(crate) fn relative_gap_class_text(
     entry: &TimingEntry,
     raw_value: &str,
     anchor: Option<&GapAnchorInfo>,
+    session_type_raw: &str,
     session_name: &str,
 ) -> String {
-    relative_gap_text(entry, raw_value, GapColumn::Class, anchor, session_name)
+    relative_gap_text(
+        entry,
+        raw_value,
+        GapColumn::Class,
+        anchor,
+        session_type_raw,
+        session_name,
+    )
 }
 
 pub(crate) fn relative_gap_next_in_class_text(
     entry: &TimingEntry,
     raw_value: &str,
     anchor: Option<&GapAnchorInfo>,
+    session_type_raw: &str,
     session_name: &str,
 ) -> String {
     relative_gap_text(
@@ -166,6 +191,7 @@ pub(crate) fn relative_gap_next_in_class_text(
         raw_value,
         GapColumn::NextInClass,
         anchor,
+        session_type_raw,
         session_name,
     )
 }
@@ -175,6 +201,7 @@ fn relative_gap_text(
     raw_value: &str,
     column: GapColumn,
     anchor: Option<&GapAnchorInfo>,
+    session_type_raw: &str,
     session_name: &str,
 ) -> String {
     let Some(anchor) = anchor else {
@@ -182,13 +209,13 @@ fn relative_gap_text(
     };
 
     if entry.stable_id == anchor.stable_id {
-        if is_qualifying_or_practice(session_name) {
+        if is_qualifying_or_practice(session_type_raw, session_name) {
             return anchor.best_lap.clone();
         }
         return anchor_gap_label(&anchor.laps);
     }
 
-    if is_qualifying_or_practice(session_name) {
+    if is_qualifying_or_practice(session_type_raw, session_name) {
         let row_best = parse_best_lap_time(&entry.best_lap);
         let anchor_best = parse_best_lap_time(&anchor.best_lap);
         if let (Some(row_best), Some(anchor_best)) = (row_best, anchor_best) {
@@ -239,7 +266,13 @@ mod tests {
         let anchor = gap_anchor_from_entry(&anchor_entry);
 
         assert_eq!(
-            relative_gap_overall_text(&row_entry, &row_entry.gap_overall, Some(&anchor), "Race"),
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "R",
+                "Race",
+            ),
             "+1 LAP"
         );
     }
@@ -251,7 +284,13 @@ mod tests {
         let anchor = gap_anchor_from_entry(&anchor_entry);
 
         assert_eq!(
-            relative_gap_overall_text(&row_entry, &row_entry.gap_overall, Some(&anchor), "Race"),
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "R",
+                "Race",
+            ),
             "+1.600"
         );
     }
@@ -277,6 +316,7 @@ mod tests {
                 &row_entry,
                 &row_entry.gap_overall,
                 Some(&anchor),
+                "T",
                 "Practice"
             ),
             "-1.300"
@@ -304,9 +344,28 @@ mod tests {
                 &row_entry,
                 &row_entry.gap_overall,
                 Some(&anchor),
+                "Q",
                 "Qualifying"
             ),
             "+0.600"
+        );
+    }
+
+    #[test]
+    fn relative_gap_uses_race_logic_for_race_named_sessions_when_raw_is_r() {
+        let anchor_entry = entry("car-a", "90", "10.400");
+        let row_entry = entry("car-b", "90", "12.000");
+        let anchor = gap_anchor_from_entry(&anchor_entry);
+
+        assert_eq!(
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "R",
+                "Race 1",
+            ),
+            "+1.600"
         );
     }
 }

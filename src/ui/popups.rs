@@ -107,6 +107,7 @@ pub(crate) fn help_popup() -> Paragraph<'static> {
         Line::from("n/p    next/prev search result"),
         Line::from("d      toggle demo/live data source"),
         Line::from("m      toggle race messages popup"),
+        Line::from("C      clear persisted message dismissals (in messages popup)"),
         Line::from("L      toggle IMSA debug logs"),
         Line::from("q      quit"),
         Line::from("Enter  confirm popup selection"),
@@ -156,7 +157,7 @@ pub(crate) fn messages_popup(notices: &[TimingNotice], selected_idx: usize) -> P
 
     lines.push(Line::from(""));
     lines.push(Line::from(
-        "↑/↓ select | Enter/d dismiss selected | c clear all",
+        "↑/↓ select | Enter/d dismiss selected | c clear all | C reset history",
     ));
     lines.push(Line::from("Esc or m close"));
 
