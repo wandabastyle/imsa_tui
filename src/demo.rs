@@ -12,6 +12,7 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
         Series::Nls => (nls_header(), nls_entries()),
         Series::F1 => (f1_header(), f1_entries()),
         Series::Wec => (wec_header(), wec_entries()),
+        Series::Dhlm => (dhlm_header(), dhlm_entries()),
     }
 }
 
@@ -95,7 +96,7 @@ fn apply_demo_pit_state(
     entry.pit_stops = base_stops.saturating_add(extra_stops).to_string();
 
     match series {
-        Series::Nls => {
+        Series::Nls | Series::Dhlm => {
             entry.pit = if in_pit { "Yes" } else { "No" }.to_string();
             entry.sector_5 = if in_pit {
                 "PIT".to_string()
@@ -139,6 +140,7 @@ fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
         Series::Nls => &["nls:911", "nls:27", "nls:18"],
         Series::F1 => &["f1:driver:1", "f1:driver:16", "f1:driver:4"],
         Series::Wec => &["wec:50", "wec:6", "wec:83"],
+        Series::Dhlm => &["dhlm:1", "dhlm:2", "dhlm:3"],
     }
 }
 
@@ -150,14 +152,25 @@ fn header(
     flag: &str,
     time_to_go: &str,
 ) -> TimingHeader {
+    let session_type_raw = if session_name.to_ascii_lowercase().starts_with("race") {
+        "R"
+    } else if session_name.to_ascii_lowercase().starts_with("qualifying") {
+        "Q"
+    } else if session_name.to_ascii_lowercase().starts_with("practice") {
+        "T"
+    } else {
+        "-"
+    };
+
     TimingHeader {
         event_name: event_name.to_string(),
         session_name: session_name.to_string(),
+        session_type_raw: session_type_raw.to_string(),
         track_name: track_name.to_string(),
         day_time: day_time.to_string(),
         flag: flag.to_string(),
         time_to_go: time_to_go.to_string(),
-        class_colors: Default::default(),
+        ..TimingHeader::default()
     }
 }
 
@@ -229,6 +242,17 @@ fn nls_header() -> TimingHeader {
         "Sat 15:06",
         "Yellow",
         "02:13:47",
+    )
+}
+
+fn dhlm_header() -> TimingHeader {
+    header(
+        "Deutsche Historische Langstrecken Meisterschaft (DHLM)",
+        "Race",
+        "Nürburgring Nordschleife",
+        "Sat 14:22",
+        "Green",
+        "01:45:33",
     )
 }
 
@@ -667,6 +691,10 @@ fn imsa_entries() -> Vec<TimingEntry> {
             "imsa:32",
         ),
     ]
+}
+
+fn dhlm_entries() -> Vec<TimingEntry> {
+    nls_entries()
 }
 
 fn nls_entries() -> Vec<TimingEntry> {

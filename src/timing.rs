@@ -13,15 +13,23 @@ pub enum Series {
     Nls,
     F1,
     Wec,
+    Dhlm,
 }
 
 impl Series {
-    pub const fn all() -> [Series; 4] {
-        [Series::Imsa, Series::Nls, Series::F1, Series::Wec]
+    pub const fn all() -> [Series; 5] {
+        [
+            Series::Dhlm,
+            Series::F1,
+            Series::Imsa,
+            Series::Nls,
+            Series::Wec,
+        ]
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            Series::Dhlm => "DHLM",
             Series::Imsa => "IMSA",
             Series::Nls => "NLS",
             Series::F1 => "F1",
@@ -31,6 +39,7 @@ impl Series {
 
     pub fn as_key_prefix(self) -> &'static str {
         match self {
+            Series::Dhlm => "dhlm",
             Series::Imsa => "imsa",
             Series::Nls => "nls",
             Series::F1 => "f1",
@@ -44,6 +53,7 @@ impl FromStr for Series {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "dhlm" => Ok(Self::Dhlm),
             "imsa" => Ok(Self::Imsa),
             "nls" => Ok(Self::Nls),
             "f1" => Ok(Self::F1),
@@ -56,6 +66,8 @@ impl FromStr for Series {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingHeader {
     pub session_name: String,
+    #[serde(default)]
+    pub session_type_raw: String,
     pub event_name: String,
     pub track_name: String,
     pub day_time: String,
@@ -98,6 +110,13 @@ pub struct TimingEntry {
     pub stable_id: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimingNotice {
+    pub id: String,
+    pub time: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum TimingMessage {
     Status {
@@ -112,5 +131,9 @@ pub enum TimingMessage {
         source_id: u64,
         header: TimingHeader,
         entries: Vec<TimingEntry>,
+    },
+    Notice {
+        source_id: u64,
+        notice: TimingNotice,
     },
 }

@@ -3,10 +3,10 @@
 
 pub mod adapters;
 pub mod demo;
-pub mod f1;
 pub mod favourites;
-pub mod imsa;
-pub mod nls;
+pub mod feed;
+pub mod snapshot_runtime;
 pub mod timing;
+pub mod timing_persist;
 pub mod ui;
 pub mod web;

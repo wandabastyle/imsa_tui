@@ -37,7 +37,7 @@ Recommended path: Docker Compose + Nginx Proxy Manager.
 - [[Reverse-Proxy-Nginx-Proxy-Manager]]
 - [[Reverse-Proxy-Nginx]]
 - [[Web-Auth-and-Sessions]]
-- [[NLS-Header-Field-Map]]
+- [[NLS-WebSocket-Field-Map]]
 - [[Operations-Runbook]]
 - [[Troubleshooting]]
 - [[Development-and-CI]]

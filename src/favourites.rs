@@ -28,7 +28,9 @@ pub fn normalize_favourites(values: impl IntoIterator<Item = String>) -> HashSet
 fn has_legacy_class_suffix(series: Series, stable_id: &str) -> bool {
     match series {
         Series::Imsa => stable_id.starts_with("fallback:") && stable_id.matches(':').count() > 1,
-        Series::Nls => stable_id.starts_with("stnr:") && stable_id.matches(':').count() > 1,
+        Series::Nls | Series::Dhlm => {
+            stable_id.starts_with("stnr:") && stable_id.matches(':').count() > 1
+        }
         Series::F1 | Series::Wec => false,
     }
 }
@@ -39,6 +41,7 @@ fn parse_series_key(value: &str) -> Option<Series> {
         "nls" => Some(Series::Nls),
         "f1" => Some(Series::F1),
         "wec" => Some(Series::Wec),
+        "dhlm" => Some(Series::Dhlm),
         _ => None,
     }
 }

@@ -26,7 +26,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSeries(value: unknown): value is Series {
-  return value === 'imsa' || value === 'nls' || value === 'f1' || value === 'wec';
+  return value === 'imsa' || value === 'nls' || value === 'f1' || value === 'wec' || value === 'dhlm';
 }
 
 function isSnapshotResponse(value: unknown): value is SnapshotResponse {

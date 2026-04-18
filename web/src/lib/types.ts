@@ -1,6 +1,6 @@
 // Shared frontend types mirroring backend DTOs from the Rust web API.
 
-export type Series = 'imsa' | 'nls' | 'f1' | 'wec';
+export type Series = 'imsa' | 'nls' | 'f1' | 'wec' | 'dhlm';
 
 export interface TimingClassColor {
   foreground: string;
@@ -67,4 +67,4 @@ export type ViewMode =
   | { kind: 'class'; index: number }
   | { kind: 'favourites' };
 
-export const ALL_SERIES: Series[] = ['imsa', 'nls', 'f1', 'wec'];
+export const ALL_SERIES: Series[] = ['imsa', 'nls', 'f1', 'wec', 'dhlm'];

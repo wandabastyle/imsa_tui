@@ -3,7 +3,10 @@
 pub mod api;
 pub mod auth;
 pub mod bridge;
+pub mod daemon;
 pub mod prefs;
+pub mod runtime;
+pub mod server;
 pub mod sse;
 pub mod state;
 pub mod static_files;

@@ -11,11 +11,9 @@ use std::{
 };
 
 use crate::{
-    adapters::wec::websocket_worker as wec_websocket_worker,
-    f1::signalr_worker,
-    imsa::{polling_worker_with_debug, ImsaDebugOutput},
-    nls::websocket_worker as nls_websocket_worker,
+    feed::{runtime::source_id_for, spawn::spawn_series_worker},
     timing::{Series, TimingMessage},
+    timing_persist::SeriesDebugOutput,
 };
 
 use super::state::WebAppState;
@@ -194,7 +192,8 @@ fn start_feed_bridge_internal(
             let source_id = match &message {
                 TimingMessage::Status { source_id, .. }
                 | TimingMessage::Error { source_id, .. }
-                | TimingMessage::Snapshot { source_id, .. } => *source_id,
+                | TimingMessage::Snapshot { source_id, .. }
+                | TimingMessage::Notice { source_id, .. } => *source_id,
             };
 
             let Some(series) = source_to_series.get(&source_id).copied() else {
@@ -217,37 +216,27 @@ fn start_feed_bridge_internal(
     }
 }
 
-fn source_id_for(series: Series) -> u64 {
-    match series {
-        Series::Imsa => 1,
-        Series::Nls => 2,
-        Series::F1 => 3,
-        Series::Wec => 4,
-    }
-}
-
 fn spawn_worker_thread(
     series: Series,
     worker_tx: Sender<TimingMessage>,
     source_id: u64,
     stop_rx: Receiver<()>,
 ) {
-    thread::spawn(move || match series {
-        Series::Imsa => {
-            polling_worker_with_debug(worker_tx, source_id, stop_rx, ImsaDebugOutput::Stderr)
-        }
-        Series::Nls => nls_websocket_worker(worker_tx, source_id, stop_rx),
-        Series::F1 => signalr_worker(worker_tx, source_id, stop_rx),
-        Series::Wec => wec_websocket_worker(worker_tx, source_id, stop_rx),
-    });
+    spawn_series_worker(
+        series,
+        worker_tx,
+        source_id,
+        stop_rx,
+        SeriesDebugOutput::Stderr,
+    );
 }
 
 fn series_idle_ttl(series: Series) -> Duration {
     match series {
         // IMSA polling reconnects quickly; keep the idle window short.
         Series::Imsa => Duration::from_secs(30),
-        // NLS websocket reconnect is moderate; keep a bit more cushion.
-        Series::Nls => Duration::from_secs(75),
+        // NLS/DHLM websocket reconnect is moderate; keep a bit more cushion.
+        Series::Nls | Series::Dhlm => Duration::from_secs(75),
         // F1 SignalR reconnect is heaviest; keep the longest idle window.
         Series::F1 => Duration::from_secs(120),
         // WEC SockJS/DDP reconnect cost is close to NLS.

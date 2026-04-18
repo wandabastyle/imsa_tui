@@ -164,6 +164,7 @@ Detailed deployment and operations docs are in the wiki:
 ## Controls
 
 - `h` — toggle help popup
+- `m` — toggle race messages popup (NLS/DHLM), dismiss selected message with `Enter`/`d`; `c` clears active list; `C` resets persisted dismissal history
 - `g` — cycle view modes (Overall → Grouped → each class → Favourites)
 - `o` — jump to Overall view
 - `t` — switch series (IMSA → NLS → F1 → WEC)
@@ -224,7 +225,7 @@ If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
 NLS protocol/header mapping details are documented in the wiki:
 
-- https://github.com/wandabastyle/imsa_tui/wiki/NLS-Header-Field-Map
+- https://github.com/wandabastyle/imsa_tui/wiki/NLS-WebSocket-Field-Map
 
 ## Troubleshooting
 

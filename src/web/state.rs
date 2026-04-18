@@ -152,6 +152,7 @@ impl WebAppState {
                 snapshot.status = "Live timing connected".to_string();
                 snapshot.last_update_unix_ms = Some(now_unix_ms());
             }
+            TimingMessage::Notice { .. } => {}
         }
     }
 
@@ -358,12 +359,13 @@ mod tests {
     fn test_header() -> TimingHeader {
         TimingHeader {
             session_name: "Race1".to_string(),
+            session_type_raw: "R".to_string(),
             event_name: "Test Event".to_string(),
             track_name: "Daytona".to_string(),
             day_time: "12:00".to_string(),
             flag: "green".to_string(),
             time_to_go: "1:00:00".to_string(),
-            class_colors: Default::default(),
+            ..TimingHeader::default()
         }
     }
 
