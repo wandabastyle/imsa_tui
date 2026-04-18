@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use crate::adapters::nls::liveticker::LivetickerEntry;
 use crate::timing::{Series, TimingNotice};
 
 #[derive(Debug, Clone, Copy)]
@@ -49,11 +50,26 @@ pub(crate) struct MessagesPanelState {
     pub(crate) selected_idx: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NlsLivetickerPanelState {
+    pub(crate) is_open: bool,
+    pub(crate) scroll: usize,
+}
+
 impl MessagesPanelState {
     pub(crate) fn closed() -> Self {
         Self {
             is_open: false,
             selected_idx: 0,
+        }
+    }
+}
+
+impl NlsLivetickerPanelState {
+    pub(crate) fn closed() -> Self {
+        Self {
+            is_open: false,
+            scroll: 0,
         }
     }
 }
@@ -107,6 +123,7 @@ pub(crate) fn help_popup() -> Paragraph<'static> {
         Line::from("n/p    next/prev search result"),
         Line::from("d      toggle demo/live data source"),
         Line::from("m      toggle race messages popup"),
+        Line::from("l      toggle NLS liveticker popup"),
         Line::from("C      clear persisted message dismissals (in messages popup)"),
         Line::from("L      toggle IMSA debug logs"),
         Line::from("q      quit"),
@@ -247,4 +264,85 @@ pub(crate) fn group_picker_popup(groups: &[String], selected_idx: usize) -> Para
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Group").borders(Borders::ALL))
+}
+
+pub(crate) fn nls_liveticker_popup(
+    entries: &[LivetickerEntry],
+    scroll: usize,
+    updated_age_secs: Option<u64>,
+    last_error: Option<&str>,
+) -> Paragraph<'static> {
+    let mut lines = vec![];
+
+    let update_text = match updated_age_secs {
+        Some(age) => format!("updated {age}s ago"),
+        None => "updated -".to_string(),
+    };
+    lines.push(Line::from(format!(
+        "{} entries | {}",
+        entries.len(),
+        update_text
+    )));
+    if let Some(err) = last_error {
+        lines.push(Line::from(format!("last error: {err}")));
+    }
+    lines.push(Line::from(""));
+
+    if entries.is_empty() {
+        lines.push(Line::from("No liveticker entries yet."));
+    } else {
+        for entry in entries {
+            lines.push(Line::from(vec![Span::styled(
+                format!("{} {} Uhr", entry.day_label, entry.time_text),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+
+            if entry.message.is_empty() {
+                lines.push(Line::from("-"));
+            } else {
+                for line in entry.message.lines() {
+                    lines.push(Line::from(line.to_string()));
+                }
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
+    lines.push(Line::from(
+        "↑/↓ scroll | PgUp/PgDn fast scroll | Home/End jump | Esc or l close",
+    ));
+
+    Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll as u16, 0))
+        .block(
+            Block::default()
+                .title("NLS Liveticker")
+                .borders(Borders::ALL),
+        )
+}
+
+pub(crate) fn liveticker_line_count(entries: &[LivetickerEntry], has_error: bool) -> usize {
+    let mut lines = 2usize;
+    lines += 2;
+    if has_error {
+        lines += 1;
+    }
+    lines += 1;
+
+    if entries.is_empty() {
+        lines += 1;
+    } else {
+        for entry in entries {
+            lines += 1;
+            let msg_lines = entry.message.lines().count().max(1);
+            lines += msg_lines;
+            lines += 1;
+        }
+    }
+
+    lines + 1
 }

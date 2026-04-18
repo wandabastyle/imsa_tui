@@ -1,6 +1,7 @@
 // NLS websocket adapter: subscribes to livetiming hub events and maps payloads to timing rows.
 
 pub mod countdown;
+pub mod liveticker;
 pub mod protocol;
 mod schedule;
 pub mod snapshot;
