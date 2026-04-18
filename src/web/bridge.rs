@@ -11,10 +11,7 @@ use std::{
 };
 
 use crate::{
-    adapters::wec::websocket_worker_with_debug as wec_websocket_worker,
-    f1::signalr_worker_with_debug,
-    imsa::polling_worker_with_debug,
-    nls::websocket_worker_with_debug,
+    feed::{runtime::source_id_for, spawn::spawn_series_worker},
     timing::{Series, TimingMessage},
     timing_persist::SeriesDebugOutput,
 };
@@ -218,35 +215,19 @@ fn start_feed_bridge_internal(
     }
 }
 
-fn source_id_for(series: Series) -> u64 {
-    match series {
-        Series::Imsa => 1,
-        Series::Nls => 2,
-        Series::F1 => 3,
-        Series::Wec => 4,
-    }
-}
-
 fn spawn_worker_thread(
     series: Series,
     worker_tx: Sender<TimingMessage>,
     source_id: u64,
     stop_rx: Receiver<()>,
 ) {
-    thread::spawn(move || match series {
-        Series::Imsa => {
-            polling_worker_with_debug(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
-        }
-        Series::Nls => {
-            websocket_worker_with_debug(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
-        }
-        Series::F1 => {
-            signalr_worker_with_debug(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
-        }
-        Series::Wec => {
-            wec_websocket_worker(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
-        }
-    });
+    spawn_series_worker(
+        series,
+        worker_tx,
+        source_id,
+        stop_rx,
+        SeriesDebugOutput::Stderr,
+    );
 }
 
 fn series_idle_ttl(series: Series) -> Duration {

@@ -5,9 +5,8 @@ mod store;
 mod transport;
 
 use std::{
-    collections::hash_map::DefaultHasher,
     collections::HashSet,
-    hash::{Hash, Hasher},
+    hash::Hasher,
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -17,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
+    snapshot_runtime::{
+        base_snapshot_fingerprint, derive_session_identifier, hash_entry_common_fields,
+    },
     timing::{TimingEntry, TimingHeader, TimingMessage},
     timing_persist::{
         data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
@@ -82,58 +84,10 @@ fn wec_snapshot_path() -> Option<PathBuf> {
     data_local_snapshot_path("wec_snapshot.json")
 }
 
-fn derive_session_identifier(header: &TimingHeader) -> Option<String> {
-    let event = header.event_name.trim();
-    let session = header.session_name.trim();
-    let track = header.track_name.trim();
-    if [event, session, track]
-        .iter()
-        .all(|value| value.is_empty() || *value == "-")
-    {
-        return None;
-    }
-    Some(format!("{event}|{session}|{track}").to_ascii_lowercase())
-}
-
 fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    header
-        .event_name
-        .trim()
-        .to_ascii_lowercase()
-        .hash(&mut hasher);
-    header
-        .session_name
-        .trim()
-        .to_ascii_lowercase()
-        .hash(&mut hasher);
-    header
-        .track_name
-        .trim()
-        .to_ascii_lowercase()
-        .hash(&mut hasher);
-    header.flag.trim().to_ascii_lowercase().hash(&mut hasher);
-    header.time_to_go.trim().hash(&mut hasher);
+    let mut hasher = base_snapshot_fingerprint(header);
     for entry in entries {
-        entry.position.hash(&mut hasher);
-        entry.car_number.trim().hash(&mut hasher);
-        entry
-            .class_name
-            .trim()
-            .to_ascii_lowercase()
-            .hash(&mut hasher);
-        entry.class_rank.trim().hash(&mut hasher);
-        entry.driver.trim().to_ascii_lowercase().hash(&mut hasher);
-        entry.vehicle.trim().to_ascii_lowercase().hash(&mut hasher);
-        entry.team.trim().to_ascii_lowercase().hash(&mut hasher);
-        entry.laps.trim().hash(&mut hasher);
-        entry.gap_overall.trim().hash(&mut hasher);
-        entry.last_lap.trim().hash(&mut hasher);
-        entry.best_lap.trim().hash(&mut hasher);
-        entry.sector_1.trim().hash(&mut hasher);
-        entry.sector_2.trim().hash(&mut hasher);
-        entry.sector_3.trim().hash(&mut hasher);
-        entry.stable_id.trim().hash(&mut hasher);
+        hash_entry_common_fields(&mut hasher, entry);
     }
     hasher.finish()
 }

@@ -1,0 +1,110 @@
+use std::{
+    collections::VecDeque,
+    sync::mpsc::{self, Receiver, Sender},
+    time::Instant,
+};
+
+use crate::{
+    feed::spawn::spawn_series_worker,
+    timing::{Series, TimingEntry, TimingHeader, TimingMessage},
+    timing_persist::SeriesDebugOutput,
+};
+
+#[derive(Debug)]
+pub(crate) struct ActiveFeed {
+    pub(crate) source_id: u64,
+    stop_tx: Sender<()>,
+    debug_rx: Option<Receiver<String>>,
+}
+
+pub(crate) const IMSA_DEBUG_LOG_CAPACITY: usize = 150;
+
+pub(crate) fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let (debug_tx, debug_rx) = mpsc::channel::<String>();
+    let debug_output = SeriesDebugOutput::Channel(debug_tx);
+
+    spawn_series_worker(series, tx, source_id, stop_rx, debug_output);
+
+    ActiveFeed {
+        source_id,
+        stop_tx,
+        debug_rx: Some(debug_rx),
+    }
+}
+
+pub(crate) fn stop_feed(feed: &mut Option<ActiveFeed>) {
+    if let Some(active_feed) = feed.take() {
+        let _ = active_feed.stop_tx.send(());
+    }
+}
+
+pub(crate) fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
+    logs.push_back(line);
+    while logs.len() > IMSA_DEBUG_LOG_CAPACITY {
+        logs.pop_front();
+    }
+}
+
+pub(crate) fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
+    let Some(active_feed) = feed.as_ref() else {
+        return;
+    };
+    let Some(debug_rx) = active_feed.debug_rx.as_ref() else {
+        return;
+    };
+
+    while let Ok(line) = debug_rx.try_recv() {
+        push_series_debug_log(logs, line);
+    }
+}
+
+pub(crate) fn drain_messages(
+    rx: &Receiver<TimingMessage>,
+    active_source_id: u64,
+    header: &mut TimingHeader,
+    entries: &mut Vec<TimingEntry>,
+    status: &mut String,
+    last_error: &mut Option<String>,
+    last_update: &mut Option<Instant>,
+) {
+    while let Ok(msg) = rx.try_recv() {
+        match msg {
+            TimingMessage::Status { source_id, text } if source_id == active_source_id => {
+                *status = text
+            }
+            TimingMessage::Error { source_id, text } if source_id == active_source_id => {
+                *last_error = Some(text)
+            }
+            TimingMessage::Snapshot {
+                source_id,
+                header: new_header,
+                entries: new_entries,
+            } if source_id == active_source_id => {
+                if new_header.event_name != "-" {
+                    header.event_name = new_header.event_name;
+                }
+                if new_header.session_name != "-" {
+                    header.session_name = new_header.session_name;
+                }
+                if new_header.track_name != "-" {
+                    header.track_name = new_header.track_name;
+                }
+                if new_header.day_time != "-" {
+                    header.day_time = new_header.day_time;
+                }
+                if new_header.flag != "-" {
+                    header.flag = new_header.flag;
+                }
+                if new_header.time_to_go != "-" {
+                    header.time_to_go = new_header.time_to_go;
+                }
+                *entries = new_entries;
+                *status = "Live timing connected".to_string();
+                *last_error = None;
+                *last_update = Some(Instant::now());
+            }
+            _ => {}
+        }
+    }
+}
