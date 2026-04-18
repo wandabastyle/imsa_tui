@@ -515,22 +515,22 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
 
 fn imsa_table_widths() -> [Constraint; 16] {
     [
-        Constraint::Length(3),
-        Constraint::Length(3),
-        Constraint::Length(5),
+        Constraint::Length(2),
+        Constraint::Length(2),
         Constraint::Length(4),
+        Constraint::Length(3),
         Constraint::Length(24),
-        Constraint::Min(16),
-        Constraint::Length(4),
-        Constraint::Length(9),
-        Constraint::Length(7),
-        Constraint::Length(9),
-        Constraint::Length(9),
-        Constraint::Length(9),
-        Constraint::Length(3),
-        Constraint::Length(3),
+        Constraint::Min(20),
         Constraint::Length(5),
-        Constraint::Length(24),
+        Constraint::Length(13),
+        Constraint::Length(5),
+        Constraint::Length(13),
+        Constraint::Length(8),
+        Constraint::Length(8),
+        Constraint::Length(2),
+        Constraint::Length(3),
+        Constraint::Length(4),
+        Constraint::Length(22),
     ]
 }
 
