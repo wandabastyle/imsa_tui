@@ -42,13 +42,21 @@ fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
     None
 }
 
-fn sector_field(v: &Value, sector_no: usize) -> String {
+fn has_qualifier_sectors(v: &Value) -> bool {
+    non_empty_field(v, "S9TIME").is_some()
+}
+
+fn raw_sector_field(v: &Value, sector_no: usize) -> String {
     let candidates: &[&str] = match sector_no {
         1 => &["S1TIME", "S1"],
         2 => &["S2TIME", "S2"],
         3 => &["S3TIME", "S3"],
         4 => &["S4TIME", "S4"],
         5 => &["S5TIME", "S5"],
+        6 => &["S6TIME", "S6"],
+        7 => &["S7TIME", "S7"],
+        8 => &["S8TIME", "S8"],
+        9 => &["S9TIME", "S9"],
         _ => &[],
     };
 
@@ -57,6 +65,58 @@ fn sector_field(v: &Value, sector_no: usize) -> String {
     }
 
     "-".to_string()
+}
+
+fn sum_sector_times(time1: &str, time2: &str) -> String {
+    if time1 == "-" || time2 == "-" {
+        return time1.to_string();
+    }
+
+    fn parse_time_to_centisecs(s: &str) -> Option<u64> {
+        let parts: Vec<&str> = s.split(':').collect();
+        match parts.len() {
+            1 => {
+                let secs = parts[0].parse::<f64>().ok()?;
+                Some((secs * 100.0) as u64)
+            }
+            2 => {
+                let mins: u64 = parts[0].parse().ok()?;
+                let secs: f64 = parts[1].parse().ok()?;
+                Some(mins * 6000 + (secs * 100.0) as u64)
+            }
+            3 => {
+                let hours: u64 = parts[0].parse().ok()?;
+                let mins: u64 = parts[1].parse().ok()?;
+                let secs: f64 = parts[2].parse().ok()?;
+                Some(hours * 360000 + mins * 6000 + (secs * 100.0) as u64)
+            }
+            _ => None,
+        }
+    }
+
+    fn format_centisecs(cs: u64) -> String {
+        let hours = cs / 360000;
+        let mins = (cs % 360000) / 6000;
+        let secs = (cs % 6000) as f64 / 100.0;
+        if hours > 0 {
+            format!("{}:{:02}:{:05.2}", hours, mins, secs)
+        } else if mins > 0 {
+            format!("{}:{:05.2}", mins, secs)
+        } else {
+            format!("{:05.2}", secs)
+        }
+    }
+
+    let t1 = match parse_time_to_centisecs(time1) {
+        Some(v) => v,
+        None => return time1.to_string(),
+    };
+    let t2 = match parse_time_to_centisecs(time2) {
+        Some(v) => v,
+        None => return time1.to_string(),
+    };
+    let sum = t1.saturating_add(t2);
+    format_centisecs(sum)
 }
 
 fn pit_flag_from_inout_state(inout_state: &str) -> String {
@@ -81,11 +141,25 @@ pub(super) fn entry_from_value(v: &Value) -> Option<TimingEntry> {
     let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
     let stable_id = format!("stnr:{car_number}");
 
-    let sector_1 = sector_field(v, 1);
-    let sector_2 = sector_field(v, 2);
-    let sector_3 = sector_field(v, 3);
-    let sector_4 = sector_field(v, 4);
-    let sector_5 = sector_field(v, 5);
+    let is_qualifier = has_qualifier_sectors(v);
+
+    let (sector_1, sector_2, sector_3, sector_4, sector_5) = if is_qualifier {
+        (
+            sum_sector_times(&raw_sector_field(v, 1), &raw_sector_field(v, 2)),
+            sum_sector_times(&raw_sector_field(v, 3), &raw_sector_field(v, 4)),
+            sum_sector_times(&raw_sector_field(v, 5), &raw_sector_field(v, 6)),
+            sum_sector_times(&raw_sector_field(v, 7), &raw_sector_field(v, 8)),
+            raw_sector_field(v, 9),
+        )
+    } else {
+        (
+            raw_sector_field(v, 1),
+            raw_sector_field(v, 2),
+            raw_sector_field(v, 3),
+            raw_sector_field(v, 4),
+            raw_sector_field(v, 5),
+        )
+    };
 
     Some(TimingEntry {
         position: parse_u32_field(v, "POSITION")?,
