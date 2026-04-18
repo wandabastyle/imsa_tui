@@ -42,10 +42,6 @@ fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
     None
 }
 
-fn has_qualifier_sectors(v: &Value) -> bool {
-    non_empty_field(v, "S9TIME").is_some()
-}
-
 fn raw_sector_field(v: &Value, sector_no: usize) -> String {
     let candidates: &[&str] = match sector_no {
         1 => &["S1TIME", "S1"],
@@ -69,7 +65,7 @@ fn raw_sector_field(v: &Value, sector_no: usize) -> String {
 
 fn sum_sector_times(time1: &str, time2: &str) -> String {
     if time1 == "-" || time2 == "-" {
-        return time1.to_string();
+        return "-".to_string();
     }
 
     fn parse_time_to_centisecs(s: &str) -> Option<u64> {
@@ -136,14 +132,14 @@ fn pit_flag_from_inout_state(inout_state: &str) -> String {
     "-".to_string()
 }
 
-pub(super) fn entry_from_value(v: &Value) -> Option<TimingEntry> {
+pub(super) fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
     let car_number = parse_u32_field(v, "STNR")?.to_string();
     let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
     let stable_id = format!("stnr:{car_number}");
 
-    let is_qualifier = has_qualifier_sectors(v);
+    let is_24h = event_id == "50";
 
-    let (sector_1, sector_2, sector_3, sector_4, sector_5) = if is_qualifier {
+    let (sector_1, sector_2, sector_3, sector_4, sector_5) = if is_24h {
         (
             sum_sector_times(&raw_sector_field(v, 1), &raw_sector_field(v, 2)),
             sum_sector_times(&raw_sector_field(v, 3), &raw_sector_field(v, 4)),
@@ -213,6 +209,7 @@ pub(super) fn parse_ws_message(
     homepage_event_name: Option<&str>,
     countdown: &mut Option<CountdownState>,
     is_race_session: &mut bool,
+    event_id: &str,
 ) -> Option<(Option<Vec<TimingEntry>>, bool)> {
     let parsed: Value = serde_json::from_str(text).ok()?;
     let pid = get_str(&parsed, "PID")?;
@@ -225,11 +222,19 @@ pub(super) fn parse_ws_message(
                 header.session_name = session_text(get_str(&parsed, "HEATTYPE").unwrap_or("-"));
             }
 
-            if let Some(event_name) = termine_event_name
-                .or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
-                .or(homepage_event_name)
-            {
-                header.event_name = event_name.to_string();
+            let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
+            let cup_is_dhlm = ws_cup
+                .map(|name| name.to_ascii_lowercase().contains("dhlm"))
+                .unwrap_or(false);
+
+            if cup_is_dhlm {
+                header.event_name = ws_cup.unwrap().to_string();
+            } else if let Some(termine_name) = termine_event_name {
+                header.event_name = termine_name.to_string();
+            } else if let Some(homepage_name) = homepage_event_name {
+                header.event_name = homepage_name.to_string();
+            } else if let Some(cup) = ws_cup {
+                header.event_name = cup.to_string();
             }
 
             if let Some(track_name) = first_non_empty(&parsed, &["TRACKNAME", "TRACK"]) {
@@ -244,8 +249,10 @@ pub(super) fn parse_ws_message(
             }
 
             let results = parsed.get("RESULT")?.as_array()?;
-            let mut entries: Vec<TimingEntry> =
-                results.iter().filter_map(entry_from_value).collect();
+            let mut entries: Vec<TimingEntry> = results
+                .iter()
+                .filter_map(|v| entry_from_value(v, event_id))
+                .collect();
             entries.sort_by_key(|e| e.position);
             Some((Some(entries), false))
         }
@@ -263,11 +270,19 @@ pub(super) fn parse_ws_message(
                 header.track_name = "NLS".to_string();
             }
 
-            if let Some(event_name) = termine_event_name
-                .or_else(|| first_non_empty(&parsed, &["CUP", "EVENTNAME"]))
-                .or(homepage_event_name)
-            {
-                header.event_name = event_name.to_string();
+            let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
+            let cup_is_dhlm = ws_cup
+                .map(|name| name.to_ascii_lowercase().contains("dhlm"))
+                .unwrap_or(false);
+
+            if cup_is_dhlm {
+                header.event_name = ws_cup.unwrap().to_string();
+            } else if let Some(termine_name) = termine_event_name {
+                header.event_name = termine_name.to_string();
+            } else if let Some(homepage_name) = homepage_event_name {
+                header.event_name = homepage_name.to_string();
+            } else if let Some(cup) = ws_cup {
+                header.event_name = cup.to_string();
             } else if header.event_name.is_empty() {
                 header.event_name = "NLS Live Timing".to_string();
             }

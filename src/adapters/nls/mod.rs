@@ -228,6 +228,7 @@ pub fn websocket_worker_with_debug(
                         homepage_event_name.as_deref(),
                         &mut countdown,
                         &mut is_race_session,
+                        active_event_id,
                     ) {
                         if let Some(new_entries) = entries {
                             latest_entries = new_entries;
@@ -299,6 +300,7 @@ pub fn websocket_worker_with_debug(
                             homepage_event_name.as_deref(),
                             &mut countdown,
                             &mut is_race_session,
+                            active_event_id,
                         ) {
                             if let Some(new_entries) = entries {
                                 latest_entries = new_entries;
@@ -554,6 +556,7 @@ mod tests {
             None,
             &mut countdown,
             &mut is_race_session,
+            "20",
         );
         assert!(is_race_session);
 
@@ -564,6 +567,7 @@ mod tests {
             None,
             &mut countdown,
             &mut is_race_session,
+            "20",
         );
         assert!(is_race_session);
     }
@@ -589,7 +593,7 @@ mod tests {
             "S5": "1:34.005"
         });
 
-        let entry = entry_from_value(&row).expect("entry");
+        let entry = entry_from_value(&row, "20").expect("entry");
         assert_eq!(entry.sector_1, "1:31.001");
         assert_eq!(entry.sector_2, "2:00.002");
         assert_eq!(entry.sector_3, "1:11.003");
@@ -617,7 +621,7 @@ mod tests {
             "SECTOR4": "1:46.400"
         });
 
-        let entry = entry_from_value(&row).expect("entry");
+        let entry = entry_from_value(&row, "20").expect("entry");
         assert_eq!(entry.sector_1, "-");
         assert_eq!(entry.sector_2, "-");
         assert_eq!(entry.sector_3, "-");
@@ -646,7 +650,7 @@ mod tests {
             "S5TIME": "1:33.999"
         });
 
-        let entry = entry_from_value(&row).expect("entry");
+        let entry = entry_from_value(&row, "20").expect("entry");
         assert_eq!(entry.sector_1, "1:32.555");
         assert_eq!(entry.sector_2, "2:01.666");
         assert_eq!(entry.sector_3, "1:10.777");
@@ -672,7 +676,7 @@ mod tests {
             "S5TIME": "OUT"
         });
 
-        let entry = entry_from_value(&row).expect("entry");
+        let entry = entry_from_value(&row, "20").expect("entry");
         assert_eq!(entry.sector_5, "OUT");
         assert_eq!(entry.pit, "No");
     }
@@ -884,11 +888,35 @@ mod tests {
             Some("24hQ - 18.-19.04.2026 ADAC 24h Nürburgring Qualifiers (2x4h)"),
             &mut countdown,
             &mut is_race_session,
+            "20",
         );
 
         assert_eq!(
             header.event_name,
-            "NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)"
+            "24hQ - 18.-19.04.2026 ADAC 24h Nürburgring Qualifiers (2x4h)"
+        );
+    }
+
+    #[test]
+    fn pid4_uses_websocket_cup_when_dhlm() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+        let payload = r#"{"PID":"4","CUP":"Deutsche Historische Langstrecken Meisterschaft (DHLM)","TRACKSTATE":"0","HEATTYPE":"R","ENDTIME":"0","TIMESTATE":"0","TIME":"12:00:00"}"#;
+
+        let _ = parse_ws_message(
+            payload,
+            &mut header,
+            Some("24hQ - 18.-19.04.2026 ADAC 24h Nürburgring Qualifiers (2x4h)"),
+            Some("NLS Homepage Fallback"),
+            &mut countdown,
+            &mut is_race_session,
+            "50",
+        );
+
+        assert_eq!(
+            header.event_name,
+            "Deutsche Historische Langstrecken Meisterschaft (DHLM)"
         );
     }
 

@@ -7,6 +7,7 @@ pub(crate) struct GapAnchorInfo {
     gap_overall: String,
     gap_class: String,
     gap_next_in_class: String,
+    best_lap: String,
 }
 
 #[derive(Clone, Copy)]
@@ -28,6 +29,7 @@ pub(crate) fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
         gap_overall: entry.gap_overall.clone(),
         gap_class: entry.gap_class.clone(),
         gap_next_in_class: entry.gap_next_in_class.clone(),
+        best_lap: entry.best_lap.clone(),
     }
 }
 
@@ -44,6 +46,33 @@ fn anchor_gap_value(anchor: &GapAnchorInfo, column: GapColumn) -> &str {
         GapColumn::Class => &anchor.gap_class,
         GapColumn::NextInClass => &anchor.gap_next_in_class,
     }
+}
+
+fn parse_best_lap_time(raw: &str) -> Option<i64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "-" {
+        return None;
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.' || ch == ',')
+    {
+        return None;
+    }
+    let normalized = trimmed.replace(',', ".");
+    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
+        let secs = right.parse::<f64>().ok()?;
+        let mins = left.parse::<u64>().ok()?;
+        ((mins as f64 * 60.0 + secs) * 1000.0).round() as i64
+    } else {
+        (normalized.parse::<f64>().ok()? * 1000.0).round() as i64
+    };
+    Some(total_ms)
+}
+
+fn is_qualifying_or_practice(session_name: &str) -> bool {
+    let normalized = session_name.trim().to_ascii_lowercase();
+    normalized != "race" && !normalized.is_empty() && normalized != "-"
 }
 
 fn parse_gap_value(raw: &str) -> Option<GapValue> {
@@ -112,24 +141,33 @@ pub(crate) fn relative_gap_overall_text(
     entry: &TimingEntry,
     raw_value: &str,
     anchor: Option<&GapAnchorInfo>,
+    session_name: &str,
 ) -> String {
-    relative_gap_text(entry, raw_value, GapColumn::Overall, anchor)
+    relative_gap_text(entry, raw_value, GapColumn::Overall, anchor, session_name)
 }
 
 pub(crate) fn relative_gap_class_text(
     entry: &TimingEntry,
     raw_value: &str,
     anchor: Option<&GapAnchorInfo>,
+    session_name: &str,
 ) -> String {
-    relative_gap_text(entry, raw_value, GapColumn::Class, anchor)
+    relative_gap_text(entry, raw_value, GapColumn::Class, anchor, session_name)
 }
 
 pub(crate) fn relative_gap_next_in_class_text(
     entry: &TimingEntry,
     raw_value: &str,
     anchor: Option<&GapAnchorInfo>,
+    session_name: &str,
 ) -> String {
-    relative_gap_text(entry, raw_value, GapColumn::NextInClass, anchor)
+    relative_gap_text(
+        entry,
+        raw_value,
+        GapColumn::NextInClass,
+        anchor,
+        session_name,
+    )
 }
 
 fn relative_gap_text(
@@ -137,13 +175,26 @@ fn relative_gap_text(
     raw_value: &str,
     column: GapColumn,
     anchor: Option<&GapAnchorInfo>,
+    session_name: &str,
 ) -> String {
     let Some(anchor) = anchor else {
         return raw_value.to_string();
     };
 
     if entry.stable_id == anchor.stable_id {
+        if is_qualifying_or_practice(session_name) {
+            return anchor.best_lap.clone();
+        }
         return anchor_gap_label(&anchor.laps);
+    }
+
+    if is_qualifying_or_practice(session_name) {
+        let row_best = parse_best_lap_time(&entry.best_lap);
+        let anchor_best = parse_best_lap_time(&anchor.best_lap);
+        if let (Some(row_best), Some(anchor_best)) = (row_best, anchor_best) {
+            return format_time_delta(row_best - anchor_best);
+        }
+        return raw_value.to_string();
     }
 
     let row_laps = entry.laps.trim().parse::<i32>().ok();
@@ -188,7 +239,7 @@ mod tests {
         let anchor = gap_anchor_from_entry(&anchor_entry);
 
         assert_eq!(
-            relative_gap_overall_text(&row_entry, &row_entry.gap_overall, Some(&anchor)),
+            relative_gap_overall_text(&row_entry, &row_entry.gap_overall, Some(&anchor), "Race"),
             "+1 LAP"
         );
     }
@@ -200,8 +251,62 @@ mod tests {
         let anchor = gap_anchor_from_entry(&anchor_entry);
 
         assert_eq!(
-            relative_gap_overall_text(&row_entry, &row_entry.gap_overall, Some(&anchor)),
+            relative_gap_overall_text(&row_entry, &row_entry.gap_overall, Some(&anchor), "Race"),
             "+1.600"
+        );
+    }
+
+    #[test]
+    fn relative_gap_uses_best_lap_when_practice() {
+        let anchor_entry = TimingEntry {
+            stable_id: "car-a".to_string(),
+            laps: "5".to_string(),
+            best_lap: "1:44.500".to_string(),
+            ..TimingEntry::default()
+        };
+        let row_entry = TimingEntry {
+            stable_id: "car-b".to_string(),
+            laps: "5".to_string(),
+            best_lap: "1:43.200".to_string(),
+            ..TimingEntry::default()
+        };
+        let anchor = gap_anchor_from_entry(&anchor_entry);
+
+        assert_eq!(
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "Practice"
+            ),
+            "-1.300"
+        );
+    }
+
+    #[test]
+    fn relative_gap_uses_best_lap_when_qualifying() {
+        let anchor_entry = TimingEntry {
+            stable_id: "car-a".to_string(),
+            laps: "8".to_string(),
+            best_lap: "2:01.500".to_string(),
+            ..TimingEntry::default()
+        };
+        let row_entry = TimingEntry {
+            stable_id: "car-b".to_string(),
+            laps: "8".to_string(),
+            best_lap: "2:02.100".to_string(),
+            ..TimingEntry::default()
+        };
+        let anchor = gap_anchor_from_entry(&anchor_entry);
+
+        assert_eq!(
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "Qualifying"
+            ),
+            "+0.600"
         );
     }
 }

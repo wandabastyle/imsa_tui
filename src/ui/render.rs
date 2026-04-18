@@ -200,6 +200,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                     pit_trackers: ctx.pit_trackers,
                     class_colors: &ctx.header.class_colors,
                     now: ctx.now,
+                    session_name: &ctx.header.session_name,
                 };
                 let table = build_table(
                     "Overall",
@@ -287,6 +288,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                             pit_trackers: ctx.pit_trackers,
                             class_colors: &ctx.header.class_colors,
                             now: ctx.now,
+                            session_name: &ctx.header.session_name,
                         };
                         let table = build_table(
                             title,
@@ -317,6 +319,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         pit_trackers: ctx.pit_trackers,
                         class_colors: &ctx.header.class_colors,
                         now: ctx.now,
+                        session_name: &ctx.header.session_name,
                     };
                     let table = build_table(
                         format!("{} ({} cars)", class_name, class_entries.len()),
@@ -365,6 +368,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         pit_trackers: ctx.pit_trackers,
                         class_colors: &ctx.header.class_colors,
                         now: ctx.now,
+                        session_name: &ctx.header.session_name,
                     };
                     let table = build_table(
                         format!("Favourites ({} cars)", favourite_entries.len()),
