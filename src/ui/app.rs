@@ -50,12 +50,27 @@ struct SeriesChangeCtx<'a> {
     notices: &'a mut Vec<TimingNotice>,
     notice_keys: &'a mut HashSet<String>,
     highlighted_notice_cars: &'a mut HashSet<String>,
+    message_flag_override: &'a mut Option<MessageFlagOverride>,
+    message_flag_last_secs: &'a mut Option<u32>,
     last_error: &'a mut Option<String>,
     last_update: &'a mut Option<Instant>,
     selected_row: &'a mut usize,
     view_mode: &'a mut ViewMode,
     search: &'a mut SearchState,
     config: &'a mut AppConfig,
+}
+
+#[derive(Debug, Clone)]
+struct MessageFlagOverride {
+    flag: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlagMessageIntent {
+    SetRed,
+    SetCode60,
+    SetYellow,
+    Clear,
 }
 
 const DISMISSED_NOTICE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
@@ -66,6 +81,107 @@ fn now_unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
+}
+
+fn parse_notice_time_seconds(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim();
+    let mut parts = trimmed.split(':');
+    let h = parts.next()?.parse::<u32>().ok()?;
+    let m = parts.next()?.parse::<u32>().ok()?;
+    let s = parts.next()?.parse::<u32>().ok()?;
+    if parts.next().is_some() || h > 23 || m > 59 || s > 59 {
+        return None;
+    }
+    Some(h * 3600 + m * 60 + s)
+}
+
+fn classify_flag_message_intent(text: &str) -> Option<FlagMessageIntent> {
+    let normalized = text.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if normalized.contains("green flag")
+        || normalized.contains("all clear")
+        || normalized.contains("track clear")
+        || normalized.contains("resume")
+        || normalized.contains("re-start")
+        || normalized.contains("restart")
+        || normalized.contains("grune flagge")
+        || normalized.contains("gruene flagge")
+    {
+        return Some(FlagMessageIntent::Clear);
+    }
+
+    let looks_like_penalty = normalized.contains("non respect")
+        || normalized.contains("penalty")
+        || normalized.contains("time penalty")
+        || normalized.contains("pit speed")
+        || normalized.contains("after first lap");
+    if looks_like_penalty {
+        return None;
+    }
+
+    if normalized.contains("red flag") || normalized.contains("rote flagge") {
+        return Some(FlagMessageIntent::SetRed);
+    }
+    if normalized.contains("full course yellow")
+        || normalized.contains("fcy")
+        || normalized.contains("yellow flag")
+        || normalized.contains("gelb")
+    {
+        return Some(FlagMessageIntent::SetYellow);
+    }
+    if normalized.starts_with("code 60")
+        || normalized.contains(" code 60 phase")
+        || normalized.contains("code60 phase")
+        || normalized.contains("code 60 in force")
+    {
+        return Some(FlagMessageIntent::SetCode60);
+    }
+
+    None
+}
+
+fn apply_flag_message_notice(
+    notice: &TimingNotice,
+    override_state: &mut Option<MessageFlagOverride>,
+    last_secs: &mut Option<u32>,
+) {
+    let Some(intent) = classify_flag_message_intent(&notice.text) else {
+        return;
+    };
+    let Some(notice_secs) = parse_notice_time_seconds(&notice.time) else {
+        return;
+    };
+
+    if let Some(current_secs) = *last_secs {
+        if notice_secs < current_secs {
+            return;
+        }
+    }
+    *last_secs = Some(notice_secs);
+
+    match intent {
+        FlagMessageIntent::SetRed => {
+            *override_state = Some(MessageFlagOverride {
+                flag: "Red".to_string(),
+            });
+        }
+        FlagMessageIntent::SetCode60 => {
+            *override_state = Some(MessageFlagOverride {
+                flag: "Code 60".to_string(),
+            });
+        }
+        FlagMessageIntent::SetYellow => {
+            *override_state = Some(MessageFlagOverride {
+                flag: "Yellow".to_string(),
+            });
+        }
+        FlagMessageIntent::Clear => {
+            *override_state = None;
+        }
+    }
 }
 
 fn extract_notice_car_numbers(text: &str) -> HashSet<String> {
@@ -245,6 +361,8 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     ctx.notices.clear();
     ctx.notice_keys.clear();
     ctx.highlighted_notice_cars.clear();
+    *ctx.message_flag_override = None;
+    *ctx.message_flag_last_secs = None;
 
     ctx.config.selected_series = *ctx.active_series;
     if let Err(err) = save_config(ctx.config) {
@@ -290,6 +408,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut notices: Vec<TimingNotice> = Vec::new();
     let mut notice_keys: HashSet<String> = HashSet::new();
     let mut highlighted_notice_cars: HashSet<String> = HashSet::new();
+    let mut message_flag_override: Option<MessageFlagOverride> = None;
+    let mut message_flag_last_secs: Option<u32> = None;
     let mut imsa_debug_logs = VecDeque::new();
     let mut gap_anchor_stable_id: Option<String> = None;
     let mut pit_trackers: HashMap<String, PitTracker> = HashMap::new();
@@ -321,6 +441,11 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             );
 
             for notice in incoming_notices {
+                apply_flag_message_notice(
+                    &notice,
+                    &mut message_flag_override,
+                    &mut message_flag_last_secs,
+                );
                 let key = notice_key(&notice);
                 if dismissed_notice_keys.contains_key(&persisted_notice_key(active_series, &notice))
                 {
@@ -398,7 +523,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             .and_then(|idx| current_view_entries.get(*idx))
             .map(|entry| entry.stable_id.as_str());
 
-        let effective_flag = if header.flag.is_empty() {
+        let effective_flag = if let Some(flag_override) = &message_flag_override {
+            flag_override.flag.as_str()
+        } else if header.flag.is_empty() {
             "-"
         } else {
             &header.flag
@@ -502,6 +629,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 notices: &mut notices,
                                 notice_keys: &mut notice_keys,
                                 highlighted_notice_cars: &mut highlighted_notice_cars,
+                                message_flag_override: &mut message_flag_override,
+                                message_flag_last_secs: &mut message_flag_last_secs,
                                 last_error: &mut last_error,
                                 last_update: &mut last_update,
                                 selected_row: &mut selected_row,
@@ -778,6 +907,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         notices.clear();
                         notice_keys.clear();
                         highlighted_notice_cars.clear();
+                        message_flag_override = None;
+                        message_flag_last_secs = None;
                         messages_panel = MessagesPanelState::closed();
 
                         if demo_mode {
@@ -1014,5 +1145,48 @@ mod tests {
         assert!(!dismissed.contains_key("nls|one"));
         assert!(!dismissed.contains_key("nls|two"));
         assert!(dismissed.contains_key("dhlm|one"));
+    }
+
+    #[test]
+    fn classify_flag_message_ignores_penalty_code_60_messages() {
+        let penalty = "#999 non respect of code 60 - time penalty 95 sec after first lap in race";
+        assert_eq!(classify_flag_message_intent(penalty), None);
+    }
+
+    #[test]
+    fn apply_flag_message_notice_tracks_newer_and_clears_on_resume() {
+        let mut override_state = None;
+        let mut last_secs = None;
+
+        let red = TimingNotice {
+            id: "1".to_string(),
+            time: "15:04:42".to_string(),
+            text: "Red Flag".to_string(),
+        };
+        apply_flag_message_notice(&red, &mut override_state, &mut last_secs);
+        assert_eq!(
+            override_state.as_ref().map(|flag| flag.flag.as_str()),
+            Some("Red")
+        );
+
+        let stale_green = TimingNotice {
+            id: "2".to_string(),
+            time: "15:04:00".to_string(),
+            text: "Green flag".to_string(),
+        };
+        apply_flag_message_notice(&stale_green, &mut override_state, &mut last_secs);
+        assert_eq!(
+            override_state.as_ref().map(|flag| flag.flag.as_str()),
+            Some("Red")
+        );
+
+        let newer_green = TimingNotice {
+            id: "3".to_string(),
+            time: "15:05:00".to_string(),
+            text: "Green flag".to_string(),
+        };
+        apply_flag_message_notice(&newer_green, &mut override_state, &mut last_secs);
+        assert!(override_state.is_none());
+        assert_eq!(last_secs, parse_notice_time_seconds("15:05:00"));
     }
 }

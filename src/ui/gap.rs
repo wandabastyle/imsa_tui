@@ -80,7 +80,16 @@ fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool
     }
 
     let normalized = session_name.trim().to_ascii_lowercase();
-    normalized != "race" && !normalized.is_empty() && normalized != "-"
+    if normalized.is_empty() || normalized == "-" {
+        return false;
+    }
+
+    let race_like = normalized.starts_with("race") || normalized.starts_with("rennen");
+    if race_like {
+        return false;
+    }
+
+    true
 }
 
 fn parse_gap_value(raw: &str) -> Option<GapValue> {
@@ -364,6 +373,34 @@ mod tests {
                 Some(&anchor),
                 "R",
                 "Race 1",
+            ),
+            "+1.600"
+        );
+    }
+
+    #[test]
+    fn relative_gap_uses_race_logic_for_race_named_sessions_when_raw_missing() {
+        let anchor_entry = entry("car-a", "90", "10.400");
+        let row_entry = entry("car-b", "90", "12.000");
+        let anchor = gap_anchor_from_entry(&anchor_entry);
+
+        assert_eq!(
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "",
+                "Race 1",
+            ),
+            "+1.600"
+        );
+        assert_eq!(
+            relative_gap_overall_text(
+                &row_entry,
+                &row_entry.gap_overall,
+                Some(&anchor),
+                "",
+                "Rennen 2",
             ),
             "+1.600"
         );

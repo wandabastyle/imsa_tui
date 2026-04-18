@@ -88,6 +88,11 @@ pub(crate) fn drain_messages(
                 if new_header.session_name != "-" {
                     header.session_name = new_header.session_name;
                 }
+                if !new_header.session_type_raw.trim().is_empty()
+                    && new_header.session_type_raw != "-"
+                {
+                    header.session_type_raw = new_header.session_type_raw;
+                }
                 if new_header.track_name != "-" {
                     header.track_name = new_header.track_name;
                 }
@@ -112,4 +117,48 @@ pub(crate) fn drain_messages(
         }
     }
     notices
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drain_messages_merges_session_type_raw_from_snapshot() {
+        let (tx, rx) = mpsc::channel::<TimingMessage>();
+        let source_id = 7_u64;
+        tx.send(TimingMessage::Snapshot {
+            source_id,
+            header: TimingHeader {
+                session_name: "Race 1".to_string(),
+                session_type_raw: "R".to_string(),
+                ..TimingHeader::default()
+            },
+            entries: Vec::new(),
+        })
+        .expect("snapshot send should succeed");
+
+        let mut header = TimingHeader::default();
+        let mut entries = Vec::new();
+        let mut status = String::new();
+        let mut last_error = None;
+        let mut last_update = None;
+
+        let notices = drain_messages(
+            &rx,
+            source_id,
+            &mut header,
+            &mut entries,
+            &mut status,
+            &mut last_error,
+            &mut last_update,
+        );
+
+        assert!(notices.is_empty());
+        assert_eq!(header.session_name, "Race 1");
+        assert_eq!(header.session_type_raw, "R");
+        assert_eq!(status, "Live timing connected");
+        assert!(last_error.is_none());
+        assert!(last_update.is_some());
+    }
 }
