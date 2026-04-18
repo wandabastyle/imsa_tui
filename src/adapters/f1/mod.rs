@@ -1,23 +1,18 @@
 // F1 SignalR-style adapter: negotiates session, subscribes to topics, and builds live leaderboard snapshots.
 
+mod signalr;
 mod snapshot;
 
 use std::{
     collections::HashMap,
     io,
     sync::mpsc::{Receiver, Sender},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use reqwest::blocking::Client;
-use serde_json::{json, Map, Value};
-use tungstenite::{
-    client::IntoClientRequest,
-    connect,
-    http::header::{HeaderValue, ORIGIN, USER_AGENT},
-    stream::MaybeTlsStream,
-    Error as WsError, Message,
-};
+use serde_json::{Map, Value};
+use tungstenite::{connect, Error as WsError, Message};
 
 use crate::{
     snapshot_runtime::derive_session_identifier,
@@ -25,30 +20,15 @@ use crate::{
     timing_persist::{debounce_elapsed, log_series_debug, PersistState, SeriesDebugOutput},
 };
 
+use self::signalr::{
+    build_ws_request, negotiate, set_socket_timeout, start_session, subscribe_message,
+};
 use self::snapshot::{
     f1_snapshot_path, meaningful_snapshot_fingerprint, persist_snapshot,
     restore_snapshot_from_disk, F1Snapshot,
 };
 
-const HUB_NAME: &str = "streaming";
-const CLIENT_PROTOCOL: &str = "1.5";
-const NEGOTIATE_URL: &str = "https://livetiming.formula1.com/signalr/negotiate";
-const START_URL: &str = "https://livetiming.formula1.com/signalr/start";
-const WS_CONNECT_URL: &str = "wss://livetiming.formula1.com/signalr/connect";
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
-
-const SUBSCRIBE_TOPICS: &[&str] = &[
-    "SessionInfo",
-    "ExtrapolatedClock",
-    "LapCount",
-    "DriverList",
-    "TimingData",
-    "TimingStats",
-    "TrackStatus",
-    "RaceControlMessages",
-    "Position.z",
-    "CarData.z",
-];
 
 #[derive(Debug, Clone)]
 struct DriverState {
@@ -142,127 +122,6 @@ impl DriverState {
 struct F1State {
     header: TimingHeader,
     drivers: HashMap<String, DriverState>,
-}
-
-#[derive(Debug)]
-struct SignalRConnection {
-    connection_token: String,
-}
-
-fn now_millis() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before unix epoch")
-        .as_millis()
-}
-
-fn hub_connection_data() -> String {
-    format!("[{{\"name\":\"{HUB_NAME}\"}}]")
-}
-
-fn percent_encode(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for b in input.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-fn set_socket_timeout(socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>) {
-    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    }
-}
-
-fn build_ws_request(
-    connection_token: &str,
-) -> Result<tungstenite::handshake::client::Request, String> {
-    let url = format!(
-        "{WS_CONNECT_URL}?transport=webSockets&clientProtocol={CLIENT_PROTOCOL}&connectionToken={}&connectionData={}&tid=9",
-        percent_encode(connection_token),
-        percent_encode(&hub_connection_data())
-    );
-
-    let mut request = url
-        .into_client_request()
-        .map_err(|e| format!("failed to build websocket request: {e}"))?;
-
-    request.headers_mut().insert(
-        ORIGIN,
-        HeaderValue::from_static("https://livetiming.formula1.com"),
-    );
-    request
-        .headers_mut()
-        .insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0"));
-
-    Ok(request)
-}
-
-fn negotiate(client: &Client) -> Result<SignalRConnection, String> {
-    let connection_data = hub_connection_data();
-    let url = format!(
-        "{NEGOTIATE_URL}?clientProtocol={CLIENT_PROTOCOL}&connectionData={}&_={}",
-        percent_encode(&connection_data),
-        now_millis()
-    );
-
-    let response_text = client
-        .get(url)
-        .header("User-Agent", "Mozilla/5.0")
-        .header("Accept", "application/json")
-        .header("Origin", "https://livetiming.formula1.com")
-        .send()
-        .map_err(|e| format!("negotiate request failed: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("negotiate http error: {e}"))?
-        .text()
-        .map_err(|e| format!("negotiate body read failed: {e}"))?;
-
-    let root: Value = serde_json::from_str(&response_text)
-        .map_err(|e| format!("negotiate json parse failed: {e}"))?;
-
-    let connection_token = root
-        .get("ConnectionToken")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "missing ConnectionToken in negotiate response".to_string())?
-        .to_string();
-
-    Ok(SignalRConnection { connection_token })
-}
-
-fn start_session(client: &Client, connection_token: &str) -> Result<(), String> {
-    let url = format!(
-        "{START_URL}?transport=webSockets&clientProtocol={CLIENT_PROTOCOL}&connectionToken={}&connectionData={}&_={}",
-        percent_encode(connection_token),
-        percent_encode(&hub_connection_data()),
-        now_millis()
-    );
-
-    client
-        .get(url)
-        .header("User-Agent", "Mozilla/5.0")
-        .header("Accept", "application/json")
-        .header("Origin", "https://livetiming.formula1.com")
-        .send()
-        .map_err(|e| format!("start request failed: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("start http error: {e}"))?;
-
-    Ok(())
-}
-
-fn subscribe_message(invoke_id: u64) -> Value {
-    json!({
-        "H": HUB_NAME,
-        "M": "Subscribe",
-        "A": [SUBSCRIBE_TOPICS],
-        "I": invoke_id,
-    })
 }
 
 fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
@@ -670,19 +529,7 @@ pub fn signalr_worker_with_debug(
             }
         };
 
-        let request = match build_ws_request(&negotiated.connection_token) {
-            Ok(r) => r,
-            Err(err) => {
-                let _ = tx.send(TimingMessage::Error {
-                    source_id,
-                    text: err,
-                });
-                if stop_rx.recv_timeout(Duration::from_secs(4)).is_ok() {
-                    break;
-                }
-                continue;
-            }
-        };
+        let request = build_ws_request(&negotiated.connection_token);
 
         let (mut socket, response) = match connect(request) {
             Ok(ok) => ok,
