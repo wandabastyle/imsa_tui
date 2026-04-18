@@ -2,19 +2,23 @@
 
 use std::{
     collections::hash_map::DefaultHasher,
-    fs,
     hash::{Hash, Hasher},
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use directories::ProjectDirs;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::timing::{TimingEntry, TimingHeader, TimingMessage};
+use crate::{
+    timing::{TimingEntry, TimingHeader, TimingMessage},
+    timing_persist::{
+        data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
+        PersistState, SeriesDebugOutput,
+    },
+};
 
 const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSONP.json";
 const RESULTS_CALLBACK: &str = "jsonpRaceResults";
@@ -24,12 +28,7 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(5000);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 const WAITING_NEXT_SESSION_STATUS: &str = "Waiting for next session feed";
 
-#[derive(Debug, Clone)]
-pub enum ImsaDebugOutput {
-    Silent,
-    Stderr,
-    Channel(Sender<String>),
-}
+pub type ImsaDebugOutput = SeriesDebugOutput;
 
 #[derive(Debug, Clone)]
 struct ImsaSnapshot {
@@ -44,12 +43,9 @@ struct ImsaSnapshot {
 #[derive(Debug, Clone)]
 struct ImsaRuntimeState {
     last_good_live_snapshot: Option<ImsaSnapshot>,
-    last_persisted_snapshot_hash: Option<u64>,
-    dirty_since_last_save: bool,
-    last_save_at: Option<SystemTime>,
+    persist: PersistState,
     last_session_id: Option<String>,
     last_classification: Option<PayloadClassification>,
-    persist_path: Option<PathBuf>,
     debug_output: ImsaDebugOutput,
 }
 
@@ -82,20 +78,17 @@ impl ImsaRuntimeState {
     fn new(debug_output: ImsaDebugOutput) -> Self {
         Self {
             last_good_live_snapshot: None,
-            last_persisted_snapshot_hash: None,
-            dirty_since_last_save: false,
-            last_save_at: None,
+            persist: PersistState::new(imsa_snapshot_path()),
             last_session_id: None,
             last_classification: None,
-            persist_path: imsa_snapshot_path(),
             debug_output,
         }
     }
 
     #[cfg(test)]
-    fn from_parts(persist_path: Option<PathBuf>) -> Self {
+    fn from_parts(persist_path: Option<std::path::PathBuf>) -> Self {
         Self {
-            persist_path,
+            persist: PersistState::new(persist_path),
             ..Self::new(ImsaDebugOutput::Silent)
         }
     }
@@ -162,13 +155,7 @@ pub fn polling_worker_with_debug(
 }
 
 fn log_debug(output: &ImsaDebugOutput, message: String) {
-    match output {
-        ImsaDebugOutput::Silent => {}
-        ImsaDebugOutput::Stderr => eprintln!("{message}"),
-        ImsaDebugOutput::Channel(tx) => {
-            let _ = tx.send(message);
-        }
-    }
+    log_series_debug(output, "IMSA", message);
 }
 
 fn now_millis() -> u128 {
@@ -569,8 +556,8 @@ fn handle_fetched_snapshot(
     });
 
     if materially_changed {
-        let was_dirty = runtime.dirty_since_last_save;
-        runtime.dirty_since_last_save = true;
+        let was_dirty = runtime.persist.dirty_since_last_save;
+        runtime.persist.dirty_since_last_save = true;
         if !was_dirty {
             log_debug(
                 &runtime.debug_output,
@@ -579,12 +566,12 @@ fn handle_fetched_snapshot(
         }
     }
 
-    let never_persisted = runtime.last_persisted_snapshot_hash.is_none();
+    let never_persisted = runtime.persist.last_persisted_hash.is_none();
     let save_now = never_persisted
         || first_real_of_session
         || session_complete
-        || (runtime.dirty_since_last_save
-            && debounce_elapsed(runtime.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
+        || (runtime.persist.dirty_since_last_save
+            && debounce_elapsed(runtime.persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
 
     if save_now {
         let reason = if never_persisted {
@@ -601,7 +588,7 @@ fn handle_fetched_snapshot(
 }
 
 fn persist_snapshot_if_dirty(runtime: &mut ImsaRuntimeState, reason: &str) {
-    if !runtime.dirty_since_last_save {
+    if !runtime.persist.dirty_since_last_save {
         return;
     }
     if let Some(snapshot) = runtime.last_good_live_snapshot.clone() {
@@ -614,7 +601,7 @@ fn flush_dirty_snapshot_on_shutdown(runtime: &mut ImsaRuntimeState) {
 }
 
 fn persist_snapshot(runtime: &mut ImsaRuntimeState, snapshot: &ImsaSnapshot, reason: &str) {
-    let Some(path) = runtime.persist_path.as_ref() else {
+    let Some(path) = runtime.persist.path.as_ref() else {
         log_debug(
             &runtime.debug_output,
             "IMSA snapshot persist skipped: config path unavailable.".to_string(),
@@ -632,28 +619,7 @@ fn persist_snapshot(runtime: &mut ImsaRuntimeState, snapshot: &ImsaSnapshot, rea
         raw_race_data_payload: snapshot.raw_race_data_payload.clone(),
     };
 
-    if let Some(parent) = path.parent() {
-        if let Err(err) = fs::create_dir_all(parent) {
-            log_debug(
-                &runtime.debug_output,
-                format!("IMSA snapshot persist failed creating directory: {err}"),
-            );
-            return;
-        }
-    }
-
-    let encoded = match serde_json::to_string_pretty(&payload) {
-        Ok(value) => value,
-        Err(err) => {
-            log_debug(
-                &runtime.debug_output,
-                format!("IMSA snapshot persist failed encoding payload: {err}"),
-            );
-            return;
-        }
-    };
-
-    if let Err(err) = fs::write(path, encoded) {
+    if let Err(err) = write_json_pretty(path, &payload) {
         log_debug(
             &runtime.debug_output,
             format!("IMSA snapshot persist failed writing file: {err}"),
@@ -661,9 +627,9 @@ fn persist_snapshot(runtime: &mut ImsaRuntimeState, snapshot: &ImsaSnapshot, rea
         return;
     }
 
-    runtime.last_persisted_snapshot_hash = Some(snapshot.fingerprint);
-    runtime.last_save_at = Some(SystemTime::now());
-    runtime.dirty_since_last_save = false;
+    runtime.persist.last_persisted_hash = Some(snapshot.fingerprint);
+    runtime.persist.last_save_at = Some(SystemTime::now());
+    runtime.persist.dirty_since_last_save = false;
     log_debug(
         &runtime.debug_output,
         format!("IMSA snapshot persisted ({reason}) to {}.", path.display()),
@@ -675,15 +641,11 @@ fn restore_snapshot_from_disk(
     tx: &Sender<TimingMessage>,
     source_id: u64,
 ) {
-    let Some(path) = runtime.persist_path.as_ref() else {
+    let Some(path) = runtime.persist.path.as_ref() else {
         return;
     };
 
-    let Ok(text) = fs::read_to_string(path) else {
-        return;
-    };
-
-    let Ok(saved) = serde_json::from_str::<PersistedImsaSnapshot>(&text) else {
+    let Some(saved) = read_json::<PersistedImsaSnapshot>(path) else {
         return;
     };
 
@@ -703,8 +665,8 @@ fn restore_snapshot_from_disk(
     };
 
     runtime.last_session_id = restored.session_id.clone();
-    runtime.last_persisted_snapshot_hash = Some(restored.fingerprint);
-    runtime.last_save_at = Some(SystemTime::now());
+    runtime.persist.last_persisted_hash = Some(restored.fingerprint);
+    runtime.persist.last_save_at = Some(SystemTime::now());
     runtime.last_good_live_snapshot = Some(restored.clone());
 
     let _ = tx.send(TimingMessage::Snapshot {
@@ -720,8 +682,7 @@ fn restore_snapshot_from_disk(
 }
 
 fn imsa_snapshot_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
-    Some(dirs.data_local_dir().join("imsa_snapshot.json"))
+    data_local_snapshot_path("imsa_snapshot.json")
 }
 
 fn derive_session_identifier(header: &TimingHeader) -> Option<String> {
@@ -786,16 +747,6 @@ fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry
     }
 
     hasher.finish()
-}
-
-fn debounce_elapsed(last_save_at: Option<SystemTime>, debounce: Duration) -> bool {
-    match last_save_at {
-        None => true,
-        Some(previous) => SystemTime::now()
-            .duration_since(previous)
-            .map(|elapsed| elapsed >= debounce)
-            .unwrap_or(false),
-    }
 }
 
 fn classify_payload(
@@ -1102,17 +1053,17 @@ mod tests {
             raw_results_payload: Some(json!({"B": [{"A": 1, "N": "31"}]})),
             raw_race_data_payload: Some(json!({"C": "4", "B": "Session Complete"})),
         });
-        runtime.dirty_since_last_save = true;
+        runtime.persist.dirty_since_last_save = true;
 
         flush_dirty_snapshot_on_shutdown(&mut runtime);
 
-        let text = fs::read_to_string(&temp_path).expect("persisted snapshot file");
+        let text = std::fs::read_to_string(&temp_path).expect("persisted snapshot file");
         let restored: PersistedImsaSnapshot =
             serde_json::from_str(&text).expect("parse persisted snapshot");
         assert_eq!(restored.meaningful_fingerprint, fingerprint);
         assert_eq!(restored.entries.len(), 1);
 
-        let _ = fs::remove_file(temp_path);
+        let _ = std::fs::remove_file(temp_path);
     }
 
     #[test]

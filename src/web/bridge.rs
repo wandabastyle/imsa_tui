@@ -11,11 +11,12 @@ use std::{
 };
 
 use crate::{
-    adapters::wec::websocket_worker as wec_websocket_worker,
-    f1::signalr_worker,
-    imsa::{polling_worker_with_debug, ImsaDebugOutput},
-    nls::websocket_worker as nls_websocket_worker,
+    adapters::wec::websocket_worker_with_debug as wec_websocket_worker,
+    f1::signalr_worker_with_debug,
+    imsa::polling_worker_with_debug,
+    nls::websocket_worker_with_debug,
     timing::{Series, TimingMessage},
+    timing_persist::SeriesDebugOutput,
 };
 
 use super::state::WebAppState;
@@ -234,11 +235,17 @@ fn spawn_worker_thread(
 ) {
     thread::spawn(move || match series {
         Series::Imsa => {
-            polling_worker_with_debug(worker_tx, source_id, stop_rx, ImsaDebugOutput::Stderr)
+            polling_worker_with_debug(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
         }
-        Series::Nls => nls_websocket_worker(worker_tx, source_id, stop_rx),
-        Series::F1 => signalr_worker(worker_tx, source_id, stop_rx),
-        Series::Wec => wec_websocket_worker(worker_tx, source_id, stop_rx),
+        Series::Nls => {
+            websocket_worker_with_debug(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
+        }
+        Series::F1 => {
+            signalr_worker_with_debug(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
+        }
+        Series::Wec => {
+            wec_websocket_worker(worker_tx, source_id, stop_rx, SeriesDebugOutput::Stderr)
+        }
     });
 }
 

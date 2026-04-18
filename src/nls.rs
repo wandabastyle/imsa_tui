@@ -1,6 +1,8 @@
 // NLS websocket adapter: subscribes to livetiming hub events and maps payloads to timing rows.
 
 use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
     io,
     sync::mpsc::{Receiver, Sender},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -8,6 +10,7 @@ use std::{
 
 use reqwest::blocking::Client;
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tungstenite::{
     client::IntoClientRequest,
@@ -17,7 +20,13 @@ use tungstenite::{
     Error as WsError, Message,
 };
 
-use crate::timing::{TimingEntry, TimingHeader, TimingMessage};
+use crate::{
+    timing::{TimingEntry, TimingHeader, TimingMessage},
+    timing_persist::{
+        data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
+        PersistState, SeriesDebugOutput,
+    },
+};
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const DEFAULT_NLS_EVENT_ID: &str = "20";
@@ -26,6 +35,7 @@ const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/langu
 const N24_TERMINE_URL: &str = "https://www.24h-rennen.de/termine/";
 const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Clone)]
 struct CountdownState {
@@ -49,11 +59,162 @@ struct TermineScheduleEntry {
     title: String,
 }
 
+#[derive(Debug, Clone)]
+struct NlsSnapshot {
+    header: TimingHeader,
+    entries: Vec<TimingEntry>,
+    session_id: Option<String>,
+    fingerprint: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedNlsSnapshot {
+    saved_unix_ms: u64,
+    session_id: Option<String>,
+    meaningful_fingerprint: u64,
+    header: TimingHeader,
+    entries: Vec<TimingEntry>,
+}
+
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_millis()
+}
+
+fn nls_snapshot_path() -> Option<std::path::PathBuf> {
+    data_local_snapshot_path("nls_snapshot.json")
+}
+
+fn derive_session_identifier(header: &TimingHeader) -> Option<String> {
+    let event = header.event_name.trim();
+    let session = header.session_name.trim();
+    let track = header.track_name.trim();
+    if [event, session, track]
+        .iter()
+        .all(|value| value.is_empty() || *value == "-")
+    {
+        return None;
+    }
+    Some(format!("{event}|{session}|{track}").to_ascii_lowercase())
+}
+
+fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    header
+        .event_name
+        .trim()
+        .to_ascii_lowercase()
+        .hash(&mut hasher);
+    header
+        .session_name
+        .trim()
+        .to_ascii_lowercase()
+        .hash(&mut hasher);
+    header
+        .track_name
+        .trim()
+        .to_ascii_lowercase()
+        .hash(&mut hasher);
+    header.flag.trim().to_ascii_lowercase().hash(&mut hasher);
+    header.time_to_go.trim().hash(&mut hasher);
+
+    for entry in entries {
+        entry.position.hash(&mut hasher);
+        entry.car_number.trim().hash(&mut hasher);
+        entry
+            .class_name
+            .trim()
+            .to_ascii_lowercase()
+            .hash(&mut hasher);
+        entry.class_rank.trim().hash(&mut hasher);
+        entry.driver.trim().to_ascii_lowercase().hash(&mut hasher);
+        entry.vehicle.trim().to_ascii_lowercase().hash(&mut hasher);
+        entry.team.trim().to_ascii_lowercase().hash(&mut hasher);
+        entry.laps.trim().hash(&mut hasher);
+        entry.gap_overall.trim().hash(&mut hasher);
+        entry.last_lap.trim().hash(&mut hasher);
+        entry.best_lap.trim().hash(&mut hasher);
+        entry.sector_1.trim().hash(&mut hasher);
+        entry.sector_2.trim().hash(&mut hasher);
+        entry.sector_3.trim().hash(&mut hasher);
+        entry.sector_4.trim().hash(&mut hasher);
+        entry.sector_5.trim().hash(&mut hasher);
+        entry.stable_id.trim().hash(&mut hasher);
+    }
+
+    hasher.finish()
+}
+
+fn persist_snapshot(runtime: &mut PersistState, snapshot: &NlsSnapshot, debug: &SeriesDebugOutput) {
+    let Some(path) = runtime.path.as_ref() else {
+        return;
+    };
+
+    let payload = PersistedNlsSnapshot {
+        saved_unix_ms: now_millis() as u64,
+        session_id: snapshot.session_id.clone(),
+        meaningful_fingerprint: snapshot.fingerprint,
+        header: snapshot.header.clone(),
+        entries: snapshot.entries.clone(),
+    };
+
+    if let Err(err) = write_json_pretty(path, &payload) {
+        log_series_debug(debug, "NLS", format!("snapshot persist failed: {err}"));
+        return;
+    }
+
+    runtime.last_persisted_hash = Some(snapshot.fingerprint);
+    runtime.last_save_at = Some(SystemTime::now());
+    runtime.dirty_since_last_save = false;
+    log_series_debug(
+        debug,
+        "NLS",
+        format!("snapshot persisted to {}", path.display()),
+    );
+}
+
+fn persist_snapshot_if_dirty(
+    runtime: &mut PersistState,
+    snapshot: &NlsSnapshot,
+    debug: &SeriesDebugOutput,
+) {
+    if !runtime.dirty_since_last_save {
+        return;
+    }
+    persist_snapshot(runtime, snapshot, debug);
+}
+
+fn restore_snapshot_from_disk(
+    runtime: &mut PersistState,
+    header: &mut TimingHeader,
+    entries: &mut Vec<TimingEntry>,
+    tx: &Sender<TimingMessage>,
+    source_id: u64,
+    debug: &SeriesDebugOutput,
+) -> Option<String> {
+    let path = runtime.path.as_ref()?;
+    let saved = read_json::<PersistedNlsSnapshot>(path)?;
+
+    *header = saved.header;
+    *entries = saved.entries;
+    runtime.last_persisted_hash = Some(saved.meaningful_fingerprint);
+    runtime.last_save_at = Some(SystemTime::now());
+
+    let _ = tx.send(TimingMessage::Snapshot {
+        source_id,
+        header: header.clone(),
+        entries: entries.clone(),
+    });
+
+    log_series_debug(
+        debug,
+        "NLS",
+        format!("snapshot restored from {}", path.display()),
+    );
+
+    saved.session_id
 }
 
 fn build_request() -> tungstenite::handshake::client::Request {
@@ -852,6 +1013,15 @@ fn refresh_active_event_id(
 }
 
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
+    websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+}
+
+pub fn websocket_worker_with_debug(
+    tx: Sender<TimingMessage>,
+    source_id: u64,
+    stop_rx: Receiver<()>,
+    debug_output: SeriesDebugOutput,
+) {
     let mut header = TimingHeader {
         event_name: "NLS Live Timing".to_string(),
         track_name: "Nürburgring".to_string(),
@@ -868,9 +1038,22 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
     let mut countdown: Option<CountdownState> = None;
     let mut is_race_session = false;
     let mut active_event_id = DEFAULT_NLS_EVENT_ID;
+    let mut persist = PersistState::new(nls_snapshot_path());
+    let mut last_good_live_snapshot: Option<NlsSnapshot> = None;
+    let mut last_session_id = restore_snapshot_from_disk(
+        &mut persist,
+        &mut header,
+        &mut latest_entries,
+        &tx,
+        source_id,
+        &debug_output,
+    );
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
+            if let Some(snapshot) = last_good_live_snapshot.as_ref() {
+                persist_snapshot_if_dirty(&mut persist, snapshot, &debug_output);
+            }
             break;
         }
 
@@ -906,6 +1089,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: "Connecting to NLS websocket...".to_string(),
         });
+        log_series_debug(&debug_output, "NLS", "connecting websocket");
 
         let request = build_request();
         let connection = connect(request);
@@ -930,6 +1114,11 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: format!("NLS connected ({})", response.status()),
         });
+        log_series_debug(
+            &debug_output,
+            "NLS",
+            format!("websocket connected ({})", response.status()),
+        );
         let mut connected_status_sent = true;
 
         let subscribe = json!({
@@ -951,6 +1140,9 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
 
         loop {
             if stop_rx.try_recv().is_ok() {
+                if let Some(snapshot) = last_good_live_snapshot.as_ref() {
+                    persist_snapshot_if_dirty(&mut persist, snapshot, &debug_output);
+                }
                 break 'outer;
             }
 
@@ -968,6 +1160,41 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                             latest_entries = new_entries;
                         }
                         refresh_header_time_to_go(&mut header, countdown.as_ref());
+                        let session_id = derive_session_identifier(&header);
+                        let snapshot = NlsSnapshot {
+                            header: header.clone(),
+                            entries: latest_entries.clone(),
+                            session_id: session_id.clone(),
+                            fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+                        };
+
+                        let first_real_of_session =
+                            !snapshot.entries.is_empty() && session_id != last_session_id;
+                        let session_complete =
+                            snapshot.header.flag.eq_ignore_ascii_case("checkered");
+                        let materially_changed = last_good_live_snapshot
+                            .as_ref()
+                            .map(|prev| prev.fingerprint != snapshot.fingerprint)
+                            .unwrap_or(true);
+
+                        if materially_changed {
+                            persist.dirty_since_last_save = true;
+                        }
+
+                        let never_persisted = persist.last_persisted_hash.is_none();
+                        let save_now = never_persisted
+                            || first_real_of_session
+                            || session_complete
+                            || (persist.dirty_since_last_save
+                                && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
+
+                        if save_now {
+                            persist_snapshot(&mut persist, &snapshot, &debug_output);
+                        }
+
+                        last_session_id = session_id;
+                        last_good_live_snapshot = Some(snapshot);
+
                         let _ = tx.send(TimingMessage::Snapshot {
                             source_id,
                             header: header.clone(),
@@ -999,6 +1226,47 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                 latest_entries = new_entries;
                             }
                             refresh_header_time_to_go(&mut header, countdown.as_ref());
+                            let session_id = derive_session_identifier(&header);
+                            let snapshot = NlsSnapshot {
+                                header: header.clone(),
+                                entries: latest_entries.clone(),
+                                session_id: session_id.clone(),
+                                fingerprint: meaningful_snapshot_fingerprint(
+                                    &header,
+                                    &latest_entries,
+                                ),
+                            };
+
+                            let first_real_of_session =
+                                !snapshot.entries.is_empty() && session_id != last_session_id;
+                            let session_complete =
+                                snapshot.header.flag.eq_ignore_ascii_case("checkered");
+                            let materially_changed = last_good_live_snapshot
+                                .as_ref()
+                                .map(|prev| prev.fingerprint != snapshot.fingerprint)
+                                .unwrap_or(true);
+
+                            if materially_changed {
+                                persist.dirty_since_last_save = true;
+                            }
+
+                            let never_persisted = persist.last_persisted_hash.is_none();
+                            let save_now = never_persisted
+                                || first_real_of_session
+                                || session_complete
+                                || (persist.dirty_since_last_save
+                                    && debounce_elapsed(
+                                        persist.last_save_at,
+                                        SNAPSHOT_SAVE_DEBOUNCE,
+                                    ));
+
+                            if save_now {
+                                persist_snapshot(&mut persist, &snapshot, &debug_output);
+                            }
+
+                            last_session_id = session_id;
+                            last_good_live_snapshot = Some(snapshot);
+
                             let _ = tx.send(TimingMessage::Snapshot {
                                 source_id,
                                 header: header.clone(),
@@ -1055,6 +1323,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: "NLS reconnecting in 3s...".to_string(),
         });
+        log_series_debug(&debug_output, "NLS", "reconnecting in 3s");
         if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
             break;
         }

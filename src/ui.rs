@@ -27,12 +27,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::demo;
 use crate::{
-    adapters::wec::websocket_worker as wec_websocket_worker,
-    f1::signalr_worker,
+    adapters::wec::websocket_worker_with_debug as wec_websocket_worker,
+    f1::signalr_worker_with_debug,
     favourites,
-    imsa::{normalize_class_name, polling_worker_with_debug, ImsaDebugOutput},
-    nls::websocket_worker as nls_websocket_worker,
+    imsa::{normalize_class_name, polling_worker_with_debug},
+    nls::websocket_worker_with_debug,
     timing::{Series, TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
+    timing_persist::SeriesDebugOutput,
 };
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -233,7 +234,7 @@ where
 struct ActiveFeed {
     source_id: u64,
     stop_tx: Sender<()>,
-    imsa_debug_rx: Option<Receiver<String>>,
+    debug_rx: Option<Receiver<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1483,26 +1484,20 @@ fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
 
 fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let mut imsa_debug_rx = None;
-    let imsa_debug_output = if series == Series::Imsa {
-        let (debug_tx, debug_rx) = mpsc::channel::<String>();
-        imsa_debug_rx = Some(debug_rx);
-        ImsaDebugOutput::Channel(debug_tx)
-    } else {
-        ImsaDebugOutput::Silent
-    };
+    let (debug_tx, debug_rx) = mpsc::channel::<String>();
+    let debug_output = SeriesDebugOutput::Channel(debug_tx);
 
     thread::spawn(move || match series {
-        Series::Imsa => polling_worker_with_debug(tx, source_id, stop_rx, imsa_debug_output),
-        Series::Nls => nls_websocket_worker(tx, source_id, stop_rx),
-        Series::F1 => signalr_worker(tx, source_id, stop_rx),
-        Series::Wec => wec_websocket_worker(tx, source_id, stop_rx),
+        Series::Imsa => polling_worker_with_debug(tx, source_id, stop_rx, debug_output),
+        Series::Nls => websocket_worker_with_debug(tx, source_id, stop_rx, debug_output),
+        Series::F1 => signalr_worker_with_debug(tx, source_id, stop_rx, debug_output),
+        Series::Wec => wec_websocket_worker(tx, source_id, stop_rx, debug_output),
     });
 
     ActiveFeed {
         source_id,
         stop_tx,
-        imsa_debug_rx,
+        debug_rx: Some(debug_rx),
     }
 }
 
@@ -1512,23 +1507,23 @@ fn stop_feed(feed: &mut Option<ActiveFeed>) {
     }
 }
 
-fn push_imsa_debug_log(logs: &mut VecDeque<String>, line: String) {
+fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
     logs.push_back(line);
     while logs.len() > IMSA_DEBUG_LOG_CAPACITY {
         logs.pop_front();
     }
 }
 
-fn drain_imsa_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
+fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
     let Some(active_feed) = feed.as_ref() else {
         return;
     };
-    let Some(debug_rx) = active_feed.imsa_debug_rx.as_ref() else {
+    let Some(debug_rx) = active_feed.debug_rx.as_ref() else {
         return;
     };
 
     while let Ok(line) = debug_rx.try_recv() {
-        push_imsa_debug_log(logs, line);
+        push_series_debug_log(logs, line);
     }
 }
 
@@ -1814,7 +1809,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 &mut last_update,
             );
         }
-        drain_imsa_debug_logs(&feed, &mut imsa_debug_logs);
+        drain_series_debug_logs(&feed, &mut imsa_debug_logs);
 
         if !demo_mode && active_series == Series::Imsa && !imsa_live_baseline_saved {
             if let Some(observed_live) = ImsaColumnWidths::from_entries(&entries) {
@@ -2245,7 +2240,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 lines.push(Line::from(""));
                 lines.push(Line::from("↑/↓ scroll | c clear | Esc or L close"));
 
-                let title = format!("IMSA Logs ({total}/{IMSA_DEBUG_LOG_CAPACITY})");
+                let title = format!("{} Logs ({total}/{IMSA_DEBUG_LOG_CAPACITY})", active_series.label());
 
                 let logs_popup = Paragraph::new(lines)
                     .alignment(Alignment::Left)
@@ -2620,7 +2615,7 @@ mod tests {
     fn imsa_debug_log_ring_buffer_drops_oldest_lines() {
         let mut logs = VecDeque::new();
         for idx in 0..(IMSA_DEBUG_LOG_CAPACITY + 10) {
-            push_imsa_debug_log(&mut logs, format!("line-{idx}"));
+            push_series_debug_log(&mut logs, format!("line-{idx}"));
         }
 
         assert_eq!(logs.len(), IMSA_DEBUG_LOG_CAPACITY);

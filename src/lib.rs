@@ -8,5 +8,6 @@ pub mod favourites;
 pub mod imsa;
 pub mod nls;
 pub mod timing;
+pub mod timing_persist;
 pub mod ui;
 pub mod web;

@@ -5,14 +5,24 @@ mod store;
 mod transport;
 
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::HashSet,
+    hash::{Hash, Hasher},
+    path::PathBuf,
     sync::mpsc::{Receiver, Sender},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::timing::TimingMessage;
+use crate::{
+    timing::{TimingEntry, TimingHeader, TimingMessage},
+    timing_persist::{
+        data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
+        PersistState, SeriesDebugOutput,
+    },
+};
 
 use self::{
     ddp::{
@@ -27,6 +37,7 @@ use self::{
 const FEED_NAME: &str = "fiawec";
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const COLLECTION_STATS_INTERVAL: Duration = Duration::from_secs(15);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 
 const SESSION_SCOPED_PUBLICATIONS: &[&str] = &[
     "sessionClasses",
@@ -43,6 +54,144 @@ const SESSION_SCOPED_PUBLICATIONS: &[&str] = &[
     "sessionBestResultsByClass",
 ];
 
+#[derive(Debug, Clone)]
+struct WecSnapshot {
+    header: TimingHeader,
+    entries: Vec<TimingEntry>,
+    session_id: Option<String>,
+    fingerprint: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedWecSnapshot {
+    saved_unix_ms: u64,
+    session_id: Option<String>,
+    meaningful_fingerprint: u64,
+    header: TimingHeader,
+    entries: Vec<TimingEntry>,
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_millis() as u64
+}
+
+fn wec_snapshot_path() -> Option<PathBuf> {
+    data_local_snapshot_path("wec_snapshot.json")
+}
+
+fn derive_session_identifier(header: &TimingHeader) -> Option<String> {
+    let event = header.event_name.trim();
+    let session = header.session_name.trim();
+    let track = header.track_name.trim();
+    if [event, session, track]
+        .iter()
+        .all(|value| value.is_empty() || *value == "-")
+    {
+        return None;
+    }
+    Some(format!("{event}|{session}|{track}").to_ascii_lowercase())
+}
+
+fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    header
+        .event_name
+        .trim()
+        .to_ascii_lowercase()
+        .hash(&mut hasher);
+    header
+        .session_name
+        .trim()
+        .to_ascii_lowercase()
+        .hash(&mut hasher);
+    header
+        .track_name
+        .trim()
+        .to_ascii_lowercase()
+        .hash(&mut hasher);
+    header.flag.trim().to_ascii_lowercase().hash(&mut hasher);
+    header.time_to_go.trim().hash(&mut hasher);
+    for entry in entries {
+        entry.position.hash(&mut hasher);
+        entry.car_number.trim().hash(&mut hasher);
+        entry
+            .class_name
+            .trim()
+            .to_ascii_lowercase()
+            .hash(&mut hasher);
+        entry.class_rank.trim().hash(&mut hasher);
+        entry.driver.trim().to_ascii_lowercase().hash(&mut hasher);
+        entry.vehicle.trim().to_ascii_lowercase().hash(&mut hasher);
+        entry.team.trim().to_ascii_lowercase().hash(&mut hasher);
+        entry.laps.trim().hash(&mut hasher);
+        entry.gap_overall.trim().hash(&mut hasher);
+        entry.last_lap.trim().hash(&mut hasher);
+        entry.best_lap.trim().hash(&mut hasher);
+        entry.sector_1.trim().hash(&mut hasher);
+        entry.sector_2.trim().hash(&mut hasher);
+        entry.sector_3.trim().hash(&mut hasher);
+        entry.stable_id.trim().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn persist_snapshot(runtime: &mut PersistState, snapshot: &WecSnapshot, debug: &SeriesDebugOutput) {
+    let Some(path) = runtime.path.as_ref() else {
+        return;
+    };
+    let payload = PersistedWecSnapshot {
+        saved_unix_ms: now_unix_ms(),
+        session_id: snapshot.session_id.clone(),
+        meaningful_fingerprint: snapshot.fingerprint,
+        header: snapshot.header.clone(),
+        entries: snapshot.entries.clone(),
+    };
+    if let Err(err) = write_json_pretty(path, &payload) {
+        log_series_debug(debug, "WEC", format!("snapshot persist failed: {err}"));
+        return;
+    }
+    runtime.last_persisted_hash = Some(snapshot.fingerprint);
+    runtime.last_save_at = Some(SystemTime::now());
+    runtime.dirty_since_last_save = false;
+    log_series_debug(
+        debug,
+        "WEC",
+        format!("snapshot persisted to {}", path.display()),
+    );
+}
+
+fn restore_snapshot_from_disk(
+    runtime: &mut PersistState,
+    tx: &Sender<TimingMessage>,
+    source_id: u64,
+    debug: &SeriesDebugOutput,
+) -> Option<WecSnapshot> {
+    let path = runtime.path.as_ref()?;
+    let saved = read_json::<PersistedWecSnapshot>(path)?;
+    runtime.last_persisted_hash = Some(saved.meaningful_fingerprint);
+    runtime.last_save_at = Some(SystemTime::now());
+    let snapshot = WecSnapshot {
+        header: saved.header,
+        entries: saved.entries,
+        session_id: saved.session_id,
+        fingerprint: saved.meaningful_fingerprint,
+    };
+    let _ = tx.send(TimingMessage::Snapshot {
+        source_id,
+        header: snapshot.header.clone(),
+        entries: snapshot.entries.clone(),
+    });
+    log_series_debug(
+        debug,
+        "WEC",
+        format!("snapshot restored from {}", path.display()),
+    );
+    Some(snapshot)
+}
+
 /// Reverse engineered public LT2 flow (first pass):
 /// 1) SockJS websocket open
 /// 2) DDP connect
@@ -52,12 +201,31 @@ const SESSION_SCOPED_PUBLICATIONS: &[&str] = &[
 ///
 /// TODO: tighten session discovery to exact collection once enough live captures are archived.
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
+    websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+}
+
+pub fn websocket_worker_with_debug(
+    tx: Sender<TimingMessage>,
+    source_id: u64,
+    stop_rx: Receiver<()>,
+    debug_output: SeriesDebugOutput,
+) {
     let debug_unknown = env_flag("WEC_DEBUG_UNKNOWN", false);
     let debug_subscriptions = env_flag("WEC_DEBUG_SUBS", false);
     let emit_collection_stats = env_flag("WEC_COLLECTION_COUNTS", false);
+    let mut persist = PersistState::new(wec_snapshot_path());
+    let mut last_snapshot = restore_snapshot_from_disk(&mut persist, &tx, source_id, &debug_output);
+    let mut last_session_id = last_snapshot
+        .as_ref()
+        .and_then(|snap| snap.session_id.clone());
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
+            if let Some(snapshot) = last_snapshot.as_ref() {
+                if persist.dirty_since_last_save {
+                    persist_snapshot(&mut persist, snapshot, &debug_output);
+                }
+            }
             break;
         }
 
@@ -65,6 +233,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: "Connecting to WEC websocket...".to_string(),
         });
+        log_series_debug(&debug_output, "WEC", "connecting websocket");
 
         let mut transport = match SockJsTransport::connect_from_env() {
             Ok(transport) => transport,
@@ -84,6 +253,11 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
         let open_deadline = Instant::now() + Duration::from_secs(6);
         while Instant::now() < open_deadline {
             if stop_rx.try_recv().is_ok() {
+                if let Some(snapshot) = last_snapshot.as_ref() {
+                    if persist.dirty_since_last_save {
+                        persist_snapshot(&mut persist, snapshot, &debug_output);
+                    }
+                }
                 break 'outer;
             }
             match transport.read_packet() {
@@ -176,6 +350,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                     source_id,
                                     text: "WEC DDP connected".to_string(),
                                 });
+                                log_series_debug(&debug_output, "WEC", "DDP connected");
                                 subscribe_if_needed(
                                     &mut transport,
                                     &mut subscribed,
@@ -205,7 +380,15 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                     debug_subscriptions,
                                     Some((&tx, source_id)),
                                 );
-                                emit_snapshot(&tx, source_id, &store);
+                                emit_snapshot(
+                                    &tx,
+                                    source_id,
+                                    &store,
+                                    &mut persist,
+                                    &mut last_snapshot,
+                                    &mut last_session_id,
+                                    &debug_output,
+                                );
                             }
                             DdpIncoming::Changed {
                                 collection,
@@ -222,11 +405,27 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
                                     debug_subscriptions,
                                     Some((&tx, source_id)),
                                 );
-                                emit_snapshot(&tx, source_id, &store);
+                                emit_snapshot(
+                                    &tx,
+                                    source_id,
+                                    &store,
+                                    &mut persist,
+                                    &mut last_snapshot,
+                                    &mut last_session_id,
+                                    &debug_output,
+                                );
                             }
                             DdpIncoming::Removed { collection, id } => {
                                 store.apply_removed(&collection, &id);
-                                emit_snapshot(&tx, source_id, &store);
+                                emit_snapshot(
+                                    &tx,
+                                    source_id,
+                                    &store,
+                                    &mut persist,
+                                    &mut last_snapshot,
+                                    &mut last_session_id,
+                                    &debug_output,
+                                );
                             }
                             DdpIncoming::Unknown => {
                                 if debug_unknown {
@@ -264,6 +463,7 @@ pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Rece
             source_id,
             text: "WEC reconnecting in 4s...".to_string(),
         });
+        log_series_debug(&debug_output, "WEC", "reconnecting in 4s");
         if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
             break;
         }
@@ -435,10 +635,46 @@ fn normalize_session_param(value: &Value) -> Value {
     value.clone()
 }
 
-fn emit_snapshot(tx: &Sender<TimingMessage>, source_id: u64, store: &CollectionStore) {
+fn emit_snapshot(
+    tx: &Sender<TimingMessage>,
+    source_id: u64,
+    store: &CollectionStore,
+    persist: &mut PersistState,
+    last_snapshot: &mut Option<WecSnapshot>,
+    last_session_id: &mut Option<String>,
+    debug_output: &SeriesDebugOutput,
+) {
     let Some((header, entries)) = snapshot_from_store(store) else {
         return;
     };
+
+    let session_id = derive_session_identifier(&header);
+    let snapshot = WecSnapshot {
+        header: header.clone(),
+        entries: entries.clone(),
+        session_id: session_id.clone(),
+        fingerprint: meaningful_snapshot_fingerprint(&header, &entries),
+    };
+    let first_real_of_session = !snapshot.entries.is_empty() && session_id != *last_session_id;
+    let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
+    let materially_changed = last_snapshot
+        .as_ref()
+        .map(|prev| prev.fingerprint != snapshot.fingerprint)
+        .unwrap_or(true);
+    if materially_changed {
+        persist.dirty_since_last_save = true;
+    }
+    let never_persisted = persist.last_persisted_hash.is_none();
+    let save_now = never_persisted
+        || first_real_of_session
+        || session_complete
+        || (persist.dirty_since_last_save
+            && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
+    if save_now {
+        persist_snapshot(persist, &snapshot, debug_output);
+    }
+    *last_session_id = session_id;
+    *last_snapshot = Some(snapshot);
 
     let _ = tx.send(TimingMessage::Snapshot {
         source_id,
