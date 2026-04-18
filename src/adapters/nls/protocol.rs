@@ -144,8 +144,8 @@ pub(super) fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry>
             sum_sector_times(&raw_sector_field(v, 1), &raw_sector_field(v, 2)),
             sum_sector_times(&raw_sector_field(v, 3), &raw_sector_field(v, 4)),
             sum_sector_times(&raw_sector_field(v, 5), &raw_sector_field(v, 6)),
-            sum_sector_times(&raw_sector_field(v, 7), &raw_sector_field(v, 8)),
-            raw_sector_field(v, 9),
+            raw_sector_field(v, 7),
+            sum_sector_times(&raw_sector_field(v, 8), &raw_sector_field(v, 9)),
         )
     } else {
         (
