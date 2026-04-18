@@ -568,10 +568,14 @@ fn parse_german_date_range(raw: &str) -> Option<(CalendarDate, CalendarDate)> {
     ))
 }
 
-fn extract_target_date_range(lines: &[String], year: i32) -> Option<(CalendarDate, CalendarDate)> {
+fn extract_date_range_for_event_title(
+    lines: &[String],
+    target_event_title: &str,
+    year: i32,
+) -> Option<(CalendarDate, CalendarDate)> {
     let target_idx = lines
         .iter()
-        .position(|line| line.contains(N24_TARGET_EVENT_TITLE))?;
+        .position(|line| line.contains(target_event_title))?;
 
     for line in lines.iter().skip(target_idx + 1).take(12) {
         let Some((start, end)) = parse_german_date_range(line) else {
@@ -583,6 +587,50 @@ fn extract_target_date_range(lines: &[String], year: i32) -> Option<(CalendarDat
     }
 
     None
+}
+
+// Qualifier titles vary slightly (for example "ADAC 24h Qualifiers (2x4h)").
+// A small fuzzy matcher keeps event-id selection resilient.
+fn title_matches_24h_qualifiers(title: &str) -> bool {
+    let normalized = title.to_ascii_lowercase();
+    normalized.contains("24h") && normalized.contains("qualifier")
+}
+
+fn qualifiers_active_in_termine_entries(
+    entries: &[TermineScheduleEntry],
+    today: CalendarDate,
+) -> bool {
+    entries.iter().any(|entry| {
+        today >= entry.start && today <= entry.end && title_matches_24h_qualifiers(&entry.title)
+    })
+}
+
+fn qualifiers_active_on_nls_termine_page(
+    client: &Client,
+    today: CalendarDate,
+) -> Result<bool, String> {
+    let termine_url = discover_termine_url(client)?;
+    let response = client
+        .get(&termine_url)
+        .send()
+        .map_err(|err| format!("failed to fetch Termine page: {err}"))?;
+    let html = response
+        .text()
+        .map_err(|err| format!("failed to read Termine page: {err}"))?;
+
+    let entries = parse_termine_entries(&html);
+    if entries.is_empty() {
+        return Err("failed to parse Termine entries".to_string());
+    }
+
+    Ok(qualifiers_active_in_termine_entries(&entries, today))
+}
+
+fn date_within_range(today: CalendarDate, range: Option<(CalendarDate, CalendarDate)>) -> bool {
+    let Some((start, end)) = range else {
+        return false;
+    };
+    today >= start && today <= end
 }
 
 fn local_today() -> Option<CalendarDate> {
@@ -607,6 +655,11 @@ fn local_today() -> Option<CalendarDate> {
 fn determine_active_nuerburgring_event_id(client: &Client) -> Result<&'static str, String> {
     let today = local_today().ok_or_else(|| "failed to resolve local date".to_string())?;
 
+    let qualifiers_result = qualifiers_active_on_nls_termine_page(client, today);
+    if let Ok(true) = qualifiers_result {
+        return Ok(N24_EVENT_ID);
+    }
+
     let response = client
         .get(N24_TERMINE_URL)
         .send()
@@ -616,14 +669,23 @@ fn determine_active_nuerburgring_event_id(client: &Client) -> Result<&'static st
         .map_err(|err| format!("failed to read 24h schedule: {err}"))?;
 
     let lines = html_to_text_lines(&html);
-    let (start, end) = extract_target_date_range(&lines, today.year).ok_or_else(|| {
-        format!(
+    let race_window =
+        extract_date_range_for_event_title(&lines, N24_TARGET_EVENT_TITLE, today.year);
+
+    if race_window.is_none() {
+        if let Err(err) = qualifiers_result {
+            return Err(format!(
+                "qualifier check failed ({err}); could not parse {} date range for {}",
+                N24_TARGET_EVENT_TITLE, today.year
+            ));
+        }
+        return Err(format!(
             "could not parse {} date range for {}",
             N24_TARGET_EVENT_TITLE, today.year
-        )
-    })?;
+        ));
+    }
 
-    if today >= start && today <= end {
+    if date_within_range(today, race_window) {
         Ok(N24_EVENT_ID)
     } else {
         Ok(DEFAULT_NLS_EVENT_ID)
@@ -1580,10 +1642,43 @@ mod tests {
         "#;
         let lines = html_to_text_lines(html);
 
-        let parsed = extract_target_date_range(&lines, 2027).expect("year range");
+        let parsed = extract_date_range_for_event_title(&lines, N24_TARGET_EVENT_TITLE, 2027)
+            .expect("year range");
         assert_eq!(parsed.0.day, 27);
         assert_eq!(parsed.1.day, 30);
         assert_eq!(parsed.0.month, 5);
+    }
+
+    #[test]
+    fn qualifiers_title_matcher_accepts_common_variant() {
+        let html = r#"
+            <div>ADAC 24h Qualifiers</div>
+            <div>18. &#8211; 19.04.2026</div>
+            <div>17. &#8211; 18.04.2027</div>
+        "#;
+        let lines = html_to_text_lines(html);
+
+        let line = lines
+            .into_iter()
+            .find(|line| line.contains("Qualifiers"))
+            .expect("qualifier title line");
+        assert!(title_matches_24h_qualifiers(&line));
+    }
+
+    #[test]
+    fn qualifiers_title_matcher_accepts_nuerburgring_variant() {
+        let html = r#"
+            <div>ADAC 24h Nürburgring Qualifiers</div>
+            <div>17. &#8211; 19.04.2026</div>
+            <div>16. &#8211; 18.04.2027</div>
+        "#;
+        let lines = html_to_text_lines(html);
+
+        let line = lines
+            .into_iter()
+            .find(|line| line.contains("Nürburgring Qualifiers"))
+            .expect("qualifier title line");
+        assert!(title_matches_24h_qualifiers(&line));
     }
 
     #[test]
@@ -1751,6 +1846,32 @@ mod tests {
         };
 
         let event_id = if today >= start && today <= end {
+            N24_EVENT_ID
+        } else {
+            DEFAULT_NLS_EVENT_ID
+        };
+        assert_eq!(event_id, N24_EVENT_ID);
+    }
+
+    #[test]
+    fn chooses_24h_event_when_today_in_qualifiers_range() {
+        let qualifiers_start = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 18,
+        };
+        let qualifiers_end = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 19,
+        };
+        let today = CalendarDate {
+            year: 2026,
+            month: 4,
+            day: 19,
+        };
+
+        let event_id = if today >= qualifiers_start && today <= qualifiers_end {
             N24_EVENT_ID
         } else {
             DEFAULT_NLS_EVENT_ID
