@@ -1,8 +1,9 @@
 // IMSA feed adapter: polls JSON/JSONP endpoints and normalizes rows into shared timing structs.
 
+mod jsonp;
+mod snapshot;
+
 use std::{
-    hash::{Hash, Hasher},
-    path::PathBuf,
     sync::mpsc::{Receiver, Sender},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -12,11 +13,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    snapshot_runtime::{base_snapshot_fingerprint, derive_session_identifier},
+    snapshot_runtime::derive_session_identifier,
     timing::{TimingEntry, TimingHeader, TimingMessage},
-    timing_persist::{
-        data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
-        PersistState, SeriesDebugOutput,
+    timing_persist::{debounce_elapsed, log_series_debug, PersistState, SeriesDebugOutput},
+};
+
+use self::{
+    jsonp::{fetch_url_text, parse_jsonp_body},
+    snapshot::{
+        flush_dirty_snapshot_on_shutdown, imsa_snapshot_path, meaningful_snapshot_fingerprint,
+        persist_snapshot, persist_snapshot_if_dirty, restore_snapshot_from_disk,
     },
 };
 
@@ -322,29 +328,6 @@ fn parse_stable_car_id(obj: &Value, car_number: &str) -> String {
     format!("fallback:{}", car_number.trim())
 }
 
-fn parse_jsonp_body(text: &str, callback: &str) -> Result<Value, String> {
-    let trimmed = text.trim();
-
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        return serde_json::from_str(trimmed).map_err(|e| format!("json parse failed: {e}"));
-    }
-
-    let prefix = format!("{callback}(");
-    if !trimmed.starts_with(&prefix) {
-        return Err(format!(
-            "response is neither raw JSON nor expected JSONP callback {callback}"
-        ));
-    }
-
-    let start = prefix.len();
-    let end = trimmed
-        .rfind(')')
-        .ok_or_else(|| "jsonp closing ')' not found".to_string())?;
-
-    let inner = trimmed[start..end].trim();
-    serde_json::from_str(inner).map_err(|e| format!("jsonp inner json parse failed: {e}"))
-}
-
 fn first_present_string(root: &Value, keys: &[&str]) -> String {
     for key in keys {
         let v = as_string(root, key);
@@ -431,32 +414,6 @@ fn parse_results_snapshot(root: &Value) -> Result<(TimingHeader, Vec<TimingEntry
     }
 
     Err("unexpected JSON shape; top-level value is not object/array".to_string())
-}
-
-fn fetch_url_text(client: &Client, url: &str) -> Result<String, String> {
-    let response = client
-        .get(url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
-        )
-        .header("Accept", "application/javascript, application/json, text/plain, */*")
-        .header("Accept-Language", "en-US,en;q=0.9")
-        .header("Referer", "https://www.imsa.com/scoring/")
-        .header("Origin", "https://www.imsa.com")
-        .header("Cache-Control", "no-cache")
-        .header("Pragma", "no-cache")
-        .send()
-        .map_err(|e| format!("request failed: {e}"))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("http {status}"));
-    }
-
-    response
-        .text()
-        .map_err(|e| format!("body read failed: {e}"))
 }
 
 fn fetch_snapshot(client: &Client) -> Result<FetchedSnapshot, String> {
@@ -587,138 +544,6 @@ fn handle_fetched_snapshot(
     }
 }
 
-fn persist_snapshot_if_dirty(runtime: &mut ImsaRuntimeState, reason: &str) {
-    if !runtime.persist.dirty_since_last_save {
-        return;
-    }
-    if let Some(snapshot) = runtime.last_good_live_snapshot.clone() {
-        persist_snapshot(runtime, &snapshot, reason);
-    }
-}
-
-fn flush_dirty_snapshot_on_shutdown(runtime: &mut ImsaRuntimeState) {
-    persist_snapshot_if_dirty(runtime, "shutdown flush");
-}
-
-fn persist_snapshot(runtime: &mut ImsaRuntimeState, snapshot: &ImsaSnapshot, reason: &str) {
-    let Some(path) = runtime.persist.path.as_ref() else {
-        log_debug(
-            &runtime.debug_output,
-            "IMSA snapshot persist skipped: config path unavailable.".to_string(),
-        );
-        return;
-    };
-
-    let payload = PersistedImsaSnapshot {
-        saved_unix_ms: now_unix_ms(),
-        session_id: snapshot.session_id.clone(),
-        meaningful_fingerprint: snapshot.fingerprint,
-        header: snapshot.header.clone(),
-        entries: snapshot.entries.clone(),
-        raw_results_payload: snapshot.raw_results_payload.clone(),
-        raw_race_data_payload: snapshot.raw_race_data_payload.clone(),
-    };
-
-    if let Err(err) = write_json_pretty(path, &payload) {
-        log_debug(
-            &runtime.debug_output,
-            format!("IMSA snapshot persist failed writing file: {err}"),
-        );
-        return;
-    }
-
-    runtime.persist.last_persisted_hash = Some(snapshot.fingerprint);
-    runtime.persist.last_save_at = Some(SystemTime::now());
-    runtime.persist.dirty_since_last_save = false;
-    log_debug(
-        &runtime.debug_output,
-        format!("IMSA snapshot persisted ({reason}) to {}.", path.display()),
-    );
-}
-
-fn restore_snapshot_from_disk(
-    runtime: &mut ImsaRuntimeState,
-    tx: &Sender<TimingMessage>,
-    source_id: u64,
-) {
-    let Some(path) = runtime.persist.path.as_ref() else {
-        return;
-    };
-
-    let Some(saved) = read_json::<PersistedImsaSnapshot>(path) else {
-        return;
-    };
-
-    let entries: Vec<TimingEntry> = saved
-        .entries
-        .into_iter()
-        .filter(|e| !is_parsed_entry_transponder_placeholder(e))
-        .collect();
-
-    let restored = ImsaSnapshot {
-        header: saved.header,
-        entries,
-        session_id: saved.session_id,
-        fingerprint: saved.meaningful_fingerprint,
-        raw_results_payload: saved.raw_results_payload,
-        raw_race_data_payload: saved.raw_race_data_payload,
-    };
-
-    runtime.last_session_id = restored.session_id.clone();
-    runtime.persist.last_persisted_hash = Some(restored.fingerprint);
-    runtime.persist.last_save_at = Some(SystemTime::now());
-    runtime.last_good_live_snapshot = Some(restored.clone());
-
-    let _ = tx.send(TimingMessage::Snapshot {
-        source_id,
-        header: restored.header,
-        entries: restored.entries,
-    });
-
-    log_debug(
-        &runtime.debug_output,
-        format!("IMSA snapshot restored from {}.", path.display()),
-    );
-}
-
-fn imsa_snapshot_path() -> Option<PathBuf> {
-    data_local_snapshot_path("imsa_snapshot.json")
-}
-
-fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
-    let mut hasher = base_snapshot_fingerprint(header);
-
-    for entry in entries {
-        entry.position.hash(&mut hasher);
-        entry.car_number.trim().hash(&mut hasher);
-        entry
-            .class_name
-            .trim()
-            .to_ascii_lowercase()
-            .hash(&mut hasher);
-        entry.class_rank.trim().hash(&mut hasher);
-        entry.driver.trim().to_ascii_lowercase().hash(&mut hasher);
-        entry.vehicle.trim().to_ascii_lowercase().hash(&mut hasher);
-        entry.laps.trim().hash(&mut hasher);
-        entry.gap_overall.trim().hash(&mut hasher);
-        entry.gap_class.trim().hash(&mut hasher);
-        entry.gap_next_in_class.trim().hash(&mut hasher);
-        entry.last_lap.trim().hash(&mut hasher);
-        entry.best_lap.trim().hash(&mut hasher);
-        entry.best_lap_no.trim().hash(&mut hasher);
-        entry.pit.trim().to_ascii_lowercase().hash(&mut hasher);
-        entry.pit_stops.trim().hash(&mut hasher);
-        entry
-            .fastest_driver
-            .trim()
-            .to_ascii_lowercase()
-            .hash(&mut hasher);
-        entry.stable_id.trim().hash(&mut hasher);
-    }
-
-    hasher.finish()
-}
-
 fn classify_payload(
     results_root: &Value,
     race_data_root: &Value,
@@ -815,13 +640,6 @@ fn is_session_complete(race_data_root: &Value, header: &TimingHeader) -> bool {
     }
 
     false
-}
-
-fn now_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn payload_classification_label(classification: PayloadClassification) -> &'static str {
