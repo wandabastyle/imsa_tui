@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::{
     favourites,
-    timing::{Series, TimingEntry, TimingHeader},
+    timing::{Series, TimingEntry, TimingHeader, TimingNotice},
 };
 
 use super::{
@@ -22,8 +22,8 @@ use super::{
     imsa_widths::ImsaColumnWidths,
     pit::PitTracker,
     popups::{
-        centered_rect, group_picker_popup, help_popup, series_picker_popup, GroupPickerState,
-        LogsPanelState, SeriesPickerState,
+        centered_rect, group_picker_popup, help_popup, messages_popup, series_picker_popup,
+        GroupPickerState, LogsPanelState, MessagesPanelState, SeriesPickerState,
     },
     search::SearchState,
     style::animated_flag_theme,
@@ -50,6 +50,9 @@ pub(crate) struct RenderCtx<'a> {
     pub(crate) series_picker: SeriesPickerState,
     pub(crate) group_picker: GroupPickerState,
     pub(crate) logs_panel: LogsPanelState,
+    pub(crate) messages_panel: MessagesPanelState,
+    pub(crate) active_notices: &'a [TimingNotice],
+    pub(crate) highlighted_notice_cars: &'a HashSet<String>,
     pub(crate) imsa_debug_logs: &'a VecDeque<String>,
     pub(crate) demo_mode: bool,
     pub(crate) last_error: Option<&'a String>,
@@ -135,7 +138,10 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
     ));
 
     let mut key_hint_spans = vec![Span::styled(
-        "Keys: h help | L logs | d demo | q quit",
+        format!(
+            "Keys: h help | m messages ({}) | L logs | d demo | q quit",
+            ctx.active_notices.len()
+        ),
         header_style,
     )];
 
@@ -201,6 +207,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                     class_colors: &ctx.header.class_colors,
                     now: ctx.now,
                     session_name: &ctx.header.session_name,
+                    highlighted_cars: ctx.highlighted_notice_cars,
                 };
                 let table = build_table(
                     "Overall",
@@ -289,6 +296,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                             class_colors: &ctx.header.class_colors,
                             now: ctx.now,
                             session_name: &ctx.header.session_name,
+                            highlighted_cars: ctx.highlighted_notice_cars,
                         };
                         let table = build_table(
                             title,
@@ -320,6 +328,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         class_colors: &ctx.header.class_colors,
                         now: ctx.now,
                         session_name: &ctx.header.session_name,
+                        highlighted_cars: ctx.highlighted_notice_cars,
                     };
                     let table = build_table(
                         format!("{} ({} cars)", class_name, class_entries.len()),
@@ -369,6 +378,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         class_colors: &ctx.header.class_colors,
                         now: ctx.now,
                         session_name: &ctx.header.session_name,
+                        highlighted_cars: ctx.highlighted_notice_cars,
                     };
                     let table = build_table(
                         format!("Favourites ({} cars)", favourite_entries.len()),
@@ -445,6 +455,15 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
             .wrap(Wrap { trim: false })
             .block(Block::default().title(title).borders(Borders::ALL));
         f.render_widget(logs_popup, area);
+    }
+
+    if ctx.messages_panel.is_open {
+        let area = centered_rect(70, 60, size);
+        f.render_widget(Clear, area);
+        f.render_widget(
+            messages_popup(ctx.active_notices, ctx.messages_panel.selected_idx),
+            area,
+        );
     }
 }
 

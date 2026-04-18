@@ -27,8 +27,8 @@ use crate::{
 use self::{
     countdown::{now_millis, refresh_header_time_to_go, CountdownState},
     protocol::{
-        is_retriable_timeout, parse_ws_message, refresh_active_event_id, set_socket_timeout,
-        should_emit_connected_status_on_update,
+        is_retriable_timeout, notices_from_ws_message, parse_ws_message, refresh_active_event_id,
+        set_socket_timeout, should_emit_connected_status_on_update,
     },
     schedule::{
         determine_active_nuerburgring_event_id, fetch_homepage_event_name, fetch_termine_event_name,
@@ -199,7 +199,7 @@ pub fn websocket_worker_with_debug(
         let subscribe = json!({
             "clientLocalTime": now_millis(),
             "eventId": active_event_id,
-            "eventPid": [0, 4]
+            "eventPid": [0, 3, 4]
         });
 
         if let Err(err) = socket.send(Message::Text(subscribe.to_string())) {
@@ -271,6 +271,9 @@ pub fn websocket_worker_with_debug(
 
             match socket.read() {
                 Ok(Message::Text(text)) => {
+                    for notice in notices_from_ws_message(&text) {
+                        let _ = tx.send(TimingMessage::Notice { source_id, notice });
+                    }
                     if let Some((entries, header_changed)) = parse_ws_message(
                         &text,
                         &mut header,
@@ -343,6 +346,9 @@ pub fn websocket_worker_with_debug(
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = std::str::from_utf8(&data) {
+                        for notice in notices_from_ws_message(text) {
+                            let _ = tx.send(TimingMessage::Notice { source_id, notice });
+                        }
                         if let Some((entries, header_changed)) = parse_ws_message(
                             text,
                             &mut header,
@@ -968,6 +974,27 @@ mod tests {
             header.event_name,
             "Deutsche Historische Langstrecken Meisterschaft (DHLM)"
         );
+    }
+
+    #[test]
+    fn pid3_extracts_race_messages() {
+        let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"15:04:42","MESSAGE":"#999 non respect of code 60 - time penalty 95 sec after first lap in race","MESSAGEGROUP":""},{"ID":"2","MESSAGETIME":"15:04:03","MESSAGE":"Reminder for 24H","MESSAGEGROUP":""}]}"##;
+
+        let notices = notices_from_ws_message(payload);
+        assert_eq!(notices.len(), 2);
+        assert_eq!(notices[0].id, "1");
+        assert_eq!(notices[0].time, "15:04:42");
+        assert!(notices[0].text.contains("#999"));
+        assert_eq!(notices[1].id, "2");
+        assert_eq!(notices[1].time, "15:04:03");
+        assert_eq!(notices[1].text, "Reminder for 24H");
+    }
+
+    #[test]
+    fn pid3_ignores_empty_messages() {
+        let payload =
+            r#"{"PID":"3","MESSAGES":[{"ID":"9","MESSAGETIME":"15:10:00","MESSAGE":"   "}]}"#;
+        assert!(notices_from_ws_message(payload).is_empty());
     }
 
     #[test]

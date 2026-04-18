@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     feed::spawn::spawn_series_worker,
-    timing::{Series, TimingEntry, TimingHeader, TimingMessage},
+    timing::{Series, TimingEntry, TimingHeader, TimingMessage, TimingNotice},
     timing_persist::SeriesDebugOutput,
 };
 
@@ -67,7 +67,8 @@ pub(crate) fn drain_messages(
     status: &mut String,
     last_error: &mut Option<String>,
     last_update: &mut Option<Instant>,
-) {
+) -> Vec<TimingNotice> {
+    let mut notices = Vec::new();
     while let Ok(msg) = rx.try_recv() {
         match msg {
             TimingMessage::Status { source_id, text } if source_id == active_source_id => {
@@ -104,7 +105,11 @@ pub(crate) fn drain_messages(
                 *last_error = None;
                 *last_update = Some(Instant::now());
             }
+            TimingMessage::Notice { source_id, notice } if source_id == active_source_id => {
+                notices.push(notice)
+            }
             _ => {}
         }
     }
+    notices
 }

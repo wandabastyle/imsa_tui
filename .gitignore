@@ -3,3 +3,7 @@
 /web/.svelte-kit
 /web/build
 session-*.md
+docs/data/*.ndjson
+docs/data/nls_ws_field_catalog.md
+docs/data/nls_ws_field_catalog.json
+__pycache__/

@@ -26,7 +26,7 @@ use super::{
     },
     imsa_widths::{init_imsa_widths_baseline, save_imsa_column_widths_baseline, ImsaColumnWidths},
     pit::{refresh_pit_trackers, PitTracker},
-    popups::{GroupPickerState, LogsPanelState, SeriesPickerState},
+    popups::{GroupPickerState, LogsPanelState, MessagesPanelState, SeriesPickerState},
     render::{draw_frame, RenderCtx},
     search::{refresh_search_matches, SearchState},
 };
@@ -34,7 +34,7 @@ use super::{
 use crate::demo;
 use crate::{
     favourites,
-    timing::{Series, TimingEntry, TimingHeader, TimingMessage},
+    timing::{Series, TimingEntry, TimingHeader, TimingMessage, TimingNotice},
 };
 
 struct SeriesChangeCtx<'a> {
@@ -47,12 +47,67 @@ struct SeriesChangeCtx<'a> {
     entries: &'a mut Vec<TimingEntry>,
     status: &'a mut String,
     favourites: &'a mut HashSet<String>,
+    notices: &'a mut Vec<TimingNotice>,
+    notice_keys: &'a mut HashSet<String>,
+    highlighted_notice_cars: &'a mut HashSet<String>,
     last_error: &'a mut Option<String>,
     last_update: &'a mut Option<Instant>,
     selected_row: &'a mut usize,
     view_mode: &'a mut ViewMode,
     search: &'a mut SearchState,
     config: &'a mut AppConfig,
+}
+
+fn extract_notice_car_numbers(text: &str) -> HashSet<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut car_numbers = HashSet::new();
+    let mut idx = 0usize;
+
+    while idx < chars.len() {
+        if chars[idx] != '#' {
+            idx += 1;
+            continue;
+        }
+
+        idx += 1;
+        let start = idx;
+        while idx < chars.len() && chars[idx].is_ascii_digit() {
+            idx += 1;
+        }
+        if idx == start {
+            continue;
+        }
+
+        let raw: String = chars[start..idx].iter().collect();
+        if raw.is_empty() {
+            continue;
+        }
+
+        car_numbers.insert(raw.clone());
+        let normalized = raw.trim_start_matches('0');
+        if !normalized.is_empty() {
+            car_numbers.insert(normalized.to_string());
+        }
+    }
+
+    car_numbers
+}
+
+fn notice_key(notice: &TimingNotice) -> String {
+    format!(
+        "{}|{}|{}",
+        notice.id.trim(),
+        notice.time.trim(),
+        notice.text.trim()
+    )
+}
+
+fn rebuild_highlighted_notice_cars(notices: &[TimingNotice]) -> HashSet<String> {
+    let mut highlighted = HashSet::new();
+    for notice in notices {
+        highlighted.extend(extract_notice_car_numbers(&notice.text));
+    }
+    highlighted
 }
 
 fn favourite_key(series: Series, stable_id: &str) -> String {
@@ -106,6 +161,9 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     *ctx.selected_row = 0;
     *ctx.view_mode = ViewMode::Overall;
     *ctx.search = SearchState::default();
+    ctx.notices.clear();
+    ctx.notice_keys.clear();
+    ctx.highlighted_notice_cars.clear();
 
     ctx.config.selected_series = *ctx.active_series;
     if let Err(err) = save_config(ctx.config) {
@@ -139,6 +197,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut series_picker = SeriesPickerState::closed();
     let mut group_picker = GroupPickerState::closed();
     let mut logs_panel = LogsPanelState::closed();
+    let mut messages_panel = MessagesPanelState::closed();
+    let mut notices: Vec<TimingNotice> = Vec::new();
+    let mut notice_keys: HashSet<String> = HashSet::new();
+    let mut highlighted_notice_cars: HashSet<String> = HashSet::new();
     let mut imsa_debug_logs = VecDeque::new();
     let mut gap_anchor_stable_id: Option<String> = None;
     let mut pit_trackers: HashMap<String, PitTracker> = HashMap::new();
@@ -159,7 +221,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             last_error = None;
             last_update = Some(Instant::now());
         } else if let Some(active_feed) = &feed {
-            drain_messages(
+            let incoming_notices = drain_messages(
                 &rx,
                 active_feed.source_id,
                 &mut header,
@@ -168,6 +230,17 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 &mut last_error,
                 &mut last_update,
             );
+
+            for notice in incoming_notices {
+                let key = notice_key(&notice);
+                if notice_keys.insert(key) {
+                    notices.push(notice);
+                }
+            }
+            highlighted_notice_cars = rebuild_highlighted_notice_cars(&notices);
+            messages_panel.selected_idx = messages_panel
+                .selected_idx
+                .min(notices.len().saturating_sub(1));
         }
         drain_series_debug_logs(&feed, &mut imsa_debug_logs);
 
@@ -267,6 +340,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 series_picker,
                 group_picker,
                 logs_panel,
+                messages_panel,
+                active_notices: &notices,
+                highlighted_notice_cars: &highlighted_notice_cars,
                 imsa_debug_logs: &imsa_debug_logs,
                 demo_mode,
                 last_error: last_error.as_ref(),
@@ -330,6 +406,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 entries: &mut entries,
                                 status: &mut status,
                                 favourites: &mut favourites,
+                                notices: &mut notices,
+                                notice_keys: &mut notice_keys,
+                                highlighted_notice_cars: &mut highlighted_notice_cars,
                                 last_error: &mut last_error,
                                 last_update: &mut last_update,
                                 selected_row: &mut selected_row,
@@ -340,6 +419,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             apply_series_change(next_series, &mut series_change_ctx);
                             gap_anchor_stable_id = None;
                             series_picker.is_open = false;
+                            messages_panel = MessagesPanelState::closed();
                         }
                         _ => {}
                     }
@@ -410,11 +490,55 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     continue;
                 }
 
+                if messages_panel.is_open {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('m') => messages_panel.is_open = false,
+                        KeyCode::Down | KeyCode::Char('j') if !notices.is_empty() => {
+                            messages_panel.selected_idx =
+                                (messages_panel.selected_idx + 1) % notices.len();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') if !notices.is_empty() => {
+                            if messages_panel.selected_idx == 0 {
+                                messages_panel.selected_idx = notices.len() - 1;
+                            } else {
+                                messages_panel.selected_idx -= 1;
+                            }
+                        }
+                        KeyCode::Enter | KeyCode::Char('d') if !notices.is_empty() => {
+                            let idx = messages_panel.selected_idx.min(notices.len() - 1);
+                            let removed = notices.remove(idx);
+                            notice_keys.remove(&notice_key(&removed));
+                            highlighted_notice_cars = rebuild_highlighted_notice_cars(&notices);
+                            messages_panel.selected_idx = messages_panel
+                                .selected_idx
+                                .min(notices.len().saturating_sub(1));
+                        }
+                        KeyCode::Char('c') => {
+                            notices.clear();
+                            notice_keys.clear();
+                            highlighted_notice_cars.clear();
+                            messages_panel.selected_idx = 0;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                     KeyCode::Char('h') => show_help = !show_help,
+                    KeyCode::Char('m') if !show_help => {
+                        messages_panel.is_open = !messages_panel.is_open;
+                        messages_panel.selected_idx = messages_panel
+                            .selected_idx
+                            .min(notices.len().saturating_sub(1));
+                        logs_panel.is_open = false;
+                        series_picker.is_open = false;
+                        group_picker.is_open = false;
+                    }
                     KeyCode::Char('L') if !show_help => {
                         logs_panel.is_open = !logs_panel.is_open;
                         logs_panel.scroll = 0;
+                        messages_panel.is_open = false;
                         series_picker.is_open = false;
                         group_picker.is_open = false;
                     }
@@ -436,10 +560,12 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     }
                     KeyCode::Char('t') if !show_help => {
                         group_picker.is_open = false;
+                        messages_panel.is_open = false;
                         series_picker.is_open = true;
                         series_picker.selected_idx = selected_series_index(active_series);
                     }
                     KeyCode::Char('G') if !show_help => {
+                        messages_panel.is_open = false;
                         group_picker.is_open = true;
                         group_picker.selected_idx = match view_mode {
                             ViewMode::Class(idx) => idx.min(current_groups.len().saturating_sub(1)),
@@ -525,6 +651,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         selected_row = 0;
                         view_mode = ViewMode::Overall;
                         search = SearchState::default();
+                        notices.clear();
+                        notice_keys.clear();
+                        highlighted_notice_cars.clear();
+                        messages_panel = MessagesPanelState::closed();
 
                         if demo_mode {
                             stop_feed(&mut feed);
@@ -664,5 +794,38 @@ mod tests {
             logs.back().map(String::as_str),
             Some(expected_last.as_str())
         );
+    }
+
+    #[test]
+    fn extract_notice_car_numbers_collects_hash_numbers() {
+        let cars = extract_notice_car_numbers(
+            "#999 non respect of code 60 | #155 penalty | reminder | #007 warning",
+        );
+        assert!(cars.contains("999"));
+        assert!(cars.contains("155"));
+        assert!(cars.contains("007"));
+        assert!(cars.contains("7"));
+    }
+
+    #[test]
+    fn rebuild_highlighted_notice_cars_aggregates_all_notices() {
+        let notices = vec![
+            TimingNotice {
+                id: "1".to_string(),
+                time: "15:04:42".to_string(),
+                text: "#999 penalty".to_string(),
+            },
+            TimingNotice {
+                id: "2".to_string(),
+                time: "15:04:25".to_string(),
+                text: "#155 and #089 warning".to_string(),
+            },
+        ];
+
+        let highlighted = rebuild_highlighted_notice_cars(&notices);
+        assert!(highlighted.contains("999"));
+        assert!(highlighted.contains("155"));
+        assert!(highlighted.contains("089"));
+        assert!(highlighted.contains("89"));
     }
 }

@@ -152,6 +152,7 @@ impl WebAppState {
                 snapshot.status = "Live timing connected".to_string();
                 snapshot.last_update_unix_ms = Some(now_unix_ms());
             }
+            TimingMessage::Notice { .. } => {}
         }
     }
 

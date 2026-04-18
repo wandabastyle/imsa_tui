@@ -108,6 +108,13 @@ pub struct TimingEntry {
     pub stable_id: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimingNotice {
+    pub id: String,
+    pub time: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum TimingMessage {
     Status {
@@ -122,5 +129,9 @@ pub enum TimingMessage {
         source_id: u64,
         header: TimingHeader,
         entries: Vec<TimingEntry>,
+    },
+    Notice {
+        source_id: u64,
+        notice: TimingNotice,
     },
 }

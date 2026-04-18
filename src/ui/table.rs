@@ -32,6 +32,7 @@ pub(crate) struct TableRenderCtx<'a> {
     pub(crate) class_colors: &'a BTreeMap<String, TimingClassColor>,
     pub(crate) now: Instant,
     pub(crate) session_name: &'a str,
+    pub(crate) highlighted_cars: &'a HashSet<String>,
 }
 
 pub(crate) fn build_table<'a>(
@@ -117,11 +118,22 @@ fn build_rows(
                 ""
             };
             let selected = ctx.selected_row_in_view == Some(idx);
+            let highlighted_car = is_highlighted_car_number(&e.car_number, ctx.highlighted_cars);
+            let car_cell_style = if highlighted_car {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Rgb(255, 221, 0))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let car_cell =
+                Cell::from(format!("{fav_marker}{}", e.car_number)).style(car_cell_style);
 
             let row = match ctx.active_series {
                 Series::Imsa => Row::new(vec![
                     Cell::from(e.position.to_string()),
-                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    car_cell,
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
                     Cell::from(marquee_if_needed(
@@ -175,7 +187,7 @@ fn build_rows(
                 ]),
                 Series::Nls | Series::Dhlm => Row::new(vec![
                     Cell::from(e.position.to_string()),
-                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    car_cell,
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
                     Cell::from(marquee_if_needed(&e.driver, 18, selected, ctx.marquee_tick)),
@@ -203,7 +215,7 @@ fn build_rows(
                 ]),
                 Series::F1 => Row::new(vec![
                     Cell::from(e.position.to_string()),
-                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    car_cell,
                     Cell::from(marquee_if_needed(&e.driver, 32, selected, ctx.marquee_tick)),
                     Cell::from(marquee_if_needed(&e.team, 22, selected, ctx.marquee_tick)),
                     Cell::from(e.laps.clone()),
@@ -226,7 +238,7 @@ fn build_rows(
                 ]),
                 Series::Wec => Row::new(vec![
                     Cell::from(e.position.to_string()),
-                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    car_cell,
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
                     Cell::from(marquee_if_needed(&e.driver, 18, selected, ctx.marquee_tick)),
@@ -265,6 +277,21 @@ fn build_rows(
             row.style(style)
         })
         .collect()
+}
+
+fn normalize_car_number(value: &str) -> &str {
+    let trimmed = value.trim();
+    let without_zeroes = trimmed.trim_start_matches('0');
+    if without_zeroes.is_empty() {
+        trimmed
+    } else {
+        without_zeroes
+    }
+}
+
+fn is_highlighted_car_number(car_number: &str, highlighted: &HashSet<String>) -> bool {
+    let trimmed = car_number.trim();
+    highlighted.contains(trimmed) || highlighted.contains(normalize_car_number(trimmed))
 }
 
 fn marquee_if_needed(text: &str, width_hint: usize, selected: bool, tick: usize) -> String {

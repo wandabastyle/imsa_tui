@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::timing::Series;
+use crate::timing::{Series, TimingNotice};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SeriesPickerState {
@@ -41,6 +41,21 @@ impl GroupPickerState {
 pub(crate) struct LogsPanelState {
     pub(crate) is_open: bool,
     pub(crate) scroll: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MessagesPanelState {
+    pub(crate) is_open: bool,
+    pub(crate) selected_idx: usize,
+}
+
+impl MessagesPanelState {
+    pub(crate) fn closed() -> Self {
+        Self {
+            is_open: false,
+            selected_idx: 0,
+        }
+    }
 }
 
 impl LogsPanelState {
@@ -91,6 +106,7 @@ pub(crate) fn help_popup() -> Paragraph<'static> {
         Line::from("s      search by car #, driver, or team"),
         Line::from("n/p    next/prev search result"),
         Line::from("d      toggle demo/live data source"),
+        Line::from("m      toggle race messages popup"),
         Line::from("L      toggle IMSA debug logs"),
         Line::from("q      quit"),
         Line::from("Enter  confirm popup selection"),
@@ -103,6 +119,51 @@ pub(crate) fn help_popup() -> Paragraph<'static> {
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Help").borders(Borders::ALL))
+}
+
+pub(crate) fn messages_popup(notices: &[TimingNotice], selected_idx: usize) -> Paragraph<'static> {
+    let mut lines = vec![
+        Line::from(vec![Span::styled(
+            "Race Messages",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+    ];
+
+    if notices.is_empty() {
+        lines.push(Line::from("No active race messages."));
+    } else {
+        for (idx, notice) in notices.iter().enumerate() {
+            let marker = if idx == selected_idx { ">" } else { " " };
+            let style = if idx == selected_idx {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let time = if notice.time.trim().is_empty() {
+                "--:--:--"
+            } else {
+                notice.time.trim()
+            };
+            lines.push(Line::from(vec![Span::styled(
+                format!("{marker} {time}  {}", notice.text.trim()),
+                style,
+            )]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "↑/↓ select | Enter/d dismiss selected | c clear all",
+    ));
+    lines.push(Line::from("Esc or m close"));
+
+    Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("Messages").borders(Borders::ALL))
 }
 
 pub(crate) fn series_picker_popup(

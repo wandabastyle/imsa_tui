@@ -3,7 +3,7 @@ use std::{io, time::Duration};
 use serde_json::Value;
 use tungstenite::{stream::MaybeTlsStream, Error as WsError};
 
-use crate::timing::{TimingEntry, TimingHeader};
+use crate::timing::{TimingEntry, TimingHeader, TimingNotice};
 
 use super::countdown::{now_millis, refresh_header_time_to_go, CountdownState};
 
@@ -182,6 +182,35 @@ pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
         fastest_driver: "-".to_string(),
         stable_id,
     })
+}
+
+pub(crate) fn notices_from_ws_message(text: &str) -> Vec<TimingNotice> {
+    let parsed: Value = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+
+    if get_str(&parsed, "PID") != Some("3") {
+        return Vec::new();
+    }
+
+    parsed
+        .get("MESSAGES")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            let text = first_non_empty(row, &["MESSAGE", "MSG", "TEXT"])?;
+            let id = first_non_empty(row, &["ID"]).unwrap_or("");
+            let time = first_non_empty(row, &["MESSAGETIME", "TIME"]).unwrap_or("");
+
+            Some(TimingNotice {
+                id: id.to_string(),
+                time: time.to_string(),
+                text: text.to_string(),
+            })
+        })
+        .collect()
 }
 
 fn track_state_text(raw: &str) -> String {

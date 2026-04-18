@@ -18,7 +18,7 @@ use tungstenite::{
 };
 
 use crate::{
-    adapters::nls::protocol::entry_from_value,
+    adapters::nls::protocol::{entry_from_value, notices_from_ws_message},
     timing::{TimingEntry, TimingHeader, TimingMessage},
     timing_persist::{data_local_snapshot_path, log_series_debug, PersistState, SeriesDebugOutput},
 };
@@ -145,7 +145,7 @@ pub fn websocket_worker_with_debug(
         let subscribe = serde_json::json!({
             "clientLocalTime": now_millis(),
             "eventId": DEFAULT_DHLM_EVENT_ID,
-            "eventPid": [0, 4]
+            "eventPid": [0, 3, 4]
         });
 
         if let Err(err) = socket.send(Message::Text(subscribe.to_string())) {
@@ -186,6 +186,9 @@ pub fn websocket_worker_with_debug(
         if use_dump_mode {
             if let Some(lines) = load_dump_file(&dhlm_dump_path()) {
                 for line in lines {
+                    for notice in notices_from_ws_message(&line) {
+                        let _ = tx.send(TimingMessage::Notice { source_id, notice });
+                    }
                     if parse_timing_message(&line, &mut header, &mut latest_entries) {
                         let session_id = derive_session_id(&header);
                         let snapshot = DhlmSnapshot {
@@ -238,6 +241,9 @@ pub fn websocket_worker_with_debug(
 
             match socket.read() {
                 Ok(Message::Text(text)) => {
+                    for notice in notices_from_ws_message(&text) {
+                        let _ = tx.send(TimingMessage::Notice { source_id, notice });
+                    }
                     if !parse_timing_message(&text, &mut header, &mut latest_entries) {
                         continue;
                     }
@@ -280,6 +286,9 @@ pub fn websocket_worker_with_debug(
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = String::from_utf8(data.to_vec()) {
+                        for notice in notices_from_ws_message(&text) {
+                            let _ = tx.send(TimingMessage::Notice { source_id, notice });
+                        }
                         if parse_timing_message(&text, &mut header, &mut latest_entries) {
                             let _ = tx.send(TimingMessage::Snapshot {
                                 source_id,
