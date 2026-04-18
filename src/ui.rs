@@ -515,21 +515,37 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
 
 fn imsa_table_widths() -> [Constraint; 16] {
     [
-        Constraint::Length(3),
-        Constraint::Length(3),
+        // 0: Pos
+        Constraint::Length(2),
+        // 1: #
+        Constraint::Length(2),
+        // 2: Class
         Constraint::Length(5),
+        // 3: PIC
         Constraint::Length(4),
+        // 4: Driver
         Constraint::Length(24),
-        Constraint::Min(16),
+        // 5: Vehicle
+        Constraint::Min(12),
+        // 6: Laps
         Constraint::Length(4),
-        Constraint::Length(9),
+        // 7: Gap O
+        Constraint::Length(13),
+        // 8: Gap C
         Constraint::Length(7),
+        // 9: Next C
+        Constraint::Length(13),
+        // 10: Last
         Constraint::Length(9),
+        // 11: Best
         Constraint::Length(9),
-        Constraint::Length(9),
-        Constraint::Length(3),
-        Constraint::Length(3),
+        // 12: BL#
+        Constraint::Length(2),
+        // 13: Pit
+        Constraint::Length(2),
+        // 14: Stop
         Constraint::Length(5),
+        // 15: Fastest Driver
         Constraint::Length(24),
     ]
 }
