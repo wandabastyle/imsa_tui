@@ -1,5 +1,6 @@
 // Shared timing domain model used by feed workers, TUI rendering, and web API serialization.
 
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -11,11 +12,12 @@ pub enum Series {
     Imsa,
     Nls,
     F1,
+    Wec,
 }
 
 impl Series {
-    pub const fn all() -> [Series; 3] {
-        [Series::Imsa, Series::Nls, Series::F1]
+    pub const fn all() -> [Series; 4] {
+        [Series::Imsa, Series::Nls, Series::F1, Series::Wec]
     }
 
     pub fn label(self) -> &'static str {
@@ -23,6 +25,7 @@ impl Series {
             Series::Imsa => "IMSA",
             Series::Nls => "NLS",
             Series::F1 => "F1",
+            Series::Wec => "WEC",
         }
     }
 
@@ -31,6 +34,7 @@ impl Series {
             Series::Imsa => "imsa",
             Series::Nls => "nls",
             Series::F1 => "f1",
+            Series::Wec => "wec",
         }
     }
 }
@@ -43,6 +47,7 @@ impl FromStr for Series {
             "imsa" => Ok(Self::Imsa),
             "nls" => Ok(Self::Nls),
             "f1" => Ok(Self::F1),
+            "wec" => Ok(Self::Wec),
             other => Err(format!("unsupported series: {other}")),
         }
     }
@@ -56,6 +61,14 @@ pub struct TimingHeader {
     pub day_time: String,
     pub flag: String,
     pub time_to_go: String,
+    #[serde(default)]
+    pub class_colors: BTreeMap<String, TimingClassColor>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimingClassColor {
+    pub foreground: String,
+    pub background: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

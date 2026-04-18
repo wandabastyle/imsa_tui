@@ -253,7 +253,44 @@ fn parse_pit(obj: &Value) -> String {
     }
 }
 
+fn is_transponder_placeholder(obj: &Value) -> bool {
+    let Some(n) = get_str(obj, "N") else {
+        return false;
+    };
+
+    if !n.starts_with("Tx") {
+        return false;
+    }
+
+    let class_empty = get_str(obj, "C")
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    let driver_empty = get_str(obj, "F")
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    let vehicle_empty = get_str(obj, "V")
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+
+    class_empty && driver_empty && vehicle_empty
+}
+
+fn is_parsed_entry_transponder_placeholder(entry: &TimingEntry) -> bool {
+    let cn = entry.car_number.trim();
+    if !cn.starts_with("Tx") {
+        return false;
+    }
+    let class_empty = entry.class_name.trim().is_empty() || entry.class_name == "-";
+    let driver_empty = entry.driver.trim().is_empty() || entry.driver == "-";
+    let vehicle_empty = entry.vehicle.trim().is_empty() || entry.vehicle == "-";
+    class_empty && driver_empty && vehicle_empty
+}
+
 fn parse_entry(obj: &Value) -> Option<TimingEntry> {
+    if is_transponder_placeholder(obj) {
+        return None;
+    }
+
     let position = parse_position(obj)?;
     let car_number = as_string(obj, "N");
     let class_name = as_string(obj, "C");
@@ -350,6 +387,7 @@ fn build_results_header(root: &Value) -> TimingHeader {
         day_time: first_present_string(root, &["DT", "Day", "day", "dayTime", "timestamp"]),
         flag: "-".to_string(),
         time_to_go: "-".to_string(),
+        class_colors: Default::default(),
     }
 }
 
@@ -649,9 +687,15 @@ fn restore_snapshot_from_disk(
         return;
     };
 
+    let entries: Vec<TimingEntry> = saved
+        .entries
+        .into_iter()
+        .filter(|e| !is_parsed_entry_transponder_placeholder(e))
+        .collect();
+
     let restored = ImsaSnapshot {
         header: saved.header,
-        entries: saved.entries,
+        entries,
         session_id: saved.session_id,
         fingerprint: saved.meaningful_fingerprint,
         raw_results_payload: saved.raw_results_payload,
@@ -949,6 +993,7 @@ mod tests {
             day_time: "2026-01-01T12:00:00Z".to_string(),
             flag: "Green".to_string(),
             time_to_go: "00:45:00".to_string(),
+            class_colors: Default::default(),
         }
     }
 
@@ -1068,5 +1113,46 @@ mod tests {
         assert_eq!(restored.entries.len(), 1);
 
         let _ = fs::remove_file(temp_path);
+    }
+
+    #[test]
+    fn transponder_placeholder_row_is_filtered() {
+        let placeholder = json!({
+            "A": 30,
+            "N": "Tx12345678",
+            "C": "",
+            "F": " ",
+            "V": ""
+        });
+        assert!(is_transponder_placeholder(&placeholder));
+        assert!(parse_entry(&placeholder).is_none());
+    }
+
+    #[test]
+    fn transponder_with_data_is_kept() {
+        let real_tx_row = json!({
+            "A": 1,
+            "N": "Tx12345678",
+            "C": "GTP",
+            "F": "Driver Name",
+            "V": "Porsche"
+        });
+        assert!(!is_transponder_placeholder(&real_tx_row));
+        let entry = parse_entry(&real_tx_row).expect("should parse real transponder row");
+        assert_eq!(entry.car_number, "Tx12345678");
+        assert_eq!(entry.class_name, "GTP");
+    }
+
+    #[test]
+    fn normal_car_number_is_kept() {
+        let normal = json!({
+            "A": 1,
+            "N": "31",
+            "C": "GTP",
+            "F": "Driver",
+            "V": "Cadillac"
+        });
+        assert!(!is_transponder_placeholder(&normal));
+        assert!(parse_entry(&normal).is_some());
     }
 }

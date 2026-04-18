@@ -5,7 +5,7 @@
 // - handles one keyboard event
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs, io,
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
@@ -27,11 +27,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::demo;
 use crate::{
+    adapters::wec::websocket_worker as wec_websocket_worker,
     f1::signalr_worker,
     favourites,
     imsa::{normalize_class_name, polling_worker_with_debug, ImsaDebugOutput},
-    nls::websocket_worker,
-    timing::{Series, TimingEntry, TimingHeader, TimingMessage},
+    nls::websocket_worker as nls_websocket_worker,
+    timing::{Series, TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
 };
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -119,6 +120,7 @@ struct TableRenderCtx<'a> {
     marquee_tick: usize,
     gap_anchor: Option<&'a GapAnchorInfo>,
     pit_trackers: &'a HashMap<String, PitTracker>,
+    class_colors: &'a BTreeMap<String, TimingClassColor>,
     now: Instant,
 }
 
@@ -389,7 +391,21 @@ fn animated_flag_theme(
     (flag_text, flag_span_style, header_style)
 }
 
-fn class_style(class_name: &str) -> Style {
+fn class_style(
+    class_name: &str,
+    active_series: Series,
+    class_colors: &BTreeMap<String, TimingClassColor>,
+) -> Style {
+    if active_series == Series::Wec {
+        let key = normalize_class_key(class_name);
+        if let Some(color) = class_colors.get(&key) {
+            if let Some(fg) = parse_hex_color(&color.foreground) {
+                return Style::default().fg(fg).add_modifier(Modifier::BOLD);
+            }
+        }
+        return class_style_wec_static(&key);
+    }
+
     match normalize_class_name(class_name).as_str() {
         "GTP" => Style::default()
             .fg(Color::White)
@@ -406,6 +422,55 @@ fn class_style(class_name: &str) -> Style {
         "SP9" => Style::default()
             .fg(Color::Rgb(255, 140, 0))
             .add_modifier(Modifier::BOLD),
+        "LMH" => Style::default()
+            .fg(Color::Rgb(220, 20, 60))
+            .add_modifier(Modifier::BOLD),
+        "LMGT3" => Style::default()
+            .fg(Color::Rgb(30, 144, 255))
+            .add_modifier(Modifier::BOLD),
+        _ => Style::default(),
+    }
+}
+
+fn normalize_class_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .collect::<String>()
+        .to_ascii_uppercase()
+}
+
+fn parse_hex_color(value: &str) -> Option<Color> {
+    let trimmed = value.trim();
+    if trimmed.len() != 7 || !trimmed.starts_with('#') {
+        return None;
+    }
+    let r = u8::from_str_radix(&trimmed[1..3], 16).ok()?;
+    let g = u8::from_str_radix(&trimmed[3..5], 16).ok()?;
+    let b = u8::from_str_radix(&trimmed[5..7], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
+fn class_style_wec_static(class_key: &str) -> Style {
+    match class_key {
+        "LMH" => Style::default()
+            .fg(Color::Rgb(220, 20, 60))
+            .add_modifier(Modifier::BOLD),
+        "LMGT3" => Style::default()
+            .fg(Color::Rgb(30, 144, 255))
+            .add_modifier(Modifier::BOLD),
+        "LMP1" => Style::default()
+            .fg(Color::Rgb(255, 16, 83))
+            .add_modifier(Modifier::BOLD),
+        "LMP2" => Style::default()
+            .fg(Color::Rgb(63, 144, 218))
+            .add_modifier(Modifier::BOLD),
+        "LMGTE" => Style::default()
+            .fg(Color::Rgb(255, 169, 18))
+            .add_modifier(Modifier::BOLD),
+        "INV" => Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
         _ => Style::default(),
     }
 }
@@ -415,8 +480,13 @@ fn class_display_name(name: &str) -> String {
     match normalized.as_str() {
         "GTP" => "GTP".to_string(),
         "LMP2" => "LMP2".to_string(),
+        "LMP1" => "LMP1".to_string(),
+        "LMGTE" => "LMGTE".to_string(),
+        "INV" => "INV".to_string(),
         "GTDPRO" => "GTD PRO".to_string(),
         "GTD" => "GTD".to_string(),
+        "LMH" => "LMH".to_string(),
+        "LMGT3" => "LMGT3".to_string(),
         _ => {
             let trimmed = name.trim();
             if trimmed.is_empty() {
@@ -445,22 +515,22 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
 
 fn imsa_table_widths() -> [Constraint; 16] {
     [
-        Constraint::Length(4),
-        Constraint::Length(5),
-        Constraint::Length(7),
-        Constraint::Length(4),
-        Constraint::Length(24),
-        Constraint::Min(16),
-        Constraint::Length(6),
-        Constraint::Length(11),
-        Constraint::Length(11),
-        Constraint::Length(11),
-        Constraint::Length(10),
-        Constraint::Length(10),
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Length(18),
+        Constraint::Min(4),  // Pos
+        Constraint::Min(4),  // #
+        Constraint::Min(6),  // Class
+        Constraint::Min(4),  // PIC
+        Constraint::Min(28), // Driver
+        Constraint::Min(45), // Vehicle
+        Constraint::Min(5),  // Laps
+        Constraint::Min(13), // Gap O
+        Constraint::Min(8),  // Gap C
+        Constraint::Min(13), // Next C
+        Constraint::Min(10), // Last
+        Constraint::Min(10), // Best
+        Constraint::Min(4),  // BL#
+        Constraint::Min(4),  // Pit
+        Constraint::Min(4),  // Stop
+        Constraint::Min(28), // Fastest Driver
     ]
 }
 
@@ -485,12 +555,12 @@ fn nls_table_widths() -> [Constraint; 16] {
     ]
 }
 
-fn f1_table_widths() -> [Constraint; 12] {
+fn f1_table_widths() -> [Constraint; 11] {
     [
         Constraint::Length(4),
         Constraint::Length(5),
-        Constraint::Length(26),
-        Constraint::Length(16),
+        Constraint::Min(24),
+        Constraint::Min(16),
         Constraint::Length(7),
         Constraint::Length(11),
         Constraint::Length(11),
@@ -498,7 +568,25 @@ fn f1_table_widths() -> [Constraint; 12] {
         Constraint::Length(10),
         Constraint::Length(5),
         Constraint::Length(5),
+    ]
+}
+
+fn wec_table_widths() -> [Constraint; 14] {
+    [
+        Constraint::Length(4),
+        Constraint::Length(5),
+        Constraint::Length(9),
+        Constraint::Length(5),
+        Constraint::Length(18),
+        Constraint::Min(18),
+        Constraint::Length(24),
         Constraint::Length(7),
+        Constraint::Length(11),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
     ]
 }
 
@@ -691,10 +779,10 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
-                    Cell::from(marquee_if_needed(&e.driver, 24, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 28, selected, ctx.marquee_tick)),
                     Cell::from(marquee_if_needed(
                         &e.vehicle,
-                        20,
+                        45,
                         selected,
                         ctx.marquee_tick,
                     )),
@@ -724,7 +812,7 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(e.pit_stops.clone()),
                     Cell::from(marquee_if_needed(
                         &e.fastest_driver,
-                        18,
+                        28,
                         selected,
                         ctx.marquee_tick,
                     )),
@@ -760,8 +848,8 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                 Series::F1 => Row::new(vec![
                     Cell::from(e.position.to_string()),
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
-                    Cell::from(marquee_if_needed(&e.driver, 26, selected, ctx.marquee_tick)),
-                    Cell::from(marquee_if_needed(&e.team, 16, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 32, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.team, 22, selected, ctx.marquee_tick)),
                     Cell::from(e.laps.clone()),
                     Cell::from(relative_gap_text(
                         e,
@@ -779,11 +867,36 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(e.best_lap.clone()),
                     Cell::from(e.pit.clone()),
                     Cell::from(e.pit_stops.clone()),
+                ]),
+                Series::Wec => Row::new(vec![
+                    Cell::from(e.position.to_string()),
+                    Cell::from(format!("{fav_marker}{}", e.car_number)),
+                    Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
+                    Cell::from(marquee_if_needed(&e.driver, 18, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(
+                        &e.vehicle,
+                        18,
+                        selected,
+                        ctx.marquee_tick,
+                    )),
+                    Cell::from(marquee_if_needed(&e.team, 24, selected, ctx.marquee_tick)),
+                    Cell::from(e.laps.clone()),
+                    Cell::from(relative_gap_text(
+                        e,
+                        &e.gap_overall,
+                        GapColumn::Overall,
+                        ctx.gap_anchor,
+                    )),
+                    Cell::from(e.last_lap.clone()),
+                    Cell::from(e.best_lap.clone()),
+                    Cell::from(e.sector_1.clone()),
+                    Cell::from(e.sector_2.clone()),
+                    Cell::from(e.sector_3.clone()),
                 ]),
             };
 
-            let mut style = class_style(&e.class_name);
+            let mut style = class_style(&e.class_name, ctx.active_series, ctx.class_colors);
             let pit_phase = pit_phase_for_entry(ctx.pit_trackers, e, ctx.now);
             if let Some(pit_style) = pit_phase_style(pit_phase) {
                 style = style.patch(pit_style);
@@ -829,7 +942,7 @@ fn marquee_if_needed(text: &str, width_hint: usize, selected: bool, tick: usize)
 
 fn pit_signal_active(active_series: Series, entry: &TimingEntry) -> bool {
     match active_series {
-        Series::Imsa | Series::F1 => entry.pit.eq_ignore_ascii_case("yes"),
+        Series::Imsa | Series::F1 | Series::Wec => entry.pit.eq_ignore_ascii_case("yes"),
         Series::Nls => entry.sector_5.trim().eq_ignore_ascii_case("PIT"),
     }
 }
@@ -949,9 +1062,15 @@ fn build_table<'a>(
         Series::F1 => (
             vec![
                 "Pos", "#", "Driver", "Team", "Laps", "Gap", "Int", "Last", "Best", "Pit", "Stops",
-                "PIC",
             ],
             f1_table_widths().to_vec(),
+        ),
+        Series::Wec => (
+            vec![
+                "Pos", "#", "Class", "PIC", "Driver", "Vehicle", "Team", "Laps", "Gap", "Last",
+                "Best", "S1", "S2", "S3",
+            ],
+            wec_table_widths().to_vec(),
         ),
     };
 
@@ -1029,8 +1148,9 @@ fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> Acti
 
     thread::spawn(move || match series {
         Series::Imsa => polling_worker_with_debug(tx, source_id, stop_rx, imsa_debug_output),
-        Series::Nls => websocket_worker(tx, source_id, stop_rx),
+        Series::Nls => nls_websocket_worker(tx, source_id, stop_rx),
         Series::F1 => signalr_worker(tx, source_id, stop_rx),
+        Series::Wec => wec_websocket_worker(tx, source_id, stop_rx),
     });
 
     ActiveFeed {
@@ -1538,6 +1658,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             marquee_tick,
                             gap_anchor: gap_anchor.as_ref(),
                             pit_trackers: &pit_trackers,
+                            class_colors: &header.class_colors,
                             now,
                         };
                         let table = build_table(
@@ -1623,6 +1744,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                     marquee_tick,
                                     gap_anchor: gap_anchor.as_ref(),
                                     pit_trackers: &pit_trackers,
+                                    class_colors: &header.class_colors,
                                     now,
                                 };
                                 let table = build_table(
@@ -1650,6 +1772,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 marquee_tick,
                                 gap_anchor: gap_anchor.as_ref(),
                                 pit_trackers: &pit_trackers,
+                                class_colors: &header.class_colors,
                                 now,
                             };
                             let table = build_table(
@@ -1693,6 +1816,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 marquee_tick,
                                 gap_anchor: gap_anchor.as_ref(),
                                 pit_trackers: &pit_trackers,
+                                class_colors: &header.class_colors,
                                 now,
                             };
                             let table = build_table(

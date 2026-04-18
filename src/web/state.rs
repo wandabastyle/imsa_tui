@@ -363,6 +363,7 @@ mod tests {
             day_time: "12:00".to_string(),
             flag: "green".to_string(),
             time_to_go: "1:00:00".to_string(),
+            class_colors: Default::default(),
         }
     }
 

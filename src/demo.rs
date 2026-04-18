@@ -11,6 +11,7 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
         Series::Imsa => (imsa_header(), imsa_entries()),
         Series::Nls => (nls_header(), nls_entries()),
         Series::F1 => (f1_header(), f1_entries()),
+        Series::Wec => (wec_header(), wec_entries()),
     }
 }
 
@@ -102,7 +103,7 @@ fn apply_demo_pit_state(
                 demo_nls_sector_5_time(lane, elapsed_secs)
             };
         }
-        Series::Imsa | Series::F1 => {
+        Series::Imsa | Series::F1 | Series::Wec => {
             entry.pit = if in_pit { "Yes" } else { "No" }.to_string();
         }
     }
@@ -137,6 +138,7 @@ fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
         Series::Imsa => &["imsa:7", "imsa:31", "imsa:77"],
         Series::Nls => &["nls:911", "nls:27", "nls:18"],
         Series::F1 => &["f1:driver:1", "f1:driver:16", "f1:driver:4"],
+        Series::Wec => &["wec:50", "wec:6", "wec:83"],
     }
 }
 
@@ -155,6 +157,7 @@ fn header(
         day_time: day_time.to_string(),
         flag: flag.to_string(),
         time_to_go: time_to_go.to_string(),
+        class_colors: Default::default(),
     }
 }
 
@@ -240,6 +243,82 @@ fn f1_header() -> TimingHeader {
     )
 }
 
+fn wec_header() -> TimingHeader {
+    header(
+        "6 Hours of Spa-Francorchamps (Demo)",
+        "Race",
+        "Circuit de Spa-Francorchamps",
+        "Sat 14:36",
+        "Green",
+        "03:22:19",
+    )
+}
+
+fn wec_entries() -> Vec<TimingEntry> {
+    vec![
+        entry!(
+            1,
+            "50",
+            "LMH",
+            "1",
+            "A. Fuoco",
+            "Ferrari 499P",
+            "Ferrari AF Corse",
+            "112",
+            "-",
+            "-",
+            "-",
+            "2:03.402",
+            "2:02.998",
+            "61",
+            "No",
+            "4",
+            "-",
+            "wec:50",
+        ),
+        entry!(
+            2,
+            "6",
+            "LMH",
+            "2",
+            "K. Estre",
+            "Porsche 963",
+            "Porsche Penske Motorsport",
+            "112",
+            "+2.146",
+            "+2.146",
+            "+2.146",
+            "2:03.511",
+            "2:03.084",
+            "58",
+            "No",
+            "4",
+            "-",
+            "wec:6",
+        ),
+        entry!(
+            3,
+            "83",
+            "LMGT3",
+            "1",
+            "Y. Shahin",
+            "Lexus RC F GT3",
+            "Akkodis ASP Team",
+            "110",
+            "+1L",
+            "-",
+            "-",
+            "2:19.904",
+            "2:19.221",
+            "43",
+            "No",
+            "5",
+            "-",
+            "wec:83",
+        ),
+    ]
+}
+
 fn f1_entries() -> Vec<TimingEntry> {
     vec![
         entry!(
@@ -247,7 +326,7 @@ fn f1_entries() -> Vec<TimingEntry> {
             "1",
             "F1",
             "1",
-            "VER (Max Verstappen)",
+            "M. Verstappen",
             "-",
             "Red Bull Racing",
             "34",
@@ -267,7 +346,7 @@ fn f1_entries() -> Vec<TimingEntry> {
             "16",
             "F1",
             "2",
-            "LEC (Charles Leclerc)",
+            "C. Leclerc",
             "-",
             "Ferrari",
             "34",
@@ -287,7 +366,7 @@ fn f1_entries() -> Vec<TimingEntry> {
             "4",
             "F1",
             "3",
-            "NOR (Lando Norris)",
+            "L. Norris",
             "-",
             "McLaren",
             "34",

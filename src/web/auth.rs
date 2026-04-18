@@ -513,7 +513,15 @@ fn now_unix_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::{
+        path::PathBuf,
+        sync::{Mutex, OnceLock},
+    };
+
+    fn auth_file_test_lock() -> &'static Mutex<()> {
+        static AUTH_FILE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        AUTH_FILE_TEST_LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     struct AuthFileRestore {
         path: PathBuf,
@@ -568,6 +576,7 @@ mod tests {
 
     #[test]
     fn bootstrap_replaces_non_hash_auth_file_with_hash_only_format() {
+        let _guard = auth_file_test_lock().lock().expect("lock auth file test");
         let restore = AuthFileRestore::capture();
         restore.overwrite("access_code = \"legacy-plaintext\"\n");
 
@@ -587,6 +596,7 @@ mod tests {
 
     #[test]
     fn rotate_generates_new_secret_and_hash() {
+        let _guard = auth_file_test_lock().lock().expect("lock auth file test");
         let _restore = AuthFileRestore::capture();
 
         let first = load_or_initialize_password(false);

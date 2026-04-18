@@ -1,6 +1,6 @@
 # imsa_tui
 
-A terminal user interface (TUI) for live IMSA, NLS, and F1 timing data.
+A terminal user interface (TUI) for live IMSA, NLS, F1, and WEC timing data.
 
 `imsa_tui` is a Rust application that pulls live timing feeds and renders a continuously updating leaderboard in your terminal using `ratatui`.
 
@@ -10,7 +10,7 @@ Project wiki (operator-focused deployment/runbooks):
 
 ## Features
 
-- Live IMSA polling (JSONP), NLS websocket streaming, and F1 SignalR-style live streaming.
+- Live IMSA polling (JSONP), NLS websocket streaming, F1 SignalR-style live streaming, and WEC SockJS/DDP streaming.
 - Overall leaderboard table with position, car number, class, driver, laps, gaps, lap times, and pit information.
 - Multiple viewing modes:
   - **Overall** (all cars)
@@ -166,7 +166,7 @@ Detailed deployment and operations docs are in the wiki:
 - `h` — toggle help popup
 - `g` — cycle view modes (Overall → Grouped → each class → Favourites)
 - `o` — jump to Overall view
-- `t` — switch series (IMSA → NLS → F1)
+- `t` — switch series (IMSA → NLS → F1 → WEC)
 - `d` — toggle demo/live data source
 - `space` — toggle favourite for selected row
 - `f` — jump to next favourite in current view
@@ -186,7 +186,7 @@ The TUI stores configuration in a TOML file under the platform config directory 
 Current configuration fields:
 
 - `favourites`: list of stable per-series car IDs used for highlighting and the **Favourites** view.
-- `selected_series`: the last active series (`imsa`, `nls`, or `f1`) restored on startup.
+- `selected_series`: the last active series (`imsa`, `nls`, `f1`, or `wec`) restored on startup.
 
 Example `config.toml`:
 
@@ -211,6 +211,14 @@ NLS:
 F1:
 - `https://livetiming.formula1.com/signalr/*` negotiate/start endpoints
 - `wss://livetiming.formula1.com/signalr/connect` live stream feed
+
+WEC:
+- `https://livetiming.alkamelsystems.com/fiawec` public LT2 page
+- SockJS + Meteor DDP over `wss://livetiming.alkamelsystems.com/sockjs/.../websocket`
+
+WEC reverse-engineered flow notes:
+
+- `docs/wec-lt2-ddp.md`
 
 If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
