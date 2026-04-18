@@ -515,38 +515,22 @@ fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
 
 fn imsa_table_widths() -> [Constraint; 16] {
     [
-        // 0: Pos
-        Constraint::Length(3),
-        // 1: #
-        Constraint::Length(2),
-        // 2: Class
-        Constraint::Length(5),
-        // 3: PIC
-        Constraint::Length(4),
-        // 4: Driver
-        Constraint::Length(24),
-        // 5: Vehicle
-        Constraint::Min(12),
-        // 6: Laps
-        Constraint::Length(4),
-        // 7: Gap O
-        Constraint::Length(13),
-        // 8: Gap C
-        Constraint::Length(7),
-        // 9: Next C
-        Constraint::Length(13),
-        // 10: Last
-        Constraint::Length(9),
-        // 11: Best
-        Constraint::Length(9),
-        // 12: BL#
-        Constraint::Length(1),
-        // 13: Pit
-        Constraint::Length(2),
-        // 14: Stop
-        Constraint::Length(5),
-        // 15: Fastest Driver
-        Constraint::Length(24),
+        Constraint::Min(4),  // Pos
+        Constraint::Min(4),  // #
+        Constraint::Min(6),  // Class
+        Constraint::Min(4),  // PIC
+        Constraint::Min(28), // Driver
+        Constraint::Min(45), // Vehicle
+        Constraint::Min(5),  // Laps
+        Constraint::Min(13), // Gap O
+        Constraint::Min(8),  // Gap C
+        Constraint::Min(13), // Next C
+        Constraint::Min(10), // Last
+        Constraint::Min(10), // Best
+        Constraint::Min(4),  // BL#
+        Constraint::Min(4),  // Pit
+        Constraint::Min(4),  // Stop
+        Constraint::Min(28), // Fastest Driver
     ]
 }
 
@@ -795,10 +779,10 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(format!("{fav_marker}{}", e.car_number)),
                     Cell::from(e.class_name.clone()),
                     Cell::from(e.class_rank.clone()),
-                    Cell::from(marquee_if_needed(&e.driver, 24, selected, ctx.marquee_tick)),
+                    Cell::from(marquee_if_needed(&e.driver, 28, selected, ctx.marquee_tick)),
                     Cell::from(marquee_if_needed(
                         &e.vehicle,
-                        24,
+                        45,
                         selected,
                         ctx.marquee_tick,
                     )),
@@ -828,7 +812,7 @@ fn build_rows(entries: &[TimingEntry], ctx: &TableRenderCtx<'_>) -> Vec<Row<'sta
                     Cell::from(e.pit_stops.clone()),
                     Cell::from(marquee_if_needed(
                         &e.fastest_driver,
-                        24,
+                        28,
                         selected,
                         ctx.marquee_tick,
                     )),
