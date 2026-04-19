@@ -292,7 +292,10 @@ pub fn websocket_worker_with_debug(
                             log_series_debug(
                                 &debug_output,
                                 "WEC",
-                                "No active FIA WEC live session; showing latest finished race results",
+                                format!(
+                                    "No active FIA WEC live session; showing latest finished race results [ts={}]",
+                                    now_unix_ms()
+                                ),
                             );
                             fallback_detail_logged = true;
                         }

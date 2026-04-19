@@ -211,8 +211,9 @@ NLS:
 - `wss://livetiming.azurewebsites.net/` websocket feed (`eventId = 20`)
 
 F1:
-- `https://livetiming.formula1.com/signalr/*` negotiate/start endpoints
-- `wss://livetiming.formula1.com/signalr/connect` live stream feed
+- `https://insights.griiip.com/meta/sessions-schedule-live` live schedule discovery
+- `https://insights.griiip.com/live/*` live session snapshots (session-info, participants, ranks, gaps, laps)
+- `https://insights.griiip.com/meta/sessions/*` latest finished race fallback when no live session is available
 
 WEC:
 - `https://insights.griiip.com/live-session-stream/negotiate?negotiateVersion=1` negotiate endpoint
