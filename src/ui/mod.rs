@@ -10,5 +10,6 @@ mod render;
 mod search;
 mod style;
 mod table;
+mod wec_widths;
 
 pub use app::run_app;

@@ -10,7 +10,7 @@ Project wiki (operator-focused deployment/runbooks):
 
 ## Features
 
-- Live IMSA polling (JSONP), NLS websocket streaming, F1 SignalR-style live streaming, and WEC SockJS/DDP streaming.
+- Live IMSA polling (JSONP), NLS websocket streaming, F1 SignalR-style live streaming, and WEC SignalR streaming.
 - Overall leaderboard table with position, car number, class, driver, laps, gaps, lap times, and pit information.
 - Multiple viewing modes:
   - **Overall** (all cars)
@@ -215,10 +215,10 @@ F1:
 - `wss://livetiming.formula1.com/signalr/connect` live stream feed
 
 WEC:
-- `https://livetiming.alkamelsystems.com/fiawec` public LT2 page
-- SockJS + Meteor DDP over `wss://livetiming.alkamelsystems.com/sockjs/.../websocket`
+- `https://insights.griiip.com/live-session-stream/negotiate?negotiateVersion=1` negotiate endpoint
+- Azure SignalR websocket from negotiate response (`sessionstreamhub`)
 
-WEC reverse-engineered flow notes:
+WEC flow notes:
 
 - `docs/wec-lt2-ddp.md`
 
