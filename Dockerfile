@@ -7,7 +7,7 @@ RUN corepack enable && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm run build
 
-FROM rust:1.87-bookworm AS rust-build
+FROM rust:1.95-bookworm AS rust-build
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
