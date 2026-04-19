@@ -31,9 +31,12 @@ use crate::{
 const NEGOTIATE_URL: &str =
     "https://insights.griiip.com/live-session-stream/negotiate?negotiateVersion=1";
 const SCHEDULE_URL: &str = "https://insights.griiip.com/meta/sessions-schedule-live";
+const META_SESSIONS_URL: &str = "https://insights.griiip.com/meta/sessions";
 const ORIGIN_URL: &str = "https://insights.griiip.com";
 const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
 const WEC_SERIES_ID: u64 = 10;
+const REALWORLD_DOMAIN: &str = "RealWorld";
+const META_SESSIONS_REFERENCE_FALLBACK: &str = "2026-01-01T00:00:00Z";
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 const SIGNALR_RS: char = '\u{1e}';
@@ -85,6 +88,93 @@ struct SessionScheduleItem {
 struct SessionInfoMeta {
     series_id: Option<u64>,
     domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MetaSessionItem {
+    id: u64,
+    name: Option<String>,
+    #[serde(rename = "sessionType")]
+    session_type: Option<String>,
+    #[serde(rename = "isRunning", default)]
+    is_running: bool,
+    #[serde(rename = "hasResult", default)]
+    has_result: bool,
+    #[serde(rename = "startTime")]
+    start_time: Option<String>,
+    #[serde(rename = "endTime")]
+    end_time: Option<String>,
+    #[serde(default)]
+    event: Option<MetaEventInfo>,
+    #[serde(rename = "trackConfig")]
+    track_config: Option<MetaTrackConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MetaEventInfo {
+    name: Option<String>,
+    #[serde(rename = "trackConfig")]
+    track_config: Option<MetaTrackConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MetaTrackConfig {
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionResultsResponse {
+    results: Vec<SessionResultRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionResultRow {
+    #[serde(rename = "sessionParticipantId")]
+    session_participant_id: u64,
+    #[serde(rename = "overallFinishedAt")]
+    overall_finished_at: Option<u32>,
+    #[serde(rename = "finishedAt")]
+    finished_at: Option<u32>,
+    #[serde(rename = "overallGapFromFirst")]
+    overall_gap_from_first: Option<i64>,
+    #[serde(rename = "overallGapFromFirstLaps")]
+    overall_gap_from_first_laps: Option<i64>,
+    #[serde(rename = "gapFromFirst")]
+    gap_from_first: Option<i64>,
+    #[serde(rename = "gapFromFirstLaps")]
+    gap_from_first_laps: Option<i64>,
+    #[serde(rename = "numberOfLapsCompleted")]
+    number_of_laps_completed: Option<u32>,
+    #[serde(rename = "bestLapTime")]
+    best_lap_time: Option<i64>,
+    #[serde(rename = "bestSectorsMillis1")]
+    best_sector_1_ms: Option<i64>,
+    #[serde(rename = "bestSectorsMillis2")]
+    best_sector_2_ms: Option<i64>,
+    #[serde(rename = "bestSectorsMillis3")]
+    best_sector_3_ms: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionParticipantRow {
+    id: u64,
+    #[serde(rename = "carNumber")]
+    car_number: Option<String>,
+    #[serde(rename = "classId")]
+    class_id: Option<String>,
+    #[serde(rename = "teamName")]
+    team_name: Option<String>,
+    manufacturer: Option<String>,
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+    #[serde(default)]
+    drivers: Vec<ParticipantDriver>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ParticipantDriver {
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -164,6 +254,7 @@ pub fn websocket_worker_with_debug(
     let mut last_session_id = last_snapshot
         .as_ref()
         .and_then(|snapshot| snapshot.session_id.clone());
+    let mut fallback_detail_logged = false;
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
@@ -181,12 +272,42 @@ pub fn websocket_worker_with_debug(
         });
 
         let sid = match resolve_active_sid(&client) {
-            Ok(sid) => sid,
+            Ok(sid) => {
+                fallback_detail_logged = false;
+                sid
+            }
             Err(err) => {
-                let _ = tx.send(TimingMessage::Error {
-                    source_id,
-                    text: err,
-                });
+                match fetch_latest_finished_race_snapshot(&client) {
+                    Ok(snapshot) => {
+                        emit_snapshot(
+                            (&tx, source_id),
+                            snapshot.header,
+                            snapshot.entries,
+                            &mut persist,
+                            &mut last_snapshot,
+                            &mut last_session_id,
+                            &debug_output,
+                        );
+                        if !fallback_detail_logged {
+                            log_series_debug(
+                                &debug_output,
+                                "WEC",
+                                "No active FIA WEC live session; showing latest finished race results",
+                            );
+                            fallback_detail_logged = true;
+                        }
+                        let _ = tx.send(TimingMessage::Status {
+                            source_id,
+                            text: "WEC offline: latest race results".to_string(),
+                        });
+                    }
+                    Err(fallback_err) => {
+                        let _ = tx.send(TimingMessage::Error {
+                            source_id,
+                            text: format!("{err}; fallback failed: {fallback_err}"),
+                        });
+                    }
+                }
                 if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
                     break;
                 }
@@ -496,6 +617,305 @@ fn fetch_session_info_meta(client: &Client, sid: u64) -> Result<SessionInfoMeta,
         .and_then(Value::as_str)
         .map(str::to_string);
     Ok(SessionInfoMeta { series_id, domain })
+}
+
+fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, String> {
+    let sessions = fetch_wec_meta_sessions(client)?;
+    let Some(session) = choose_latest_finished_race_session(&sessions) else {
+        return Err("No finished FIA WEC race session with results found".to_string());
+    };
+
+    let results_url = format!(
+        "https://insights.griiip.com/meta/sessions/{}/results",
+        session.id
+    );
+    let results_response = client.get(&results_url).send().map_err(|err| {
+        format!(
+            "WEC results request failed for session {}: {err}",
+            session.id
+        )
+    })?;
+    if !results_response.status().is_success() {
+        return Err(format!(
+            "WEC results request failed for session {} with HTTP {}",
+            session.id,
+            results_response.status()
+        ));
+    }
+    let results_body = results_response.text().map_err(|err| {
+        format!(
+            "WEC results body read failed for session {}: {err}",
+            session.id
+        )
+    })?;
+    let results_payload =
+        serde_json::from_str::<SessionResultsResponse>(&results_body).map_err(|err| {
+            format!(
+                "WEC results decode failed for session {}: {err}",
+                session.id
+            )
+        })?;
+
+    let participants_url = format!(
+        "https://insights.griiip.com/meta/sessions/{}/participants",
+        session.id
+    );
+    let participants_response = client.get(&participants_url).send().map_err(|err| {
+        format!(
+            "WEC participants request failed for session {}: {err}",
+            session.id
+        )
+    })?;
+    if !participants_response.status().is_success() {
+        return Err(format!(
+            "WEC participants request failed for session {} with HTTP {}",
+            session.id,
+            participants_response.status()
+        ));
+    }
+    let participants_body = participants_response.text().map_err(|err| {
+        format!(
+            "WEC participants body read failed for session {}: {err}",
+            session.id
+        )
+    })?;
+    let participants = serde_json::from_str::<Vec<SessionParticipantRow>>(&participants_body)
+        .map_err(|err| {
+            format!(
+                "WEC participants decode failed for session {}: {err}",
+                session.id
+            )
+        })?;
+
+    let mut participants_by_id = HashMap::new();
+    for participant in participants {
+        participants_by_id.insert(participant.id, participant);
+    }
+
+    let mut entries = Vec::new();
+    for (idx, row) in results_payload.results.into_iter().enumerate() {
+        let participant = participants_by_id.get(&row.session_participant_id);
+        let car_number = participant
+            .and_then(|item| item.car_number.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("-")
+            .to_string();
+
+        let class_name = participant
+            .and_then(|item| item.class_id.as_deref())
+            .map(format_wec_class_name)
+            .unwrap_or_else(|| "-".to_string());
+
+        let driver_name = participant
+            .and_then(|item| item.drivers.first())
+            .and_then(|driver| driver.display_name.as_deref())
+            .map(normalize_driver_name)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "-".to_string());
+
+        let team_name = participant
+            .and_then(|item| item.team_name.clone())
+            .or_else(|| participant.and_then(|item| item.display_name.clone()))
+            .unwrap_or_else(|| "-".to_string());
+
+        let vehicle = participant
+            .and_then(|item| item.manufacturer.clone())
+            .unwrap_or_else(|| "-".to_string());
+
+        let position = row.overall_finished_at.unwrap_or((idx + 1) as u32);
+        let class_rank = row
+            .finished_at
+            .map(|rank| rank.to_string())
+            .unwrap_or_else(|| "-".to_string());
+
+        let stable_id = if car_number != "-" {
+            format!("wec:{car_number}")
+        } else {
+            format!("wec:participant:{}", row.session_participant_id)
+        };
+
+        entries.push(TimingEntry {
+            position,
+            car_number,
+            class_name,
+            class_rank,
+            driver: driver_name,
+            vehicle,
+            team: team_name,
+            laps: row
+                .number_of_laps_completed
+                .map(|laps| laps.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            gap_overall: format_gap(row.overall_gap_from_first, row.overall_gap_from_first_laps)
+                .unwrap_or_else(|| "-".to_string()),
+            gap_class: "-".to_string(),
+            gap_next_in_class: format_gap(row.gap_from_first, row.gap_from_first_laps)
+                .unwrap_or_else(|| "-".to_string()),
+            last_lap: "-".to_string(),
+            best_lap: row
+                .best_lap_time
+                .map(format_lap_time_ms)
+                .unwrap_or_else(|| "-".to_string()),
+            sector_1: row
+                .best_sector_1_ms
+                .map(format_sector_time_ms)
+                .unwrap_or_else(|| "-".to_string()),
+            sector_2: row
+                .best_sector_2_ms
+                .map(format_sector_time_ms)
+                .unwrap_or_else(|| "-".to_string()),
+            sector_3: row
+                .best_sector_3_ms
+                .map(format_sector_time_ms)
+                .unwrap_or_else(|| "-".to_string()),
+            sector_4: "-".to_string(),
+            sector_5: "-".to_string(),
+            best_lap_no: "-".to_string(),
+            pit: "No".to_string(),
+            pit_stops: "-".to_string(),
+            fastest_driver: "-".to_string(),
+            stable_id,
+        });
+    }
+
+    entries.sort_by_key(|entry| entry.position);
+
+    let mut header = TimingHeader {
+        session_name: session.name.clone().unwrap_or_else(|| "Race".to_string()),
+        session_type_raw: session
+            .session_type
+            .clone()
+            .unwrap_or_else(|| "Race".to_string()),
+        event_name: session
+            .event
+            .as_ref()
+            .and_then(|event| event.name.clone())
+            .unwrap_or_else(|| "FIA WEC".to_string()),
+        track_name: session
+            .track_config
+            .as_ref()
+            .and_then(|track| track.name.clone())
+            .or_else(|| {
+                session
+                    .event
+                    .as_ref()
+                    .and_then(|event| event.track_config.as_ref())
+                    .and_then(|track| track.name.clone())
+            })
+            .unwrap_or_else(|| "-".to_string()),
+        day_time: "-".to_string(),
+        flag: "Checkered".to_string(),
+        time_to_go: "00:00".to_string(),
+        ..TimingHeader::default()
+    };
+    header.class_colors.insert(
+        "HYPER".to_string(),
+        TimingClassColor {
+            foreground: "#ffffff".to_string(),
+            background: "#e21e19".to_string(),
+        },
+    );
+    header.class_colors.insert(
+        "LMGT3".to_string(),
+        TimingClassColor {
+            foreground: "#ffffff".to_string(),
+            background: "#0b9314".to_string(),
+        },
+    );
+
+    let session_id = derive_session_identifier(&header);
+    let fingerprint = meaningful_snapshot_fingerprint(&header, &entries);
+
+    Ok(WecSnapshot {
+        header,
+        entries,
+        session_id,
+        fingerprint,
+    })
+}
+
+fn fetch_wec_meta_sessions(client: &Client) -> Result<Vec<MetaSessionItem>, String> {
+    let reference_time = resolve_meta_sessions_reference_time(client);
+    let response = client
+        .get(META_SESSIONS_URL)
+        .query(&[
+            ("dateTime", reference_time.as_str()),
+            ("forward", "false"),
+            ("seriesIds", "10"),
+            ("domains", REALWORLD_DOMAIN),
+        ])
+        .send()
+        .map_err(|err| format!("WEC meta sessions request failed: {err}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WEC meta sessions request failed with HTTP {}",
+            response.status()
+        ));
+    }
+    let body = response
+        .text()
+        .map_err(|err| format!("WEC meta sessions body read failed: {err}"))?;
+    serde_json::from_str::<Vec<MetaSessionItem>>(&body)
+        .map_err(|err| format!("WEC meta sessions decode failed: {err}"))
+}
+
+fn resolve_meta_sessions_reference_time(client: &Client) -> String {
+    let Ok(response) = client.get(SCHEDULE_URL).send() else {
+        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
+    };
+    if !response.status().is_success() {
+        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
+    }
+    let Ok(body) = response.text() else {
+        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
+    };
+    let Ok(payload) = serde_json::from_str::<Vec<Value>>(&body) else {
+        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
+    };
+    for item in payload {
+        let Some(clock) = item.get("clock") else {
+            continue;
+        };
+        if let Some(ts_now) = clock.get("tsNow").and_then(Value::as_str) {
+            return ts_now.to_string();
+        }
+        if let Some(ts) = clock.get("ts").and_then(Value::as_str) {
+            return ts.to_string();
+        }
+    }
+    META_SESSIONS_REFERENCE_FALLBACK.to_string()
+}
+
+fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<MetaSessionItem> {
+    sessions
+        .iter()
+        .filter(|session| {
+            session
+                .session_type
+                .as_deref()
+                .map(|value| value.eq_ignore_ascii_case("Race"))
+                .unwrap_or(false)
+                && session.has_result
+                && !session.is_running
+        })
+        .max_by_key(|session| {
+            session
+                .end_time
+                .clone()
+                .or_else(|| session.start_time.clone())
+                .unwrap_or_default()
+        })
+        .cloned()
+}
+
+fn format_wec_class_name(raw: &str) -> String {
+    let normalized = raw.trim().to_ascii_uppercase();
+    match normalized.as_str() {
+        "HYPERCAR" => "HYPER".to_string(),
+        "LMGT3" => "LMGT3".to_string(),
+        _ => raw.trim().to_string(),
+    }
 }
 
 fn is_closed_status(status: Option<&str>) -> bool {
@@ -1703,5 +2123,58 @@ mod tests {
         );
         assert_eq!(normalize_driver_name("Kevin MAGNUSSEN"), "Kevin Magnussen");
         assert_eq!(normalize_driver_name("Mike Conway"), "Mike Conway");
+    }
+
+    #[test]
+    fn choose_latest_finished_race_session_picks_newest_finished_race() {
+        let sessions = vec![
+            MetaSessionItem {
+                id: 1,
+                name: Some("Practice".to_string()),
+                session_type: Some("Practice".to_string()),
+                is_running: false,
+                has_result: true,
+                start_time: Some("2026-04-18T08:00:00+00:00".to_string()),
+                end_time: Some("2026-04-18T09:00:00+00:00".to_string()),
+                event: None,
+                track_config: None,
+            },
+            MetaSessionItem {
+                id: 2,
+                name: Some("Race Old".to_string()),
+                session_type: Some("Race".to_string()),
+                is_running: false,
+                has_result: true,
+                start_time: Some("2026-04-18T10:00:00+00:00".to_string()),
+                end_time: Some("2026-04-18T12:00:00+00:00".to_string()),
+                event: None,
+                track_config: None,
+            },
+            MetaSessionItem {
+                id: 3,
+                name: Some("Race New".to_string()),
+                session_type: Some("Race".to_string()),
+                is_running: false,
+                has_result: true,
+                start_time: Some("2026-04-19T10:00:00+00:00".to_string()),
+                end_time: Some("2026-04-19T12:00:00+00:00".to_string()),
+                event: None,
+                track_config: None,
+            },
+            MetaSessionItem {
+                id: 4,
+                name: Some("Race Running".to_string()),
+                session_type: Some("Race".to_string()),
+                is_running: true,
+                has_result: true,
+                start_time: Some("2026-04-20T10:00:00+00:00".to_string()),
+                end_time: Some("2026-04-20T12:00:00+00:00".to_string()),
+                event: None,
+                track_config: None,
+            },
+        ];
+
+        let picked = choose_latest_finished_race_session(&sessions).expect("expected race session");
+        assert_eq!(picked.id, 3);
     }
 }
