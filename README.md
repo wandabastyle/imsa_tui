@@ -220,13 +220,17 @@ WEC:
 
 WEC flow notes:
 
-- `docs/wec-lt2-ddp.md`
+- https://github.com/wandabastyle/imsa_tui/wiki/WEC-SignalR-Field-Map
 
 If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
 NLS protocol/header mapping details are documented in the wiki:
 
 - https://github.com/wandabastyle/imsa_tui/wiki/NLS-WebSocket-Field-Map
+
+WEC protocol/header mapping details are documented in the wiki:
+
+- https://github.com/wandabastyle/imsa_tui/wiki/WEC-SignalR-Field-Map
 
 ## Troubleshooting
 

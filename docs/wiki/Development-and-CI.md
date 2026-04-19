@@ -36,6 +36,10 @@ python3 scripts/nls_ws_analyze.py --markdown-out docs/data/nls_ws_field_catalog.
 
 Then copy relevant findings into `docs/wiki/NLS-WebSocket-Field-Map.md`.
 
+For WEC SignalR/live endpoint mapping updates, refresh and sync:
+
+- `docs/wiki/WEC-SignalR-Field-Map.md`
+
 ## Docker Smoke Expectations
 
 - Image builds from repository root.

@@ -33,6 +33,7 @@ const NEGOTIATE_URL: &str =
 const SCHEDULE_URL: &str = "https://insights.griiip.com/meta/sessions-schedule-live";
 const ORIGIN_URL: &str = "https://insights.griiip.com";
 const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
+const WEC_SERIES_ID: u64 = 10;
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 const SIGNALR_RS: char = '\u{1e}';
@@ -78,6 +79,12 @@ struct SessionScheduleItem {
     is_started: bool,
     #[serde(rename = "connectionStatus")]
     connection_status: Option<String>,
+}
+
+#[derive(Debug)]
+struct SessionInfoMeta {
+    series_id: Option<u64>,
+    domain: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -428,19 +435,67 @@ fn resolve_active_sid(client: &Client) -> Result<u64, String> {
         .map_err(|err| format!("WEC session schedule body read failed: {err}"))?;
     let sessions = serde_json::from_str::<Vec<SessionScheduleItem>>(&body)
         .map_err(|err| format!("WEC session schedule decode failed: {err}"))?;
-    choose_active_sid(&sessions)
+    let candidate_sids = choose_candidate_sids(&sessions)?;
+    for sid in candidate_sids {
+        let Ok(meta) = fetch_session_info_meta(client, sid) else {
+            continue;
+        };
+        let is_wec = meta.series_id == Some(WEC_SERIES_ID);
+        let is_realworld = meta
+            .domain
+            .as_deref()
+            .map(|domain| domain.eq_ignore_ascii_case("RealWorld"))
+            .unwrap_or(true);
+        if is_wec && is_realworld {
+            return Ok(sid);
+        }
+    }
+
+    Err("No active FIA WEC session found in live schedule".to_string())
 }
 
-fn choose_active_sid(sessions: &[SessionScheduleItem]) -> Result<u64, String> {
-    if let Some(session) = sessions.iter().find(|session| {
+fn choose_candidate_sids(sessions: &[SessionScheduleItem]) -> Result<Vec<u64>, String> {
+    if sessions.is_empty() {
+        return Err("WEC session schedule returned no sessions".to_string());
+    }
+
+    let mut prioritized = Vec::with_capacity(sessions.len());
+    for session in sessions.iter().filter(|session| {
         session.is_started && !is_closed_status(session.connection_status.as_deref())
     }) {
-        return Ok(session.sid);
+        prioritized.push(session.sid);
     }
-    sessions
-        .first()
-        .map(|session| session.sid)
-        .ok_or_else(|| "WEC session schedule returned no sessions".to_string())
+    for session in sessions {
+        if !prioritized.contains(&session.sid) {
+            prioritized.push(session.sid);
+        }
+    }
+    Ok(prioritized)
+}
+
+fn fetch_session_info_meta(client: &Client, sid: u64) -> Result<SessionInfoMeta, String> {
+    let url = format!("{LIVE_BASE_URL}/session-info/{sid}");
+    let response = client
+        .get(&url)
+        .send()
+        .map_err(|err| format!("WEC session info request failed for sid {sid}: {err}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WEC session info failed for sid {sid} with HTTP {}",
+            response.status()
+        ));
+    }
+    let body = response
+        .text()
+        .map_err(|err| format!("WEC session info body read failed for sid {sid}: {err}"))?;
+    let value = serde_json::from_str::<Value>(&body)
+        .map_err(|err| format!("WEC session info decode failed for sid {sid}: {err}"))?;
+    let series_id = value.get("seriesId").and_then(Value::as_u64);
+    let domain = value
+        .get("domain")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Ok(SessionInfoMeta { series_id, domain })
 }
 
 fn is_closed_status(status: Option<&str>) -> bool {
@@ -1453,7 +1508,7 @@ mod tests {
     }
 
     #[test]
-    fn choose_active_sid_prefers_started_session() {
+    fn choose_candidate_sids_prefers_started_session() {
         let sessions = vec![
             SessionScheduleItem {
                 sid: 10,
@@ -1466,23 +1521,23 @@ mod tests {
                 connection_status: Some("Green".to_string()),
             },
         ];
-        assert_eq!(choose_active_sid(&sessions).unwrap(), 11);
+        assert_eq!(choose_candidate_sids(&sessions).unwrap(), vec![11, 10]);
     }
 
     #[test]
-    fn choose_active_sid_falls_back_to_first() {
+    fn choose_candidate_sids_falls_back_to_first() {
         let sessions = vec![SessionScheduleItem {
             sid: 20,
             is_started: false,
             connection_status: None,
         }];
-        assert_eq!(choose_active_sid(&sessions).unwrap(), 20);
+        assert_eq!(choose_candidate_sids(&sessions).unwrap(), vec![20]);
     }
 
     #[test]
-    fn choose_active_sid_rejects_empty_schedule() {
+    fn choose_candidate_sids_rejects_empty_schedule() {
         let sessions = Vec::<SessionScheduleItem>::new();
-        assert!(choose_active_sid(&sessions).is_err());
+        assert!(choose_candidate_sids(&sessions).is_err());
     }
 
     #[test]
