@@ -86,7 +86,7 @@ impl SockJsTransport {
             serde_json::to_string(&vec![ddp_message]).unwrap_or_else(|_| "[]".to_string());
         self.dump("out", &sockjs_payload);
         self.socket
-            .send(Message::Text(sockjs_payload))
+            .send(Message::Text(sockjs_payload.into()))
             .map_err(|err| format!("WEC websocket send failed: {err}"))
     }
 

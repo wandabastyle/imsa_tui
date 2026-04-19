@@ -155,7 +155,7 @@ pub fn websocket_worker_with_debug(
             "eventPid": [0, 3, 4]
         });
 
-        if let Err(err) = socket.send(Message::Text(subscribe.to_string())) {
+        if let Err(err) = socket.send(Message::Text(subscribe.to_string().into())) {
             let _ = tx.send(TimingMessage::Error {
                 source_id,
                 text: format!("subscribe failed: {err}"),

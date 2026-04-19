@@ -571,7 +571,7 @@ pub fn signalr_worker_with_debug(
         }
 
         let subscribe = subscribe_message(1).to_string();
-        if let Err(err) = socket.send(Message::Text(subscribe)) {
+        if let Err(err) = socket.send(Message::Text(subscribe.into())) {
             let _ = tx.send(TimingMessage::Error {
                 source_id,
                 text: format!("F1 subscribe failed: {err}"),

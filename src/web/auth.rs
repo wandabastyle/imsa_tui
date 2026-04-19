@@ -15,7 +15,10 @@ use axum::{
     Json,
 };
 use directories::ProjectDirs;
-use rand::distr::{Alphanumeric, SampleString};
+use rand::{
+    distr::{Alphanumeric, SampleString},
+    RngExt,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -416,7 +419,10 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
 }
 
 pub fn hash_access_code(access_code: &str) -> Result<String, String> {
-    let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+    let mut rng = rand::rng();
+    let salt_bytes: [u8; 16] = rng.random();
+    let salt = SaltString::encode_b64(&salt_bytes)
+        .map_err(|err| format!("access code salt failed: {err}"))?;
     Argon2::default()
         .hash_password(access_code.as_bytes(), &salt)
         .map(|hash| hash.to_string())
