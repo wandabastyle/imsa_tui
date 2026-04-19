@@ -240,17 +240,44 @@ fn notice_key(notice: &TimingNotice) -> String {
 }
 
 fn normalized_notice_text_for_dismissal_key(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    let collapsed = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+
+    let chars: Vec<char> = collapsed.chars().collect();
+    let mut normalized = String::with_capacity(chars.len());
+    let mut idx = 0usize;
+
+    while idx < chars.len() {
+        if chars[idx] != '#' {
+            normalized.push(chars[idx]);
+            idx += 1;
+            continue;
+        }
+
+        normalized.push('#');
+        idx += 1;
+        while idx < chars.len() && chars[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+
+        if idx < chars.len() && chars[idx].is_ascii_digit() {
+            while idx < chars.len() && chars[idx].is_ascii_digit() {
+                normalized.push(chars[idx]);
+                idx += 1;
+            }
+            continue;
+        }
+    }
+
+    normalized
 }
 
 fn persisted_notice_identity_key(notice: &TimingNotice) -> String {
-    let id = notice.id.trim();
     let text = normalized_notice_text_for_dismissal_key(&notice.text);
-    if id.is_empty() {
-        format!("text|{text}")
-    } else {
-        format!("id|{id}|{text}")
-    }
+    format!("text|{text}")
 }
 
 fn persisted_notice_key(series: Series, notice: &TimingNotice) -> String {
@@ -1224,14 +1251,14 @@ mod tests {
     }
 
     #[test]
-    fn persisted_notice_key_ignores_notice_time_changes() {
+    fn persisted_notice_key_ignores_notice_time_and_id_changes() {
         let first = TimingNotice {
             id: "42".to_string(),
             time: "15:04:42".to_string(),
             text: "#999 penalty".to_string(),
         };
         let updated = TimingNotice {
-            id: "42".to_string(),
+            id: "97".to_string(),
             time: "15:05:11".to_string(),
             text: "#999    penalty".to_string(),
         };
@@ -1240,6 +1267,25 @@ mod tests {
         let updated_key = persisted_notice_key(Series::Nls, &updated);
 
         assert_eq!(first_key, updated_key);
+    }
+
+    #[test]
+    fn persisted_notice_key_normalizes_hash_spacing() {
+        let with_space = TimingNotice {
+            id: "1".to_string(),
+            time: "15:00:00".to_string(),
+            text: "# 275 non respect of speed limit in pit lane".to_string(),
+        };
+        let no_space = TimingNotice {
+            id: "2".to_string(),
+            time: "15:00:10".to_string(),
+            text: "#275 non respect of speed limit in pit lane".to_string(),
+        };
+
+        let with_space_key = persisted_notice_key(Series::Nls, &with_space);
+        let no_space_key = persisted_notice_key(Series::Nls, &no_space);
+
+        assert_eq!(with_space_key, no_space_key);
     }
 
     #[test]

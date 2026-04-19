@@ -139,7 +139,11 @@ pub(crate) fn help_popup() -> Paragraph<'static> {
         .block(Block::default().title("Help").borders(Borders::ALL))
 }
 
-pub(crate) fn messages_popup(notices: &[TimingNotice], selected_idx: usize) -> Paragraph<'static> {
+pub(crate) fn messages_popup(
+    notices: &[TimingNotice],
+    selected_idx: usize,
+    scroll: usize,
+) -> Paragraph<'static> {
     let mut lines = vec![
         Line::from(vec![Span::styled(
             "Race Messages",
@@ -181,6 +185,7 @@ pub(crate) fn messages_popup(notices: &[TimingNotice], selected_idx: usize) -> P
     Paragraph::new(lines)
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
+        .scroll((scroll as u16, 0))
         .block(Block::default().title("Messages").borders(Borders::ALL))
 }
 

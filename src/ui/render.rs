@@ -476,8 +476,13 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
     if ctx.messages_panel.is_open {
         let area = centered_rect(70, 60, size);
         f.render_widget(Clear, area);
+        let scroll = messages_popup_scroll(
+            ctx.active_notices.len(),
+            ctx.messages_panel.selected_idx,
+            area,
+        );
         f.render_widget(
-            messages_popup(ctx.active_notices, ctx.messages_panel.selected_idx),
+            messages_popup(ctx.active_notices, ctx.messages_panel.selected_idx, scroll),
             area,
         );
     }
@@ -517,4 +522,33 @@ fn visible_slice(
         .min(max_start);
     let end = (start + window).min(entries.len());
     (&entries[start..end], start)
+}
+
+fn messages_popup_scroll(
+    notice_count: usize,
+    selected_idx: usize,
+    area: ratatui::layout::Rect,
+) -> usize {
+    if notice_count == 0 {
+        return 0;
+    }
+
+    let inner_height = area.height.saturating_sub(2) as usize;
+    if inner_height == 0 {
+        return 0;
+    }
+
+    const HEADER_LINES: usize = 2;
+    const FOOTER_LINES: usize = 3;
+
+    let notice_window = inner_height
+        .saturating_sub(HEADER_LINES + FOOTER_LINES)
+        .max(1);
+    let first_visible_notice = selected_idx.saturating_sub(notice_window.saturating_sub(1));
+    let desired_scroll = HEADER_LINES + first_visible_notice;
+
+    let total_lines = HEADER_LINES + notice_count + FOOTER_LINES;
+    let max_scroll = total_lines.saturating_sub(inner_height);
+
+    desired_scroll.min(max_scroll)
 }
