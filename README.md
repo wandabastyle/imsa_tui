@@ -165,6 +165,7 @@ Detailed deployment and operations docs are in the wiki:
 
 - `h` — toggle help popup
 - `m` — toggle race messages popup (NLS/DHLM), dismiss selected message with `Enter`/`d`; `c` clears active list; `C` resets persisted dismissal history
+- `l` — toggle NLS liveticker popup (NLS only); `Esc`/`l` close; `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` scroll
 - `g` — cycle view modes (Overall → Grouped → each class → Favourites)
 - `o` — jump to Overall view
 - `t` — switch series (IMSA → NLS → F1 → WEC)

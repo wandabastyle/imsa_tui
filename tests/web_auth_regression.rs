@@ -24,8 +24,8 @@ fn test_app() -> Router {
         .route("/readyz", get(api::readyz));
 
     let protected_api_routes = Router::new()
-        .route("/api/snapshot/:series", get(api::get_snapshot))
-        .route("/api/stream/:series", get(sse::stream_series))
+        .route("/api/snapshot/{series}", get(api::get_snapshot))
+        .route("/api/stream/{series}", get(sse::stream_series))
         .route(
             "/api/demo",
             get(api::get_demo_state).put(api::put_demo_state),

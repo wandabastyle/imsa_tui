@@ -9,6 +9,7 @@ use ratatui::{
 };
 
 use crate::{
+    adapters::nls::liveticker::LivetickerEntry,
     favourites,
     timing::{Series, TimingEntry, TimingHeader, TimingNotice},
 };
@@ -22,8 +23,9 @@ use super::{
     imsa_widths::ImsaColumnWidths,
     pit::PitTracker,
     popups::{
-        centered_rect, group_picker_popup, help_popup, messages_popup, series_picker_popup,
-        GroupPickerState, LogsPanelState, MessagesPanelState, SeriesPickerState,
+        centered_rect, group_picker_popup, help_popup, messages_popup, nls_liveticker_popup,
+        series_picker_popup, GroupPickerState, LogsPanelState, MessagesPanelState,
+        NlsLivetickerPanelState, SeriesPickerState,
     },
     search::SearchState,
     style::animated_flag_theme,
@@ -51,7 +53,11 @@ pub(crate) struct RenderCtx<'a> {
     pub(crate) group_picker: GroupPickerState,
     pub(crate) logs_panel: LogsPanelState,
     pub(crate) messages_panel: MessagesPanelState,
+    pub(crate) nls_liveticker_panel: NlsLivetickerPanelState,
     pub(crate) active_notices: &'a [TimingNotice],
+    pub(crate) nls_liveticker_entries: &'a [LivetickerEntry],
+    pub(crate) nls_liveticker_last_update: Option<Instant>,
+    pub(crate) nls_liveticker_last_error: Option<&'a str>,
     pub(crate) highlighted_notice_cars: &'a HashSet<String>,
     pub(crate) imsa_debug_logs: &'a VecDeque<String>,
     pub(crate) demo_mode: bool,
@@ -64,7 +70,7 @@ pub(crate) struct RenderCtx<'a> {
 }
 
 pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
-    let size = f.size();
+    let size = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(4), Constraint::Min(10)])
@@ -138,12 +144,18 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
     ));
 
     let mut key_hint_spans = vec![Span::styled(
-        format!(
-            "Keys: h help | m messages ({}) | L logs | d demo | q quit",
-            ctx.active_notices.len()
-        ),
+        format!("Keys: h help | m messages ({})", ctx.active_notices.len()),
         header_style,
     )];
+
+    if ctx.active_series == Series::Nls {
+        key_hint_spans.push(Span::styled(
+            format!(" | l ticker ({})", ctx.nls_liveticker_entries.len()),
+            header_style,
+        ));
+    }
+
+    key_hint_spans.push(Span::styled(" | L logs | d demo | q quit", header_style));
 
     if ctx.search.input_active {
         key_hint_spans.push(Span::styled(
@@ -466,6 +478,23 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
         f.render_widget(Clear, area);
         f.render_widget(
             messages_popup(ctx.active_notices, ctx.messages_panel.selected_idx),
+            area,
+        );
+    }
+
+    if ctx.nls_liveticker_panel.is_open {
+        let area = centered_rect(78, 72, size);
+        f.render_widget(Clear, area);
+        let age_secs = ctx
+            .nls_liveticker_last_update
+            .map(|updated_at| updated_at.elapsed().as_secs());
+        f.render_widget(
+            nls_liveticker_popup(
+                ctx.nls_liveticker_entries,
+                ctx.nls_liveticker_panel.scroll,
+                age_secs,
+                ctx.nls_liveticker_last_error,
+            ),
             area,
         );
     }

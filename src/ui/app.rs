@@ -26,9 +26,15 @@ use super::{
     },
     imsa_widths::{init_imsa_widths_baseline, save_imsa_column_widths_baseline, ImsaColumnWidths},
     pit::{refresh_pit_trackers, PitTracker},
-    popups::{GroupPickerState, LogsPanelState, MessagesPanelState, SeriesPickerState},
+    popups::{
+        liveticker_line_count, GroupPickerState, LogsPanelState, MessagesPanelState,
+        NlsLivetickerPanelState, SeriesPickerState,
+    },
     render::{draw_frame, RenderCtx},
     search::{refresh_search_matches, SearchState},
+};
+use crate::adapters::nls::liveticker::{
+    stop_liveticker_feed, ActiveLivetickerFeed, LivetickerEntry, LivetickerWorkerMessage,
 };
 
 use crate::demo;
@@ -58,6 +64,11 @@ struct SeriesChangeCtx<'a> {
     view_mode: &'a mut ViewMode,
     search: &'a mut SearchState,
     config: &'a mut AppConfig,
+    nls_liveticker_feed: &'a mut Option<ActiveLivetickerFeed>,
+    nls_liveticker_entries: &'a mut Vec<LivetickerEntry>,
+    nls_liveticker_last_update: &'a mut Option<Instant>,
+    nls_liveticker_last_error: &'a mut Option<String>,
+    nls_liveticker_panel: &'a mut NlsLivetickerPanelState,
 }
 
 #[derive(Debug, Clone)]
@@ -228,8 +239,26 @@ fn notice_key(notice: &TimingNotice) -> String {
     )
 }
 
+fn normalized_notice_text_for_dismissal_key(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn persisted_notice_identity_key(notice: &TimingNotice) -> String {
+    let id = notice.id.trim();
+    let text = normalized_notice_text_for_dismissal_key(&notice.text);
+    if id.is_empty() {
+        format!("text|{text}")
+    } else {
+        format!("id|{id}|{text}")
+    }
+}
+
 fn persisted_notice_key(series: Series, notice: &TimingNotice) -> String {
-    format!("{}|{}", series.as_key_prefix(), notice_key(notice))
+    format!(
+        "{}|{}",
+        series.as_key_prefix(),
+        persisted_notice_identity_key(notice)
+    )
 }
 
 fn prune_dismissed_notice_keys(dismissed: &mut HashMap<String, u64>, now_unix_secs: u64) -> bool {
@@ -364,6 +393,16 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     *ctx.message_flag_override = None;
     *ctx.message_flag_last_secs = None;
 
+    if *ctx.active_series != Series::Nls {
+        stop_liveticker_feed(ctx.nls_liveticker_feed);
+        ctx.nls_liveticker_entries.clear();
+        *ctx.nls_liveticker_last_update = None;
+        *ctx.nls_liveticker_last_error = None;
+        *ctx.nls_liveticker_panel = NlsLivetickerPanelState::closed();
+    } else if ctx.nls_liveticker_feed.is_none() {
+        *ctx.nls_liveticker_feed = Some(crate::adapters::nls::liveticker::start_liveticker_feed());
+    }
+
     ctx.config.selected_series = *ctx.active_series;
     if let Err(err) = save_config(ctx.config) {
         *ctx.last_error = Some(err);
@@ -405,7 +444,16 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut group_picker = GroupPickerState::closed();
     let mut logs_panel = LogsPanelState::closed();
     let mut messages_panel = MessagesPanelState::closed();
+    let mut nls_liveticker_panel = NlsLivetickerPanelState::closed();
     let mut notices: Vec<TimingNotice> = Vec::new();
+    let mut nls_liveticker_entries: Vec<LivetickerEntry> = Vec::new();
+    let mut nls_liveticker_last_update: Option<Instant> = None;
+    let mut nls_liveticker_last_error: Option<String> = None;
+    let mut nls_liveticker_feed = if active_series == Series::Nls {
+        Some(crate::adapters::nls::liveticker::start_liveticker_feed())
+    } else {
+        None
+    };
     let mut notice_keys: HashSet<String> = HashSet::new();
     let mut highlighted_notice_cars: HashSet<String> = HashSet::new();
     let mut message_flag_override: Option<MessageFlagOverride> = None;
@@ -461,6 +509,26 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 .min(notices.len().saturating_sub(1));
         }
         drain_series_debug_logs(&feed, &mut imsa_debug_logs);
+
+        if let Some(liveticker_feed) = nls_liveticker_feed.as_ref() {
+            while let Ok(message) = liveticker_feed.rx.try_recv() {
+                match message {
+                    LivetickerWorkerMessage::Snapshot { entries } => {
+                        nls_liveticker_entries = entries;
+                        nls_liveticker_last_update = Some(Instant::now());
+                        nls_liveticker_last_error = None;
+                    }
+                    LivetickerWorkerMessage::Error { text } => {
+                        nls_liveticker_last_error = Some(text);
+                    }
+                }
+            }
+        }
+
+        let liveticker_max_scroll =
+            liveticker_line_count(&nls_liveticker_entries, nls_liveticker_last_error.is_some())
+                .saturating_sub(1);
+        nls_liveticker_panel.scroll = nls_liveticker_panel.scroll.min(liveticker_max_scroll);
 
         if !demo_mode && active_series == Series::Imsa && !imsa_live_baseline_saved {
             if let Some(observed_live) = ImsaColumnWidths::from_entries(&entries) {
@@ -561,7 +629,11 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 group_picker,
                 logs_panel,
                 messages_panel,
+                nls_liveticker_panel,
                 active_notices: &notices,
+                nls_liveticker_entries: &nls_liveticker_entries,
+                nls_liveticker_last_update,
+                nls_liveticker_last_error: nls_liveticker_last_error.as_deref(),
                 highlighted_notice_cars: &highlighted_notice_cars,
                 imsa_debug_logs: &imsa_debug_logs,
                 demo_mode,
@@ -637,11 +709,17 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 view_mode: &mut view_mode,
                                 search: &mut search,
                                 config: &mut config,
+                                nls_liveticker_feed: &mut nls_liveticker_feed,
+                                nls_liveticker_entries: &mut nls_liveticker_entries,
+                                nls_liveticker_last_update: &mut nls_liveticker_last_update,
+                                nls_liveticker_last_error: &mut nls_liveticker_last_error,
+                                nls_liveticker_panel: &mut nls_liveticker_panel,
                             };
                             apply_series_change(next_series, &mut series_change_ctx);
                             gap_anchor_stable_id = None;
                             series_picker.is_open = false;
                             messages_panel = MessagesPanelState::closed();
+                            nls_liveticker_panel = NlsLivetickerPanelState::closed();
                         }
                         _ => {}
                     }
@@ -777,6 +855,36 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     continue;
                 }
 
+                if nls_liveticker_panel.is_open {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('l') => nls_liveticker_panel.is_open = false,
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            nls_liveticker_panel.scroll = nls_liveticker_panel
+                                .scroll
+                                .saturating_add(1)
+                                .min(liveticker_max_scroll);
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            nls_liveticker_panel.scroll =
+                                nls_liveticker_panel.scroll.saturating_sub(1);
+                        }
+                        KeyCode::PageDown => {
+                            nls_liveticker_panel.scroll = nls_liveticker_panel
+                                .scroll
+                                .saturating_add(10)
+                                .min(liveticker_max_scroll);
+                        }
+                        KeyCode::PageUp => {
+                            nls_liveticker_panel.scroll =
+                                nls_liveticker_panel.scroll.saturating_sub(10);
+                        }
+                        KeyCode::Home => nls_liveticker_panel.scroll = 0,
+                        KeyCode::End => nls_liveticker_panel.scroll = liveticker_max_scroll,
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                     KeyCode::Char('h') => show_help = !show_help,
                     KeyCode::Char('m') if !show_help => {
@@ -787,6 +895,15 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         logs_panel.is_open = false;
                         series_picker.is_open = false;
                         group_picker.is_open = false;
+                        nls_liveticker_panel.is_open = false;
+                    }
+                    KeyCode::Char('l') if !show_help && active_series == Series::Nls => {
+                        nls_liveticker_panel.is_open = !nls_liveticker_panel.is_open;
+                        nls_liveticker_panel.scroll = 0;
+                        messages_panel.is_open = false;
+                        logs_panel.is_open = false;
+                        series_picker.is_open = false;
+                        group_picker.is_open = false;
                     }
                     KeyCode::Char('L') if !show_help => {
                         logs_panel.is_open = !logs_panel.is_open;
@@ -794,12 +911,14 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         messages_panel.is_open = false;
                         series_picker.is_open = false;
                         group_picker.is_open = false;
+                        nls_liveticker_panel.is_open = false;
                     }
                     KeyCode::Esc => {
                         if show_help {
                             show_help = false;
                         } else {
                             stop_feed(&mut feed);
+                            stop_liveticker_feed(&mut nls_liveticker_feed);
                             return Ok(());
                         }
                     }
@@ -808,17 +927,20 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                             show_help = false;
                         } else {
                             stop_feed(&mut feed);
+                            stop_liveticker_feed(&mut nls_liveticker_feed);
                             return Ok(());
                         }
                     }
                     KeyCode::Char('t') if !show_help => {
                         group_picker.is_open = false;
                         messages_panel.is_open = false;
+                        nls_liveticker_panel.is_open = false;
                         series_picker.is_open = true;
                         series_picker.selected_idx = selected_series_index(active_series);
                     }
                     KeyCode::Char('G') if !show_help => {
                         messages_panel.is_open = false;
+                        nls_liveticker_panel.is_open = false;
                         group_picker.is_open = true;
                         group_picker.selected_idx = match view_mode {
                             ViewMode::Class(idx) => idx.min(current_groups.len().saturating_sub(1)),
@@ -910,6 +1032,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         message_flag_override = None;
                         message_flag_last_secs = None;
                         messages_panel = MessagesPanelState::closed();
+                        nls_liveticker_panel = NlsLivetickerPanelState::closed();
 
                         if demo_mode {
                             stop_feed(&mut feed);
@@ -1101,6 +1224,25 @@ mod tests {
     }
 
     #[test]
+    fn persisted_notice_key_ignores_notice_time_changes() {
+        let first = TimingNotice {
+            id: "42".to_string(),
+            time: "15:04:42".to_string(),
+            text: "#999 penalty".to_string(),
+        };
+        let updated = TimingNotice {
+            id: "42".to_string(),
+            time: "15:05:11".to_string(),
+            text: "#999    penalty".to_string(),
+        };
+
+        let first_key = persisted_notice_key(Series::Nls, &first);
+        let updated_key = persisted_notice_key(Series::Nls, &updated);
+
+        assert_eq!(first_key, updated_key);
+    }
+
+    #[test]
     fn prune_dismissed_notice_keys_expires_old_entries_and_caps_per_series() {
         let now = 1_000_000_u64;
         let mut dismissed = HashMap::from([
@@ -1145,6 +1287,23 @@ mod tests {
         assert!(!dismissed.contains_key("nls|one"));
         assert!(!dismissed.contains_key("nls|two"));
         assert!(dismissed.contains_key("dhlm|one"));
+    }
+
+    #[test]
+    fn clear_history_removes_persisted_key_for_current_series() {
+        let notice = TimingNotice {
+            id: "42".to_string(),
+            time: "15:04:42".to_string(),
+            text: "#999 penalty".to_string(),
+        };
+        let nls_key = persisted_notice_key(Series::Nls, &notice);
+        let dhlm_key = persisted_notice_key(Series::Dhlm, &notice);
+        let mut dismissed = HashMap::from([(nls_key.clone(), 1_u64), (dhlm_key.clone(), 2_u64)]);
+
+        clear_dismissed_notice_keys_for_series(Series::Nls, &mut dismissed);
+
+        assert!(!dismissed.contains_key(&nls_key));
+        assert!(dismissed.contains_key(&dhlm_key));
     }
 
     #[test]

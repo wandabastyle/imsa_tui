@@ -60,8 +60,8 @@ pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let protected_api_routes = Router::new()
-        .route("/api/snapshot/:series", get(api::get_snapshot))
-        .route("/api/stream/:series", get(sse::stream_series))
+        .route("/api/snapshot/{series}", get(api::get_snapshot))
+        .route("/api/stream/{series}", get(sse::stream_series))
         .route(
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),

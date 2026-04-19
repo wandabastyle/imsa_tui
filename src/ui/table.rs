@@ -98,7 +98,7 @@ pub(crate) fn build_table<'a>(
 
     Table::new(build_rows(entries, ctx, imsa_widths), widths)
         .header(Row::new(headers).style(Style::default().add_modifier(Modifier::BOLD)))
-        .highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
+        .row_highlight_style(Style::default().bg(Color::Rgb(45, 45, 45)))
         .block(Block::default().title(title.into()).borders(Borders::ALL))
 }
 
