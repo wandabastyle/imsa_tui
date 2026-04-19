@@ -94,7 +94,7 @@ pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route(
-            "/*path",
+            "/{*path}",
             get({
                 let static_config = static_config.clone();
                 move |Path(path): Path<String>| {
