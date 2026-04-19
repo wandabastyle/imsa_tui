@@ -6,7 +6,10 @@ use std::{
     time::Duration,
 };
 
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{
+    distr::{Alphanumeric, SampleString},
+    RngExt,
+};
 use reqwest::blocking::Client;
 use tungstenite::{
     client::IntoClientRequest,
@@ -96,13 +99,9 @@ impl SockJsTransport {
 }
 
 fn random_sockjs_url() -> String {
-    let mut rng = rand::thread_rng();
-    let server_id = rng.gen_range(0..1000);
-    let session_id: String = rng
-        .sample_iter(&Alphanumeric)
-        .take(16)
-        .map(char::from)
-        .collect();
+    let mut rng = rand::rng();
+    let server_id = rng.random_range(0..1000);
+    let session_id = Alphanumeric.sample_string(&mut rng, 16);
     format!("{SOCKJS_BASE_URL}/{server_id:03}/{session_id}/websocket")
 }
 
@@ -131,11 +130,8 @@ fn sockjs_info_preflight() {
         Err(_) => return,
     };
 
-    let cb: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(10)
-        .map(char::from)
-        .collect();
+    let mut rng = rand::rng();
+    let cb = Alphanumeric.sample_string(&mut rng, 10);
 
     let _ = client
         .get(SOCKJS_INFO_URL)

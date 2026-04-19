@@ -15,7 +15,7 @@ use axum::{
     Json,
 };
 use directories::ProjectDirs;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::distr::{Alphanumeric, SampleString};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -437,11 +437,8 @@ pub fn stored_auth_path() -> Option<PathBuf> {
 }
 
 fn generate_password(length: usize) -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(length)
-        .map(char::from)
-        .collect()
+    let mut rng = rand::rng();
+    Alphanumeric.sample_string(&mut rng, length)
 }
 
 fn load_stored_auth() -> Option<StoredWebAuth> {

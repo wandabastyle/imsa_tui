@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use rand::{distributions::Alphanumeric, Rng};
+use rand::distr::{Alphanumeric, SampleString};
 use serde::Serialize;
 use serde_json::json;
 
@@ -241,11 +241,8 @@ fn build_profile_cookie(secure: bool, profile_id: &str) -> String {
 }
 
 fn generate_profile_id() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect()
+    let mut rng = rand::rng();
+    Alphanumeric.sample_string(&mut rng, 48)
 }
 
 fn cookie_value<'a>(headers: &'a axum::http::HeaderMap, cookie_name: &str) -> Option<&'a str> {
