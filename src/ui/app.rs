@@ -239,8 +239,26 @@ fn notice_key(notice: &TimingNotice) -> String {
     )
 }
 
+fn normalized_notice_text_for_dismissal_key(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn persisted_notice_identity_key(notice: &TimingNotice) -> String {
+    let id = notice.id.trim();
+    let text = normalized_notice_text_for_dismissal_key(&notice.text);
+    if id.is_empty() {
+        format!("text|{text}")
+    } else {
+        format!("id|{id}|{text}")
+    }
+}
+
 fn persisted_notice_key(series: Series, notice: &TimingNotice) -> String {
-    format!("{}|{}", series.as_key_prefix(), notice_key(notice))
+    format!(
+        "{}|{}",
+        series.as_key_prefix(),
+        persisted_notice_identity_key(notice)
+    )
 }
 
 fn prune_dismissed_notice_keys(dismissed: &mut HashMap<String, u64>, now_unix_secs: u64) -> bool {
@@ -1206,6 +1224,25 @@ mod tests {
     }
 
     #[test]
+    fn persisted_notice_key_ignores_notice_time_changes() {
+        let first = TimingNotice {
+            id: "42".to_string(),
+            time: "15:04:42".to_string(),
+            text: "#999 penalty".to_string(),
+        };
+        let updated = TimingNotice {
+            id: "42".to_string(),
+            time: "15:05:11".to_string(),
+            text: "#999    penalty".to_string(),
+        };
+
+        let first_key = persisted_notice_key(Series::Nls, &first);
+        let updated_key = persisted_notice_key(Series::Nls, &updated);
+
+        assert_eq!(first_key, updated_key);
+    }
+
+    #[test]
     fn prune_dismissed_notice_keys_expires_old_entries_and_caps_per_series() {
         let now = 1_000_000_u64;
         let mut dismissed = HashMap::from([
@@ -1250,6 +1287,23 @@ mod tests {
         assert!(!dismissed.contains_key("nls|one"));
         assert!(!dismissed.contains_key("nls|two"));
         assert!(dismissed.contains_key("dhlm|one"));
+    }
+
+    #[test]
+    fn clear_history_removes_persisted_key_for_current_series() {
+        let notice = TimingNotice {
+            id: "42".to_string(),
+            time: "15:04:42".to_string(),
+            text: "#999 penalty".to_string(),
+        };
+        let nls_key = persisted_notice_key(Series::Nls, &notice);
+        let dhlm_key = persisted_notice_key(Series::Dhlm, &notice);
+        let mut dismissed = HashMap::from([(nls_key.clone(), 1_u64), (dhlm_key.clone(), 2_u64)]);
+
+        clear_dismissed_notice_keys_for_series(Series::Nls, &mut dismissed);
+
+        assert!(!dismissed.contains_key(&nls_key));
+        assert!(dismissed.contains_key(&dhlm_key));
     }
 
     #[test]
