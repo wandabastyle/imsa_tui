@@ -18,17 +18,15 @@ use tungstenite::{
 };
 
 use crate::{
-    adapters::insights::session::{
-        fetch_meta_sessions_for_series, resolve_live_sid_for_series, MetaSessionItem,
+    adapters::insights::{
+        session::{fetch_meta_sessions_for_series, resolve_live_sid_for_series, MetaSessionItem},
+        snapshot::{
+            meaningful_snapshot_fingerprint, now_unix_ms, persist_snapshot, snapshot_path, Snapshot,
+        },
     },
-    snapshot_runtime::{
-        base_snapshot_fingerprint, derive_session_identifier, hash_entry_common_fields,
-    },
+    snapshot_runtime::derive_session_identifier,
     timing::{TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
-    timing_persist::{
-        data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
-        PersistState, SeriesDebugOutput,
-    },
+    timing_persist::{debounce_elapsed, log_series_debug, PersistState, SeriesDebugOutput},
 };
 
 const WEC_SERIES_ID: u64 = 10;
@@ -73,22 +71,7 @@ enum SignalRFrame {
     Unknown,
 }
 
-#[derive(Debug, Clone)]
-struct WecSnapshot {
-    header: TimingHeader,
-    entries: Vec<TimingEntry>,
-    session_id: Option<String>,
-    fingerprint: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedWecSnapshot {
-    saved_unix_ms: u64,
-    session_id: Option<String>,
-    meaningful_fingerprint: u64,
-    header: TimingHeader,
-    entries: Vec<TimingEntry>,
-}
+type WecSnapshot = Snapshot;
 
 #[derive(Debug, Deserialize)]
 struct SessionResultsResponse {
@@ -195,24 +178,50 @@ pub fn websocket_worker_with_debug(
         }
     };
 
-    let mut persist = PersistState::new(wec_snapshot_path());
-    let mut last_snapshot = restore_snapshot_from_disk(&mut persist, &tx, source_id, &debug_output);
-    if last_snapshot.is_some() {
+    let mut persist = PersistState::new(snapshot_path("wec_snapshot.json"));
+    let mut last_snapshot: Option<Snapshot> = None;
+    let mut last_session_id: Option<String> = None;
+    let mut restored = false;
+    if let Some(path) = snapshot_path("wec_snapshot.json") {
+        use crate::timing_persist::read_json;
+        if let Some(saved) =
+            read_json::<crate::adapters::insights::snapshot::PersistedSnapshot>(&path)
+        {
+            let snapshot = Snapshot {
+                header: saved.header,
+                entries: saved.entries,
+                session_id: saved.session_id.clone(),
+                fingerprint: saved.meaningful_fingerprint,
+            };
+            let _ = tx.send(TimingMessage::Snapshot {
+                source_id,
+                header: snapshot.header.clone(),
+                entries: snapshot.entries.clone(),
+            });
+            last_snapshot = Some(snapshot.clone());
+            last_session_id = snapshot.session_id.clone();
+            restored = true;
+        }
+    }
+    if restored {
         let _ = tx.send(TimingMessage::Status {
             source_id,
             text: "[SNAPSHOT] Restored from saved data".to_string(),
         });
     }
-    let mut last_session_id = last_snapshot
-        .as_ref()
-        .and_then(|snapshot| snapshot.session_id.clone());
     let mut fallback_detail_logged = false;
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_snapshot.as_ref() {
                 if persist.dirty_since_last_save {
-                    persist_snapshot(&mut persist, snapshot, &debug_output);
+                    persist_snapshot(
+                        &mut persist,
+                        snapshot,
+                        "wec_snapshot.json",
+                        "WEC",
+                        &debug_output,
+                    );
                 }
             }
             break;
@@ -407,7 +416,13 @@ pub fn websocket_worker_with_debug(
             if stop_rx.try_recv().is_ok() {
                 if let Some(snapshot) = last_snapshot.as_ref() {
                     if persist.dirty_since_last_save {
-                        persist_snapshot(&mut persist, snapshot, &debug_output);
+                        persist_snapshot(
+                            &mut persist,
+                            snapshot,
+                            "wec_snapshot.json",
+                            "WEC",
+                            &debug_output,
+                        );
                     }
                 }
                 break 'outer;
@@ -1677,7 +1692,7 @@ fn emit_snapshot(
         || (persist.dirty_since_last_save
             && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
     if save_now {
-        persist_snapshot(persist, &snapshot, debug_output);
+        persist_snapshot(persist, &snapshot, "wec_snapshot.json", "WEC", debug_output);
     }
 
     *last_session_id = session_id;
@@ -1692,74 +1707,6 @@ fn emit_snapshot(
         source_id,
         text: "WEC live timing connected".to_string(),
     });
-}
-
-fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
-    let mut hasher = base_snapshot_fingerprint(header);
-    for entry in entries {
-        hash_entry_common_fields(&mut hasher, entry);
-    }
-    hasher.finish()
-}
-
-fn now_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before unix epoch")
-        .as_millis() as u64
-}
-
-fn wec_snapshot_path() -> Option<PathBuf> {
-    data_local_snapshot_path("wec_snapshot.json")
-}
-
-fn persist_snapshot(runtime: &mut PersistState, snapshot: &WecSnapshot, debug: &SeriesDebugOutput) {
-    let Some(path) = runtime.path.as_ref() else {
-        return;
-    };
-    let payload = PersistedWecSnapshot {
-        saved_unix_ms: now_unix_ms(),
-        session_id: snapshot.session_id.clone(),
-        meaningful_fingerprint: snapshot.fingerprint,
-        header: snapshot.header.clone(),
-        entries: snapshot.entries.clone(),
-    };
-    if let Err(err) = write_json_pretty(path, &payload) {
-        log_series_debug(debug, "WEC", format!("snapshot persist failed: {err}"));
-        return;
-    }
-    runtime.last_persisted_hash = Some(snapshot.fingerprint);
-    runtime.last_save_at = Some(SystemTime::now());
-    runtime.dirty_since_last_save = false;
-}
-
-fn restore_snapshot_from_disk(
-    runtime: &mut PersistState,
-    tx: &Sender<TimingMessage>,
-    source_id: u64,
-    debug: &SeriesDebugOutput,
-) -> Option<WecSnapshot> {
-    let path = runtime.path.as_ref()?;
-    let saved = read_json::<PersistedWecSnapshot>(path)?;
-    runtime.last_persisted_hash = Some(saved.meaningful_fingerprint);
-    runtime.last_save_at = Some(SystemTime::now());
-    let snapshot = WecSnapshot {
-        header: saved.header,
-        entries: saved.entries,
-        session_id: saved.session_id,
-        fingerprint: saved.meaningful_fingerprint,
-    };
-    let _ = tx.send(TimingMessage::Snapshot {
-        source_id,
-        header: snapshot.header.clone(),
-        entries: snapshot.entries.clone(),
-    });
-    log_series_debug(
-        debug,
-        "WEC",
-        format!("snapshot restored from {}", path.display()),
-    );
-    Some(snapshot)
 }
 
 #[cfg(test)]
