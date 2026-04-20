@@ -1,7 +1,10 @@
-use std::{io, time::Duration};
+use std::io;
+
+#[cfg(test)]
+use std::time::Duration;
 
 use serde_json::Value;
-use tungstenite::{stream::MaybeTlsStream, Error as WsError};
+use tungstenite::Error as WsError;
 
 use crate::timing::{TimingEntry, TimingHeader, TimingNotice};
 
@@ -340,20 +343,7 @@ pub(super) fn parse_ws_message(
     }
 }
 
-pub(super) fn set_socket_timeout(
-    socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>,
-) {
-    const READ_TIMEOUT: Duration = Duration::from_secs(2);
-
-    match socket.get_mut() {
-        MaybeTlsStream::Plain(stream) => set_tcp_read_timeout(stream, READ_TIMEOUT),
-        MaybeTlsStream::Rustls(stream) => {
-            set_tcp_read_timeout(stream.get_mut(), READ_TIMEOUT);
-        }
-        _ => {}
-    }
-}
-
+#[cfg(test)]
 pub(super) fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
     let _ = stream.set_read_timeout(Some(timeout));
 }

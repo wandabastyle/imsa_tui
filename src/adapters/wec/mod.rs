@@ -18,6 +18,9 @@ use tungstenite::{
 };
 
 use crate::{
+    adapters::insights::session::{
+        fetch_meta_sessions_for_series, resolve_live_sid_for_series, MetaSessionItem,
+    },
     snapshot_runtime::{
         base_snapshot_fingerprint, derive_session_identifier, hash_entry_common_fields,
     },
@@ -28,15 +31,11 @@ use crate::{
     },
 };
 
+const WEC_SERIES_ID: u64 = 10;
 const NEGOTIATE_URL: &str =
     "https://insights.griiip.com/live-session-stream/negotiate?negotiateVersion=1";
-const SCHEDULE_URL: &str = "https://insights.griiip.com/meta/sessions-schedule-live";
-const META_SESSIONS_URL: &str = "https://insights.griiip.com/meta/sessions";
 const ORIGIN_URL: &str = "https://insights.griiip.com";
 const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
-const WEC_SERIES_ID: u64 = 10;
-const REALWORLD_DOMAIN: &str = "RealWorld";
-const META_SESSIONS_REFERENCE_FALLBACK: &str = "2026-01-01T00:00:00Z";
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 const SIGNALR_RS: char = '\u{1e}';
@@ -50,6 +49,29 @@ const WEC_SIGNALR_CHANNELS: &[&str] = &[
     "race-flags",
     "session-clock",
 ];
+
+#[derive(Debug, Deserialize)]
+struct NegotiateResponse {
+    url: String,
+    #[serde(rename = "accessToken")]
+    access_token: String,
+}
+
+#[derive(Debug)]
+enum SignalRFrame {
+    HandshakeAck,
+    Invocation {
+        target: String,
+        arguments: Vec<Value>,
+    },
+    Completion {
+        invocation_id: Option<String>,
+        error: Option<String>,
+    },
+    Ping,
+    Close,
+    Unknown,
+}
 
 #[derive(Debug, Clone)]
 struct WecSnapshot {
@@ -66,60 +88,6 @@ struct PersistedWecSnapshot {
     meaningful_fingerprint: u64,
     header: TimingHeader,
     entries: Vec<TimingEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NegotiateResponse {
-    url: String,
-    #[serde(rename = "accessToken")]
-    access_token: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SessionScheduleItem {
-    sid: u64,
-    #[serde(rename = "isStarted", default)]
-    is_started: bool,
-    #[serde(rename = "connectionStatus")]
-    connection_status: Option<String>,
-}
-
-#[derive(Debug)]
-struct SessionInfoMeta {
-    series_id: Option<u64>,
-    domain: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct MetaSessionItem {
-    id: u64,
-    name: Option<String>,
-    #[serde(rename = "sessionType")]
-    session_type: Option<String>,
-    #[serde(rename = "isRunning", default)]
-    is_running: bool,
-    #[serde(rename = "hasResult", default)]
-    has_result: bool,
-    #[serde(rename = "startTime")]
-    start_time: Option<String>,
-    #[serde(rename = "endTime")]
-    end_time: Option<String>,
-    #[serde(default)]
-    event: Option<MetaEventInfo>,
-    #[serde(rename = "trackConfig")]
-    track_config: Option<MetaTrackConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct MetaEventInfo {
-    name: Option<String>,
-    #[serde(rename = "trackConfig")]
-    track_config: Option<MetaTrackConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct MetaTrackConfig {
-    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,22 +172,6 @@ struct WecCarState {
     pit: Option<bool>,
     sector_times: [Option<i64>; 3],
     sector_laps: [Option<u32>; 3],
-}
-
-#[derive(Debug)]
-enum SignalRFrame {
-    HandshakeAck,
-    Invocation {
-        target: String,
-        arguments: Vec<Value>,
-    },
-    Completion {
-        invocation_id: Option<String>,
-        error: Option<String>,
-    },
-    Ping,
-    Close,
-    Unknown,
 }
 
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
@@ -544,40 +496,19 @@ fn send_signalr_handshake(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>) -> 
 }
 
 fn resolve_active_sid(client: &Client) -> Result<u64, String> {
-    let response = client
-        .get(SCHEDULE_URL)
-        .send()
-        .map_err(|err| format!("WEC session schedule request failed: {err}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WEC session schedule failed with HTTP {}",
-            response.status()
-        ));
-    }
-    let body = response
-        .text()
-        .map_err(|err| format!("WEC session schedule body read failed: {err}"))?;
-    let sessions = serde_json::from_str::<Vec<SessionScheduleItem>>(&body)
-        .map_err(|err| format!("WEC session schedule decode failed: {err}"))?;
-    let candidate_sids = choose_candidate_sids(&sessions)?;
-    for sid in candidate_sids {
-        let Ok(meta) = fetch_session_info_meta(client, sid) else {
-            continue;
-        };
-        let is_wec = meta.series_id == Some(WEC_SERIES_ID);
-        let is_realworld = meta
-            .domain
-            .as_deref()
-            .map(|domain| domain.eq_ignore_ascii_case("RealWorld"))
-            .unwrap_or(true);
-        if is_wec && is_realworld {
-            return Ok(sid);
-        }
-    }
-
-    Err("No active FIA WEC session found in live schedule".to_string())
+    resolve_live_sid_for_series(client, WEC_SERIES_ID)
+        .map_err(|err| format!("No active FIA WEC session found in live schedule ({err})"))
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone)]
+struct SessionScheduleItem {
+    sid: u64,
+    is_started: bool,
+    connection_status: Option<String>,
+}
+
+#[cfg(test)]
 fn choose_candidate_sids(sessions: &[SessionScheduleItem]) -> Result<Vec<u64>, String> {
     if sessions.is_empty() {
         return Err("WEC session schedule returned no sessions".to_string());
@@ -597,33 +528,18 @@ fn choose_candidate_sids(sessions: &[SessionScheduleItem]) -> Result<Vec<u64>, S
     Ok(prioritized)
 }
 
-fn fetch_session_info_meta(client: &Client, sid: u64) -> Result<SessionInfoMeta, String> {
-    let url = format!("{LIVE_BASE_URL}/session-info/{sid}");
-    let response = client
-        .get(&url)
-        .send()
-        .map_err(|err| format!("WEC session info request failed for sid {sid}: {err}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WEC session info failed for sid {sid} with HTTP {}",
-            response.status()
-        ));
-    }
-    let body = response
-        .text()
-        .map_err(|err| format!("WEC session info body read failed for sid {sid}: {err}"))?;
-    let value = serde_json::from_str::<Value>(&body)
-        .map_err(|err| format!("WEC session info decode failed for sid {sid}: {err}"))?;
-    let series_id = value.get("seriesId").and_then(Value::as_u64);
-    let domain = value
-        .get("domain")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    Ok(SessionInfoMeta { series_id, domain })
+#[cfg(test)]
+fn is_closed_status(status: Option<&str>) -> bool {
+    let Some(status) = status else {
+        return false;
+    };
+    let normalized = status.trim().to_ascii_lowercase();
+    normalized == "closed" || normalized == "ended" || normalized == "finished"
 }
 
 fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, String> {
-    let sessions = fetch_wec_meta_sessions(client)?;
+    let sessions = fetch_meta_sessions_for_series(client, WEC_SERIES_ID)
+        .map_err(|err| format!("WEC meta sessions request failed: {err}"))?;
     let Some(session) = choose_latest_finished_race_session(&sessions) else {
         return Err("No finished FIA WEC race session with results found".to_string());
     };
@@ -838,58 +754,6 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
     })
 }
 
-fn fetch_wec_meta_sessions(client: &Client) -> Result<Vec<MetaSessionItem>, String> {
-    let reference_time = resolve_meta_sessions_reference_time(client);
-    let response = client
-        .get(META_SESSIONS_URL)
-        .query(&[
-            ("dateTime", reference_time.as_str()),
-            ("forward", "false"),
-            ("seriesIds", "10"),
-            ("domains", REALWORLD_DOMAIN),
-        ])
-        .send()
-        .map_err(|err| format!("WEC meta sessions request failed: {err}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WEC meta sessions request failed with HTTP {}",
-            response.status()
-        ));
-    }
-    let body = response
-        .text()
-        .map_err(|err| format!("WEC meta sessions body read failed: {err}"))?;
-    serde_json::from_str::<Vec<MetaSessionItem>>(&body)
-        .map_err(|err| format!("WEC meta sessions decode failed: {err}"))
-}
-
-fn resolve_meta_sessions_reference_time(client: &Client) -> String {
-    let Ok(response) = client.get(SCHEDULE_URL).send() else {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    };
-    if !response.status().is_success() {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    }
-    let Ok(body) = response.text() else {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    };
-    let Ok(payload) = serde_json::from_str::<Vec<Value>>(&body) else {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    };
-    for item in payload {
-        let Some(clock) = item.get("clock") else {
-            continue;
-        };
-        if let Some(ts_now) = clock.get("tsNow").and_then(Value::as_str) {
-            return ts_now.to_string();
-        }
-        if let Some(ts) = clock.get("ts").and_then(Value::as_str) {
-            return ts.to_string();
-        }
-    }
-    META_SESSIONS_REFERENCE_FALLBACK.to_string()
-}
-
 fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<MetaSessionItem> {
     sessions
         .iter()
@@ -919,14 +783,6 @@ fn format_wec_class_name(raw: &str) -> String {
         "LMGT3" => "LMGT3".to_string(),
         _ => raw.trim().to_string(),
     }
-}
-
-fn is_closed_status(status: Option<&str>) -> bool {
-    let Some(status) = status else {
-        return false;
-    };
-    let normalized = status.trim().to_ascii_lowercase();
-    normalized == "closed" || normalized == "ended" || normalized == "finished"
 }
 
 fn negotiate(client: &Client) -> Result<NegotiateResponse, String> {

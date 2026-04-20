@@ -13,12 +13,7 @@ use std::{
 
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
-use tungstenite::{
-    client::IntoClientRequest,
-    connect,
-    http::header::{HeaderValue, ORIGIN, USER_AGENT},
-    Message,
-};
+use tungstenite::{connect, Message};
 
 use crate::{
     timing::{TimingEntry, TimingHeader, TimingMessage},
@@ -29,7 +24,7 @@ use self::{
     countdown::{now_millis, refresh_header_time_to_go, CountdownState},
     protocol::{
         is_retriable_timeout, notices_from_ws_message, parse_ws_message, refresh_active_event_id,
-        set_socket_timeout, should_emit_connected_status_on_update,
+        should_emit_connected_status_on_update,
     },
     schedule::{
         determine_active_nuerburgring_event_id, fetch_homepage_event_name, fetch_termine_event_name,
@@ -39,6 +34,8 @@ use self::{
         persist_snapshot_if_dirty, restore_snapshot_from_disk, NlsSnapshot,
     },
 };
+
+use crate::adapters::nurburgring_ws;
 
 #[cfg(test)]
 use self::protocol::{entry_from_value, set_tcp_read_timeout};
@@ -58,22 +55,6 @@ const N24_EVENT_ID: &str = "50";
 const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
-
-fn build_request() -> tungstenite::handshake::client::Request {
-    let mut request = WS_URL
-        .into_client_request()
-        .expect("failed to create websocket request");
-
-    request.headers_mut().insert(
-        ORIGIN,
-        HeaderValue::from_static("https://livetiming.azurewebsites.net"),
-    );
-    request
-        .headers_mut()
-        .insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0"));
-
-    request
-}
 
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
     websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
@@ -167,7 +148,7 @@ pub fn websocket_worker_with_debug(
         });
         log_series_debug(&debug_output, "NLS", "connecting websocket");
 
-        let request = build_request();
+        let request = nurburgring_ws::build_request(WS_URL, "https://livetiming.azurewebsites.net");
         let connection = connect(request);
 
         let (mut socket, response) = match connection {
@@ -184,7 +165,7 @@ pub fn websocket_worker_with_debug(
             }
         };
 
-        set_socket_timeout(&mut socket);
+        nurburgring_ws::set_socket_timeout(&mut socket);
 
         let _ = tx.send(TimingMessage::Status {
             source_id,

@@ -9,16 +9,11 @@ use std::{
 };
 
 use serde_json::Value;
-use tungstenite::{
-    client::IntoClientRequest,
-    connect,
-    http::header::{HeaderValue, ORIGIN, USER_AGENT},
-    stream::MaybeTlsStream,
-    Message,
-};
+use tungstenite::{connect, Message};
 
 use crate::{
     adapters::nls::protocol::{entry_from_value, notices_from_ws_message},
+    adapters::nurburgring_ws,
     timing::{TimingEntry, TimingHeader, TimingMessage},
     timing_persist::{data_local_snapshot_path, log_series_debug, PersistState, SeriesDebugOutput},
 };
@@ -30,28 +25,6 @@ use self::snapshot::{
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const DEFAULT_DHLM_EVENT_ID: &str = "50";
-
-fn build_request() -> tungstenite::handshake::client::Request {
-    let mut request = WS_URL
-        .into_client_request()
-        .expect("failed to create websocket request");
-
-    request.headers_mut().insert(
-        ORIGIN,
-        HeaderValue::from_static("https://livetiming.azurewebsites.net"),
-    );
-    request
-        .headers_mut()
-        .insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0"));
-
-    request
-}
-
-fn set_socket_timeout(socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>) {
-    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    }
-}
 
 fn dhlm_dump_path() -> Option<PathBuf> {
     data_local_snapshot_path("dhlm_dump.json")
@@ -125,7 +98,7 @@ pub fn websocket_worker_with_debug(
             text: "Connecting to DHLM websocket...".to_string(),
         });
 
-        let request = build_request();
+        let request = nurburgring_ws::build_request(WS_URL, "https://livetiming.azurewebsites.net");
         let connection = connect(request);
 
         let (mut socket, response) = match connection {
@@ -142,7 +115,7 @@ pub fn websocket_worker_with_debug(
             }
         };
 
-        set_socket_timeout(&mut socket);
+        nurburgring_ws::set_socket_timeout(&mut socket);
 
         let _ = tx.send(TimingMessage::Status {
             source_id,

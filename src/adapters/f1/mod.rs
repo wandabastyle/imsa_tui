@@ -11,6 +11,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::{
+    adapters::insights::{
+        common::{
+            format_gap, format_lap_time_ms, map_bool, map_i64, map_str, map_text, map_u32,
+            normalize_driver_name,
+        },
+        session::{
+            choose_latest_finished_race_session, fetch_live_json, fetch_meta_sessions_for_series,
+            resolve_live_sid_for_series,
+        },
+        signalr_ws::{
+            build_request as build_signalr_request, connect_signalr, negotiate,
+            parse_signalr_frame, send_join_group, send_signalr_handshake, split_signalr_frames,
+            SignalRFrame,
+        },
+    },
     snapshot_runtime::{
         base_snapshot_fingerprint, derive_session_identifier, hash_entry_common_fields,
     },
@@ -21,14 +36,10 @@ use crate::{
     },
 };
 
-const SCHEDULE_URL: &str = "https://insights.griiip.com/meta/sessions-schedule-live";
-const META_SESSIONS_URL: &str = "https://insights.griiip.com/meta/sessions";
-const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
-const REALWORLD_DOMAIN: &str = "RealWorld";
 const F1_SERIES_ID: u64 = 370;
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
-const META_SESSIONS_REFERENCE_FALLBACK: &str = "2026-01-01T00:00:00Z";
+const F1_SIGNALR_CHANNELS: &[&str] = &["session-info", "participants", "ranks", "gaps", "laps"];
 
 #[derive(Debug, Clone)]
 struct F1Snapshot {
@@ -45,47 +56,6 @@ struct PersistedF1Snapshot {
     meaningful_fingerprint: u64,
     header: TimingHeader,
     entries: Vec<TimingEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ScheduleItem {
-    sid: u64,
-    #[serde(rename = "isStarted", default)]
-    is_started: bool,
-    #[serde(rename = "connectionStatus")]
-    connection_status: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct MetaSessionItem {
-    id: u64,
-    name: Option<String>,
-    #[serde(rename = "sessionType")]
-    session_type: Option<String>,
-    #[serde(rename = "isRunning", default)]
-    is_running: bool,
-    #[serde(rename = "hasResult", default)]
-    has_result: bool,
-    #[serde(rename = "startTime")]
-    start_time: Option<String>,
-    #[serde(rename = "endTime")]
-    end_time: Option<String>,
-    #[serde(default)]
-    event: Option<MetaEventInfo>,
-    #[serde(rename = "trackConfig")]
-    track_config: Option<MetaTrackConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct MetaEventInfo {
-    name: Option<String>,
-    #[serde(rename = "trackConfig")]
-    track_config: Option<MetaTrackConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct MetaTrackConfig {
-    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,7 +166,7 @@ pub fn worker_with_debug(
                     source_id,
                     text: format!("F1 live session sid={sid}"),
                 });
-                build_live_snapshot(&client, sid)
+                build_live_snapshot_with_signalr_fallback(&client, sid, &debug_output)
             }
             Err(live_err) => {
                 let _ = tx.send(TimingMessage::Status {
@@ -244,51 +214,26 @@ pub fn worker_with_debug(
 }
 
 fn resolve_live_f1_sid(client: &Client) -> Result<u64, String> {
-    let response = client
-        .get(SCHEDULE_URL)
-        .send()
-        .map_err(|err| format!("F1 schedule request failed: {err}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "F1 schedule failed with HTTP {}",
-            response.status()
-        ));
-    }
-    let body = response
-        .text()
-        .map_err(|err| format!("F1 schedule body read failed: {err}"))?;
-    let sessions = serde_json::from_str::<Vec<ScheduleItem>>(&body)
-        .map_err(|err| format!("F1 schedule decode failed: {err}"))?;
+    resolve_live_sid_for_series(client, F1_SERIES_ID)
+        .map_err(|err| format!("no active Formula 1 live session found ({err})"))
+}
 
-    let mut candidate_sids = Vec::with_capacity(sessions.len());
-    for session in sessions.iter().filter(|session| {
-        session.is_started && !is_closed_status(session.connection_status.as_deref())
-    }) {
-        candidate_sids.push(session.sid);
-    }
-    for session in &sessions {
-        if !candidate_sids.contains(&session.sid) {
-            candidate_sids.push(session.sid);
+fn build_live_snapshot_with_signalr_fallback(
+    client: &Client,
+    sid: u64,
+    debug: &SeriesDebugOutput,
+) -> Result<F1Snapshot, String> {
+    match build_live_snapshot_via_signalr(client, sid) {
+        Ok(snapshot) => Ok(snapshot),
+        Err(err) => {
+            log_series_debug(
+                debug,
+                "F1",
+                format!("SignalR live path failed, falling back to REST live polling: {err}"),
+            );
+            build_live_snapshot(client, sid)
         }
     }
-
-    for sid in candidate_sids {
-        let info = fetch_live_json(client, sid, "session-info")?;
-        let Some(map) = info.as_object() else {
-            continue;
-        };
-        let series_id = map.get("seriesId").and_then(Value::as_u64);
-        let domain = map.get("domain").and_then(Value::as_str);
-        if series_id == Some(F1_SERIES_ID)
-            && domain
-                .map(|value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
-                .unwrap_or(true)
-        {
-            return Ok(sid);
-        }
-    }
-
-    Err("no active Formula 1 live session found".to_string())
 }
 
 fn build_live_snapshot(client: &Client, sid: u64) -> Result<F1Snapshot, String> {
@@ -301,8 +246,100 @@ fn build_live_snapshot(client: &Client, sid: u64) -> Result<F1Snapshot, String> 
     snapshot_from_live_state(state)
 }
 
+fn build_live_snapshot_via_signalr(client: &Client, sid: u64) -> Result<F1Snapshot, String> {
+    let negotiated =
+        negotiate(client).map_err(|err| format!("F1 SignalR negotiate failed: {err}"))?;
+    let ws_url = crate::adapters::insights::signalr_ws::websocket_url_from_negotiate(
+        &negotiated.url,
+        &negotiated.access_token,
+    );
+    let request = build_signalr_request(&ws_url)
+        .map_err(|err| format!("F1 SignalR request build failed: {err}"))?;
+    let mut socket = connect_signalr(request)
+        .map_err(|err| format!("F1 SignalR websocket connect failed: {err}"))?;
+
+    send_signalr_handshake(&mut socket)
+        .map_err(|err| format!("F1 SignalR handshake failed: {err}"))?;
+
+    let mut invocation_id = 1_u64;
+    for channel in F1_SIGNALR_CHANNELS {
+        send_join_group(&mut socket, &mut invocation_id, sid, channel)
+            .map_err(|err| format!("F1 SignalR JoinGroup failed for channel {channel}: {err}"))?;
+    }
+
+    let mut state = F1LiveState::default();
+    let mut saw_invocation = false;
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    while std::time::Instant::now() < deadline {
+        let message = match socket.read() {
+            Ok(message) => message,
+            Err(err) => {
+                if crate::adapters::insights::signalr_ws::is_retriable_timeout(&err) {
+                    continue;
+                }
+                return Err(format!("F1 SignalR read failed: {err}"));
+            }
+        };
+        let text = match message {
+            tungstenite::Message::Text(text) => text,
+            tungstenite::Message::Binary(data) => match String::from_utf8(data.to_vec()) {
+                Ok(text) => text.into(),
+                Err(_) => continue,
+            },
+            tungstenite::Message::Ping(payload) => {
+                let _ = socket.send(tungstenite::Message::Pong(payload));
+                continue;
+            }
+            tungstenite::Message::Pong(_) => continue,
+            tungstenite::Message::Close(_) => break,
+            _ => continue,
+        };
+
+        for frame in split_signalr_frames(&text) {
+            match parse_signalr_frame(frame) {
+                SignalRFrame::Invocation { target, arguments } => {
+                    if !target.starts_with("lv-") {
+                        continue;
+                    }
+                    saw_invocation = true;
+                    apply_live_signalr_arguments(&mut state, &target, &arguments);
+                }
+                SignalRFrame::Completion {
+                    invocation_id,
+                    error: Some(error),
+                } => {
+                    let label = invocation_id.unwrap_or_else(|| "?".to_string());
+                    return Err(format!("F1 SignalR invocation {label} failed: {error}"));
+                }
+                SignalRFrame::Close => break,
+                _ => {}
+            }
+        }
+    }
+
+    if !saw_invocation {
+        return Err("F1 SignalR produced no live invocation data".to_string());
+    }
+
+    snapshot_from_live_state(state)
+}
+
+fn apply_live_signalr_arguments(state: &mut F1LiveState, target: &str, arguments: &[Value]) {
+    for argument in arguments {
+        match target {
+            "lv-session-info" => apply_live_session_info(state, argument),
+            "lv-participants" => apply_live_participants(state, argument),
+            "lv-ranks" => apply_live_ranks(state, argument),
+            "lv-gaps" => apply_live_gaps(state, argument),
+            "lv-laps" => apply_live_laps(state, argument),
+            _ => {}
+        }
+    }
+}
+
 fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, String> {
-    let sessions = fetch_f1_meta_sessions(client)?;
+    let sessions = fetch_meta_sessions_for_series(client, F1_SERIES_ID)
+        .map_err(|err| format!("F1 meta sessions request failed: {err}"))?;
     let Some(session) = choose_latest_finished_race_session(&sessions) else {
         return Err("no finished Formula 1 race with results found".to_string());
     };
@@ -462,106 +499,6 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
     };
 
     snapshot_from_parts(header, entries)
-}
-
-fn fetch_f1_meta_sessions(client: &Client) -> Result<Vec<MetaSessionItem>, String> {
-    let reference_time = resolve_meta_sessions_reference_time(client);
-    let response = client
-        .get(META_SESSIONS_URL)
-        .query(&[
-            ("dateTime", reference_time.as_str()),
-            ("forward", "false"),
-            ("seriesIds", "370"),
-            ("domains", REALWORLD_DOMAIN),
-        ])
-        .send()
-        .map_err(|err| format!("F1 meta sessions request failed: {err}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "F1 meta sessions request failed with HTTP {}",
-            response.status()
-        ));
-    }
-    let body = response
-        .text()
-        .map_err(|err| format!("F1 meta sessions body read failed: {err}"))?;
-    serde_json::from_str::<Vec<MetaSessionItem>>(&body)
-        .map_err(|err| format!("F1 meta sessions decode failed: {err}"))
-}
-
-fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<MetaSessionItem> {
-    let mut candidates: Vec<_> = sessions
-        .iter()
-        .filter(|session| {
-            session
-                .session_type
-                .as_deref()
-                .map(|value| value.eq_ignore_ascii_case("Race"))
-                .unwrap_or(false)
-                && session.has_result
-        })
-        .cloned()
-        .collect();
-    candidates.sort_by_key(|session| {
-        session
-            .end_time
-            .clone()
-            .or_else(|| session.start_time.clone())
-            .unwrap_or_default()
-    });
-    candidates.reverse();
-
-    candidates
-        .iter()
-        .find(|session| !session.is_running)
-        .cloned()
-        .or_else(|| candidates.first().cloned())
-}
-
-fn resolve_meta_sessions_reference_time(client: &Client) -> String {
-    let Ok(response) = client.get(SCHEDULE_URL).send() else {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    };
-    if !response.status().is_success() {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    }
-    let Ok(body) = response.text() else {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    };
-    let Ok(payload) = serde_json::from_str::<Vec<Value>>(&body) else {
-        return META_SESSIONS_REFERENCE_FALLBACK.to_string();
-    };
-    for item in payload {
-        let Some(clock) = item.get("clock") else {
-            continue;
-        };
-        if let Some(ts_now) = clock.get("tsNow").and_then(Value::as_str) {
-            return ts_now.to_string();
-        }
-        if let Some(ts) = clock.get("ts").and_then(Value::as_str) {
-            return ts.to_string();
-        }
-    }
-    META_SESSIONS_REFERENCE_FALLBACK.to_string()
-}
-
-fn fetch_live_json(client: &Client, sid: u64, route: &str) -> Result<Value, String> {
-    let url = format!("{LIVE_BASE_URL}/{route}/{sid}");
-    let response = client
-        .get(&url)
-        .send()
-        .map_err(|err| format!("F1 live request failed ({route}): {err}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "F1 live endpoint {route} failed with HTTP {}",
-            response.status()
-        ));
-    }
-    let body = response
-        .text()
-        .map_err(|err| format!("F1 live body read failed ({route}): {err}"))?;
-    serde_json::from_str::<Value>(&body)
-        .map_err(|err| format!("F1 live decode failed ({route}): {err}"))
 }
 
 fn apply_live_session_info(state: &mut F1LiveState, payload: &Value) {
@@ -831,53 +768,6 @@ fn current_driver_name(row: &Map<String, Value>) -> Option<String> {
     map_str(row, "displayName")
 }
 
-fn normalize_driver_name(raw: &str) -> String {
-    raw.split_whitespace()
-        .map(|token| {
-            if token.chars().all(|ch| ch.is_uppercase()) {
-                let mut out = String::new();
-                let mut chars = token.chars();
-                if let Some(first) = chars.next() {
-                    out.extend(first.to_uppercase());
-                }
-                for ch in chars {
-                    out.extend(ch.to_lowercase());
-                }
-                out
-            } else {
-                token.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn format_gap(gap_ms: Option<i64>, gap_laps: Option<i64>) -> Option<String> {
-    if let Some(laps) = gap_laps {
-        if laps > 0 {
-            return Some(format!("+{laps} L"));
-        }
-    }
-    let millis = gap_ms?;
-    if millis <= 0 {
-        return Some("-".to_string());
-    }
-    let secs = millis / 1000;
-    let rem = millis % 1000;
-    Some(format!("+{secs}.{rem:03}"))
-}
-
-fn format_lap_time_ms(ms: i64) -> String {
-    if ms <= 0 {
-        return "-".to_string();
-    }
-    let total_ms = ms as u64;
-    let minutes = total_ms / 60_000;
-    let seconds = (total_ms % 60_000) / 1000;
-    let millis = total_ms % 1000;
-    format!("{minutes}:{seconds:02}.{millis:03}")
-}
-
 fn normalize_flag(raw: &str) -> String {
     let cleaned = raw.trim();
     if cleaned.is_empty() {
@@ -893,52 +783,6 @@ fn normalize_flag(raw: &str) -> String {
         out.extend(ch.to_lowercase());
     }
     out
-}
-
-fn map_str(map: &Map<String, Value>, key: &str) -> Option<String> {
-    let value = map.get(key)?.as_str()?.trim();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-fn map_i64(map: &Map<String, Value>, key: &str) -> Option<i64> {
-    map.get(key).and_then(|value| {
-        value
-            .as_i64()
-            .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
-            .or_else(|| value.as_str()?.trim().parse::<i64>().ok())
-    })
-}
-
-fn map_u32(map: &Map<String, Value>, key: &str) -> Option<u32> {
-    map_i64(map, key).and_then(|number| u32::try_from(number).ok())
-}
-
-fn map_bool(map: &Map<String, Value>, key: &str) -> Option<bool> {
-    map.get(key).and_then(|value| {
-        value.as_bool().or_else(|| {
-            value
-                .as_str()
-                .and_then(|raw| match raw.trim().to_ascii_lowercase().as_str() {
-                    "true" | "1" | "yes" => Some(true),
-                    "false" | "0" | "no" => Some(false),
-                    _ => None,
-                })
-        })
-    })
-}
-
-fn map_text(map: &Map<String, Value>, key: &str) -> Option<String> {
-    let value = map.get(key)?;
-    match value {
-        Value::String(text) => Some(text.trim().to_string()).filter(|value| !value.is_empty()),
-        Value::Number(number) => Some(number.to_string()),
-        Value::Bool(value) => Some(if *value { "true" } else { "false" }.to_string()),
-        _ => None,
-    }
 }
 
 fn set_header_text(slot: &mut String, incoming: Option<String>) {
@@ -965,14 +809,6 @@ fn set_opt_u32(slot: &mut Option<u32>, incoming: Option<u32>) {
     if incoming.is_some() {
         *slot = incoming;
     }
-}
-
-fn is_closed_status(status: Option<&str>) -> bool {
-    let Some(status) = status else {
-        return false;
-    };
-    let normalized = status.trim().to_ascii_lowercase();
-    normalized == "closed" || normalized == "ended" || normalized == "finished"
 }
 
 fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
