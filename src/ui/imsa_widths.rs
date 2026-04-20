@@ -1,10 +1,9 @@
-use std::{fs, path::PathBuf};
-
-use directories::ProjectDirs;
 use ratatui::layout::Constraint;
 use serde::{Deserialize, Serialize};
 
 use crate::timing::TimingEntry;
+
+use super::width_math::{distribute_extra_space, max_text_width, reduce_widths_in_order};
 
 const IMSA_COLUMN_COUNT: usize = 16;
 
@@ -177,124 +176,6 @@ impl ImsaColumnWidths {
     pub(crate) fn fastest_width(self) -> usize {
         self.fastest as usize
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct PersistedImsaSnapshotStub {
-    entries: Vec<TimingEntry>,
-}
-
-fn max_text_width<F>(entries: &[TimingEntry], accessor: F) -> u16
-where
-    F: Fn(&TimingEntry) -> &str,
-{
-    entries
-        .iter()
-        .map(|entry| accessor(entry).chars().count())
-        .max()
-        .unwrap_or(1) as u16
-}
-
-fn imsa_column_widths_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
-    Some(dirs.data_local_dir().join("imsa_column_widths.json"))
-}
-
-fn imsa_snapshot_dump_path() -> Option<PathBuf> {
-    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
-    Some(dirs.data_local_dir().join("imsa_snapshot.json"))
-}
-
-fn load_imsa_column_widths_baseline() -> Option<ImsaColumnWidths> {
-    let path = imsa_column_widths_path()?;
-    let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str::<ImsaColumnWidths>(&text).ok()
-}
-
-pub(crate) fn save_imsa_column_widths_baseline(widths: &ImsaColumnWidths) {
-    let Some(path) = imsa_column_widths_path() else {
-        return;
-    };
-
-    if let Some(parent) = path.parent() {
-        if fs::create_dir_all(parent).is_err() {
-            return;
-        }
-    }
-
-    let Ok(encoded) = serde_json::to_string_pretty(widths) else {
-        return;
-    };
-    let _ = fs::write(path, encoded);
-}
-
-fn load_imsa_widths_from_snapshot_dump() -> Option<ImsaColumnWidths> {
-    let path = imsa_snapshot_dump_path()?;
-    let text = fs::read_to_string(path).ok()?;
-    let parsed: PersistedImsaSnapshotStub = serde_json::from_str(&text).ok()?;
-    ImsaColumnWidths::from_entries(&parsed.entries)
-}
-
-pub(crate) fn init_imsa_widths_baseline() -> Option<ImsaColumnWidths> {
-    if let Some(saved) = load_imsa_column_widths_baseline() {
-        return Some(saved);
-    }
-
-    let from_dump = load_imsa_widths_from_snapshot_dump()?;
-    save_imsa_column_widths_baseline(&from_dump);
-    Some(from_dump)
-}
-
-fn distribute_extra_space(widths: &mut [u16; IMSA_COLUMN_COUNT], mut extra: u16) {
-    if extra == 0 {
-        return;
-    }
-
-    let total: u32 = widths.iter().map(|w| *w as u32).sum();
-    if total == 0 {
-        return;
-    }
-
-    for width in widths.iter_mut() {
-        let share = ((extra as u32 * *width as u32) / total) as u16;
-        *width = width.saturating_add(share);
-        extra = extra.saturating_sub(share);
-    }
-
-    let mut idx = 0usize;
-    while extra > 0 {
-        widths[idx] = widths[idx].saturating_add(1);
-        extra -= 1;
-        idx = (idx + 1) % IMSA_COLUMN_COUNT;
-    }
-}
-
-fn reduce_widths_in_order(
-    widths: &mut [u16; IMSA_COLUMN_COUNT],
-    minimums: &[u16; IMSA_COLUMN_COUNT],
-    mut deficit: u16,
-    indexes: &[usize],
-) -> u16 {
-    if deficit == 0 || indexes.is_empty() {
-        return deficit;
-    }
-
-    let mut progressed = true;
-    while deficit > 0 && progressed {
-        progressed = false;
-        for idx in indexes {
-            if deficit == 0 {
-                break;
-            }
-            if widths[*idx] > minimums[*idx] {
-                widths[*idx] -= 1;
-                deficit -= 1;
-                progressed = true;
-            }
-        }
-    }
-
-    deficit
 }
 
 pub(crate) fn calculate_imsa_widths(

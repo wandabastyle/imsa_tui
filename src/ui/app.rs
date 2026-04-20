@@ -24,7 +24,6 @@ use super::{
     grouping::{
         grouped_entries, next_view_mode, selected_series_index, view_entries_for_mode, ViewMode,
     },
-    imsa_widths::{init_imsa_widths_baseline, save_imsa_column_widths_baseline, ImsaColumnWidths},
     pit::{refresh_pit_trackers, PitTracker},
     popups::{
         liveticker_line_count, GroupPickerState, LogsPanelState, MessagesPanelState,
@@ -32,6 +31,7 @@ use super::{
     },
     render::{draw_frame, RenderCtx},
     search::{refresh_search_matches, SearchState},
+    width_state::SeriesWidthBaselines,
 };
 use crate::adapters::nls::liveticker::{
     stop_liveticker_feed, ActiveLivetickerFeed, LivetickerEntry, LivetickerWorkerMessage,
@@ -488,8 +488,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut imsa_debug_logs = VecDeque::new();
     let mut gap_anchor_stable_id: Option<String> = None;
     let mut pit_trackers: HashMap<String, PitTracker> = HashMap::new();
-    let mut imsa_width_baseline = init_imsa_widths_baseline();
-    let mut imsa_live_baseline_saved = false;
+    let mut width_baselines = SeriesWidthBaselines::load();
     let ui_started_at = Instant::now();
 
     loop {
@@ -557,16 +556,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 .saturating_sub(1);
         nls_liveticker_panel.scroll = nls_liveticker_panel.scroll.min(liveticker_max_scroll);
 
-        if !demo_mode && active_series == Series::Imsa && !imsa_live_baseline_saved {
-            if let Some(observed_live) = ImsaColumnWidths::from_entries(&entries) {
-                let merged = match imsa_width_baseline {
-                    Some(existing) => existing.merge_keep_larger(observed_live),
-                    None => observed_live,
-                };
-                save_imsa_column_widths_baseline(&merged);
-                imsa_width_baseline = Some(merged);
-                imsa_live_baseline_saved = true;
-            }
+        if !demo_mode {
+            width_baselines.capture_if_missing(active_series, &entries);
+            width_baselines.persist_if_dirty();
         }
 
         let current_groups = grouped_entries(&entries, active_series);
@@ -635,6 +627,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
         let marquee_tick = (ui_started_at.elapsed().as_millis() / 240) as usize;
 
         terminal.draw(|f| {
+            let table_width_baselines = width_baselines.table_baselines(active_series);
             let render_ctx = RenderCtx {
                 active_series,
                 status: &status,
@@ -647,7 +640,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 marquee_tick,
                 gap_anchor: gap_anchor.as_ref(),
                 pit_trackers: &pit_trackers,
-                imsa_width_baseline: imsa_width_baseline.as_ref(),
+                table_width_baselines,
                 now,
                 view_mode,
                 search: &search,
