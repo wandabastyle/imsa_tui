@@ -79,8 +79,7 @@ pub struct TimingHeader {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingClassColor {
-    pub foreground: String,
-    pub background: String,
+    pub color: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

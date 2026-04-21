@@ -3,8 +3,7 @@
 export type Series = 'imsa' | 'nls' | 'f1' | 'wec' | 'dhlm';
 
 export interface TimingClassColor {
-  foreground: string;
-  background: string;
+  color: string;
 }
 
 export interface TimingHeader {

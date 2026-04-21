@@ -720,15 +720,13 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
     header.class_colors.insert(
         "HYPER".to_string(),
         TimingClassColor {
-            foreground: "#ffffff".to_string(),
-            background: "#e21e19".to_string(),
+            color: "#e21e19".to_string(),
         },
     );
     header.class_colors.insert(
         "LMGT3".to_string(),
         TimingClassColor {
-            foreground: "#ffffff".to_string(),
-            background: "#0b9314".to_string(),
+            color: "#0b9314".to_string(),
         },
     );
 
@@ -1023,13 +1021,7 @@ fn apply_session_info(state: &mut WecLiveState, payload: &Value) -> bool {
                 .unwrap_or_else(|| class_id.clone());
             class_names.insert(class_id.clone(), class_label.clone());
             if let Some(color_hex) = map_str(class_map, "classColor") {
-                class_colors.insert(
-                    class_label,
-                    TimingClassColor {
-                        foreground: "#ffffff".to_string(),
-                        background: color_hex,
-                    },
-                );
+                class_colors.insert(class_label, TimingClassColor { color: color_hex });
             }
         }
         if !class_names.is_empty() {

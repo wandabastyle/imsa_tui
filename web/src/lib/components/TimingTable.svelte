@@ -3,6 +3,7 @@
 
   import { afterUpdate, onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
+  import { resolveClassTextColor } from '$lib/table/classColors';
   import { getColumnsForSeries, isCompactColumn } from '$lib/table/columns';
   import { asChWidths, computeStableColumnWidths } from '$lib/table/widths';
   import type { Series, TimingClassColor, TimingEntry } from '$lib/types';
@@ -133,46 +134,14 @@
     ];
   }
 
-  function rowClass(entry: TimingEntry): string {
-    if (series === 'wec') return '';
-    const className = entry.class_name.replaceAll(' ', '').replaceAll('_', '').toUpperCase();
-    if (className === 'GTP') return 'class-gtp';
-    if (className === 'LMP1') return 'class-lmp1';
-    if (className === 'LMP2') return 'class-lmp2';
-    if (className === 'LMGTE') return 'class-lmgte';
-    if (className === 'INV') return 'class-inv';
-    if (className === 'GTDPRO') return 'class-gtdpro';
-    if (className === 'GTD') return 'class-gtd';
-    return '';
+  function rowClassTint(entry: TimingEntry): string | null {
+    return resolveClassTextColor(series, entry.class_name, classColors);
   }
 
   function rowStyle(entry: TimingEntry, selected: boolean): string {
-    if (selected || series !== 'wec') return '';
-    const key = entry.class_name.replaceAll(' ', '').replaceAll('_', '').replaceAll('-', '').toUpperCase();
-
-    const palette = classColors[key];
-    if (palette && looksLikeHexColor(palette.foreground)) {
-      return `color: ${palette.foreground};`;
-    }
-
-    const staticColors: Record<string, string> = {
-      'LMH': '#dc143c',
-      'LMGT3': '#1e90ff',
-      'LMP1': '#ff1053',
-      'LMP2': '#3f90da',
-      'LMGTE': '#ffa912',
-      'INV': '#ffffff'
-    };
-    if (staticColors[key]) {
-      return `color: ${staticColors[key]};`;
-    }
-
-    return '';
-  }
-
-  function looksLikeHexColor(value: string | undefined): boolean {
-    if (!value) return false;
-    return /^#[0-9a-fA-F]{6}$/.test(value.trim());
+    if (selected) return '';
+    const classTint = rowClassTint(entry);
+    return classTint ? `--class-color: ${classTint};` : '';
   }
 
   function pitSignalActive(entry: TimingEntry): boolean {
@@ -460,7 +429,7 @@
                 </thead>
                 <tbody>
                   {#each section.entries as entry, index (entry.stable_id)}
-                    <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, section.start + index === selectedRow)}>
+                    <tr class={`${rowClassTint(entry) ? 'class-tint' : ''} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, section.start + index === selectedRow)}>
                       {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${activeColumns[colIndex]}`)}
                         <td class={`${pitCellClass(activeColumns[colIndex], cell)} ${compactColumnClass(activeColumns[colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
@@ -493,7 +462,7 @@
             </tr>
           {:else}
             {#each entries as entry, index (entry.stable_id)}
-              <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, index === selectedRow)}>
+              <tr class={`${rowClassTint(entry) ? 'class-tint' : ''} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, index === selectedRow)}>
                 {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${activeColumns[colIndex]}`)}
                   <td class={`${pitCellClass(activeColumns[colIndex], cell)} ${compactColumnClass(activeColumns[colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
@@ -595,6 +564,10 @@
     box-shadow: inset 0 0 0 1px #2a79c7;
   }
 
+  tr.class-tint:not(.selected) {
+    color: var(--class-color);
+  }
+
   tr.pit-row:not(.selected) {
     color: #ffd166;
     font-weight: 700;
@@ -634,34 +607,6 @@
   td.stops-hot {
     color: #ff8a65;
     font-weight: 700;
-  }
-
-  tr.class-lmp2 {
-    color: #3f90da;
-  }
-
-  tr.class-lmp1 {
-    color: #ff1053;
-  }
-
-  tr.class-lmgte {
-    color: #ffa912;
-  }
-
-  tr.class-inv {
-    color: #ffffff;
-  }
-
-  tr.class-gtdpro {
-    color: #d22630;
-  }
-
-  tr.class-gtd {
-    color: #00a651;
-  }
-
-  tr.class-gtp {
-    color: #e9eef8;
   }
 
   tr.selected {
