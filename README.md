@@ -126,11 +126,14 @@ Release binary commands:
 ./target/release/web_server --stop
 ```
 
-Docker Compose deployment (local build):
+Docker Compose deployment (GitHub Release binary):
 
 ```bash
-# build image from current repository checkout
+# build image from latest release asset
 docker compose build
+
+# build image from a specific release tag
+env RELEASE_TAG=vX.Y.Z docker compose build
 
 # start the web server container in background
 docker compose up -d

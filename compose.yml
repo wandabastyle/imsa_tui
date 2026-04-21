@@ -12,6 +12,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        RELEASE_TAG: ${RELEASE_TAG:-latest}
     image: imsa-web:local
     container_name: imsa-web
     restart: unless-stopped

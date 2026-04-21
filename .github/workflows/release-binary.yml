@@ -1,0 +1,65 @@
+name: Release web_server binary
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-binary:
+    name: Build and publish web_server release asset
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.95-bookworm
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_ASSET: imsa-web-linux-amd64.tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          set-safe-directory: true
+
+      - name: Mark workspace as git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install release tooling
+        run: apt-get update && apt-get install -y --no-install-recommends gh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - name: Build web assets
+        run: pnpm run build
+        working-directory: web
+
+      - name: Build release web_server binary
+        run: cargo build --release --locked --bin web_server
+
+      - name: Package release artifact
+        run: tar -C target/release -czf "$RELEASE_ASSET" web_server
+
+      - name: Create or update GitHub Release
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release edit "$tag" --title "$tag"
+          else
+            gh release create "$tag" --title "$tag" --notes "Automated release for $tag"
+          fi
+
+      - name: Upload release asset
+        run: gh release upload "${GITHUB_REF_NAME}" "$RELEASE_ASSET" --clobber
