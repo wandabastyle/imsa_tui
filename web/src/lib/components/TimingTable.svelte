@@ -3,6 +3,8 @@
 
   import { afterUpdate, onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
+  import { getColumnsForSeries, isCompactColumn } from '$lib/table/columns';
+  import { asChWidths, computeStableColumnWidths } from '$lib/table/widths';
   import type { Series, TimingClassColor, TimingEntry } from '$lib/types';
 
   interface GroupSection {
@@ -28,23 +30,8 @@
   let lastSeries: Series | null = null;
   let lastTitle = '';
   const pitTrackers = new SvelteMap<string, { inPit: boolean; inUntil: number; outUntil: number }>();
-
-  const columnsBySeries: Record<Series, string[]> = {
-    imsa: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Laps', 'Gap O', 'Gap C', 'Next C', 'Last', 'Best', 'BL#', 'Pit', 'Stop', 'Fastest Driver'],
-    nls: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5'],
-    f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC'],
-    wec: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3'],
-    dhlm: ['Pos', '#', 'Class', 'PIC', 'Driver', 'Vehicle', 'Team', 'Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5']
-  };
-
-  const widthBySeries: Record<Series, string[]> = {
-    // Mirrors the TUI fixed-column intent so grouped sections line up perfectly.
-    imsa: ['4ch', '7ch', '7ch', '4ch', '24ch', '20ch', '6ch', '11ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '5ch', '18ch'],
-    nls: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch'],
-    f1: ['4ch', '7ch', '26ch', '16ch', '7ch', '11ch', '11ch', '10ch', '10ch', '5ch', '5ch', '7ch'],
-    wec: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch'],
-    dhlm: ['4ch', '7ch', '9ch', '5ch', '14ch', '26ch', '32ch', '4ch', '11ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch', '9ch']
-  };
+  let activeColumns = getColumnsForSeries(series);
+  let activeWidths: string[] = [];
 
   function favouriteFlag(entry: TimingEntry): string {
     return favourites.has(`${series}|${normalizeStableId(entry.stable_id)}`) ? '★ ' : '';
@@ -244,7 +231,7 @@
   }
 
   function compactColumnClass(column: string): string {
-    if (['Laps', 'Gap', 'Last', 'Best', 'S1', 'S2', 'S3', 'S4', 'S5'].includes(column)) {
+    if (isCompactColumn(column)) {
       return 'tight-col';
     }
     return '';
@@ -353,13 +340,13 @@
   }
 
   function renderCell(entry: TimingEntry, cell: string, colIndex: number, selected: boolean): string {
-    const column = columnsBySeries[series][colIndex];
+    const column = activeColumns[colIndex];
     const relative = relativeGapCell(entry, column, cell);
     return marqueeCellText(relative, colIndex, selected, marqueeTick);
   }
 
   function columnWidthChars(colIndex: number): number {
-    const raw = widthBySeries[series][colIndex] ?? '12ch';
+    const raw = activeWidths[colIndex] ?? '12ch';
     const match = raw.match(/(\d+)ch/);
     return match ? Number.parseInt(match[1], 10) : 12;
   }
@@ -377,6 +364,18 @@
       return `${chars.slice(offset).join('')}   ${chars.slice(0, offset).join('')}`;
     }
     return `${' '.repeat(offset - chars.length)}${value}`;
+  }
+
+  $: activeColumns = getColumnsForSeries(series);
+
+  $: {
+    const rows = entries.map((entry) => {
+      const rowCells = cells(entry);
+      return rowCells.map((cell, colIndex) => relativeGapCell(entry, activeColumns[colIndex], cell));
+    });
+    const widthContextKey = `${series}|${title}`;
+    const nextWidthsCh = computeStableColumnWidths(widthContextKey, activeColumns, rows, 1);
+    activeWidths = asChWidths(nextWidthsCh);
   }
 
   onMount(() => {
@@ -448,13 +447,13 @@
               <div class="group-title">{section.name} ({section.entries.length} cars)</div>
               <table>
                 <colgroup>
-                  {#each widthBySeries[series] as width, widthIndex (`${series}-group-${widthIndex}-${width}`)}
+                  {#each activeWidths as width, widthIndex (`${series}-group-${widthIndex}-${width}`)}
                     <col style={`width:${width}`} />
                   {/each}
                 </colgroup>
                 <thead>
                   <tr>
-                      {#each columnsBySeries[series] as column (column)}
+                      {#each activeColumns as column (column)}
                         <th class={compactColumnClass(column)}>{column}</th>
                       {/each}
                   </tr>
@@ -462,8 +461,8 @@
                 <tbody>
                   {#each section.entries as entry, index (entry.stable_id)}
                     <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${section.start + index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, section.start + index === selectedRow)}>
-                      {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
-                        <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
+                      {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${activeColumns[colIndex]}`)}
+                        <td class={`${pitCellClass(activeColumns[colIndex], cell)} ${compactColumnClass(activeColumns[colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, section.start + index === selectedRow)}</td>
                       {/each}
                     </tr>
                   {/each}
@@ -476,13 +475,13 @@
     {:else}
       <table>
         <colgroup>
-          {#each widthBySeries[series] as width, widthIndex (`${series}-flat-${widthIndex}-${width}`)}
+          {#each activeWidths as width, widthIndex (`${series}-flat-${widthIndex}-${width}`)}
             <col style={`width:${width}`} />
           {/each}
         </colgroup>
         <thead>
           <tr>
-            {#each columnsBySeries[series] as column (column)}
+            {#each activeColumns as column (column)}
               <th class={compactColumnClass(column)}>{column}</th>
             {/each}
           </tr>
@@ -490,13 +489,13 @@
         <tbody>
           {#if entries.length === 0}
             <tr>
-              <td colspan={columnsBySeries[series].length}>No timing data yet.</td>
+              <td colspan={activeColumns.length}>No timing data yet.</td>
             </tr>
           {:else}
             {#each entries as entry, index (entry.stable_id)}
               <tr class={`${rowClass(entry)} ${rowPitPhase(entry)} ${index === selectedRow ? 'selected' : ''} ${entry.stable_id === markedStableId ? 'search-mark' : ''}`} style={rowStyle(entry, index === selectedRow)}>
-                {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${columnsBySeries[series][colIndex]}`)}
-                  <td class={`${pitCellClass(columnsBySeries[series][colIndex], cell)} ${compactColumnClass(columnsBySeries[series][colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
+                {#each cells(entry) as cell, colIndex (`${entry.stable_id}-${activeColumns[colIndex]}`)}
+                  <td class={`${pitCellClass(activeColumns[colIndex], cell)} ${compactColumnClass(activeColumns[colIndex])}`.trim()}>{renderCell(entry, cell, colIndex, index === selectedRow)}</td>
                 {/each}
               </tr>
             {/each}
