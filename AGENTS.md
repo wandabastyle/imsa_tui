@@ -14,6 +14,7 @@
 
 - After changing any file, run the relevant lint/check commands for affected areas.
 - Continue fixing and re-running lint/check commands until all reported errors are resolved.
+- Do not use inline suppressions for `svelte/prefer-svelte-reactivity` (for example `// eslint-disable-next-line svelte/prefer-svelte-reactivity`); refactor to compliant Svelte reactivity patterns instead.
 
 ## Verification Matrix
 

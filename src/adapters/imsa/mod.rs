@@ -621,4 +621,13 @@ mod tests {
         assert!(!is_transponder_placeholder(&normal));
         assert!(parse_entry(&normal).is_some());
     }
+
+    #[test]
+    fn normalize_class_name_uses_canonical_dash_keys() {
+        assert_eq!(normalize_class_name("gtdpro"), "GTD-PRO");
+        assert_eq!(normalize_class_name("GTD_PRO"), "GTD-PRO");
+        assert_eq!(normalize_class_name("pro am"), "PRO-AM");
+        assert_eq!(normalize_class_name("pro_am"), "PRO-AM");
+        assert_eq!(normalize_class_name("hypercar"), "HYPER");
+    }
 }

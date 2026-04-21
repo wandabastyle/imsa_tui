@@ -79,8 +79,45 @@ pub struct TimingHeader {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingClassColor {
-    pub foreground: String,
-    pub background: String,
+    pub color: String,
+}
+
+pub fn canonicalize_class_name(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "-" {
+        return "-".to_string();
+    }
+
+    let mut normalized = String::with_capacity(trimmed.len());
+    let mut pending_separator = false;
+
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_separator && !normalized.is_empty() {
+                normalized.push('-');
+            }
+            normalized.push(ch.to_ascii_uppercase());
+            pending_separator = false;
+            continue;
+        }
+
+        if ch.is_whitespace() || ch == '_' || ch == '-' {
+            pending_separator = !normalized.is_empty();
+        }
+    }
+
+    let canonical = match normalized.as_str() {
+        "GTDPRO" => "GTD-PRO".to_string(),
+        "PROAM" => "PRO-AM".to_string(),
+        "HYPERCAR" => "HYPER".to_string(),
+        _ => normalized,
+    };
+
+    if canonical.is_empty() {
+        "-".to_string()
+    } else {
+        canonical
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
