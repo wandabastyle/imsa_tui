@@ -2,10 +2,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::{
-    adapters::imsa::normalize_class_name,
-    timing::{Series, TimingClassColor},
-};
+use crate::timing::{canonicalize_class_name, Series, TimingClassColor};
 
 fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let t = t.clamp(0.0, 1.0);
@@ -88,7 +85,7 @@ pub(crate) fn class_style(
         return Style::default();
     }
 
-    let key = normalize_class_key(class_name);
+    let key = canonicalize_class_name(class_name);
     if let Some(live) = resolve_live_class_color(class_colors, &key) {
         return Style::default().fg(live).add_modifier(Modifier::BOLD);
     }
@@ -104,7 +101,7 @@ pub(crate) fn class_style(
         "LMP2" => Style::default()
             .fg(Color::Rgb(63, 144, 218))
             .add_modifier(Modifier::BOLD),
-        "GTD-PRO" | "GTDPRO" => Style::default()
+        "GTD-PRO" => Style::default()
             .fg(Color::Rgb(210, 38, 48))
             .add_modifier(Modifier::BOLD),
         "PRO" => Style::default()
@@ -135,30 +132,8 @@ fn resolve_live_class_color(
 ) -> Option<Color> {
     class_colors
         .iter()
-        .find(|(raw_key, _)| normalize_class_key(raw_key) == class_key)
+        .find(|(raw_key, _)| canonicalize_class_name(raw_key) == class_key)
         .and_then(|(_, value)| parse_hex_color(&value.color))
-}
-
-fn normalize_class_key(value: &str) -> String {
-    let mut normalized = String::with_capacity(value.len());
-    let mut pending_separator = false;
-
-    for ch in value.chars() {
-        if ch.is_ascii_alphanumeric() {
-            if pending_separator && !normalized.is_empty() {
-                normalized.push('-');
-            }
-            normalized.push(ch.to_ascii_uppercase());
-            pending_separator = false;
-            continue;
-        }
-
-        if ch.is_whitespace() || ch == '_' || ch == '-' {
-            pending_separator = !normalized.is_empty();
-        }
-    }
-
-    normalized
 }
 
 fn parse_hex_color(value: &str) -> Option<Color> {
@@ -197,26 +172,7 @@ fn class_style_wec_static(class_key: &str) -> Style {
 }
 
 pub(crate) fn class_display_name(name: &str) -> String {
-    let normalized = normalize_class_name(name);
-    match normalized.as_str() {
-        "GTP" => "GTP".to_string(),
-        "LMP2" => "LMP2".to_string(),
-        "LMP1" => "LMP1".to_string(),
-        "LMGTE" => "LMGTE".to_string(),
-        "INV" => "INV".to_string(),
-        "GTDPRO" => "GTD PRO".to_string(),
-        "GTD" => "GTD".to_string(),
-        "LMH" => "LMH".to_string(),
-        "LMGT3" => "LMGT3".to_string(),
-        _ => {
-            let trimmed = name.trim();
-            if trimmed.is_empty() {
-                "-".to_string()
-            } else {
-                trimmed.to_string()
-            }
-        }
-    }
+    canonicalize_class_name(name)
 }
 
 #[cfg(test)]

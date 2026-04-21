@@ -1,7 +1,7 @@
 use reqwest::blocking::Client;
 use serde_json::Value;
 
-use crate::timing::{TimingEntry, TimingHeader};
+use crate::timing::{canonicalize_class_name, TimingEntry, TimingHeader};
 
 use super::jsonp::{fetch_url_text, parse_jsonp_body};
 
@@ -128,7 +128,7 @@ pub(super) fn parse_entry(obj: &Value) -> Option<TimingEntry> {
 
     let position = parse_position(obj)?;
     let car_number = as_string(obj, "N");
-    let class_name = as_string(obj, "C");
+    let class_name = normalize_class_name(&as_string(obj, "C"));
     let stable_id = parse_stable_car_id(obj, &car_number);
 
     Some(TimingEntry {
@@ -283,10 +283,7 @@ pub(super) fn fetch_snapshot(
 }
 
 pub(super) fn normalize_class_name(name: &str) -> String {
-    name.chars()
-        .filter(|c| !c.is_whitespace() && *c != '_')
-        .collect::<String>()
-        .to_uppercase()
+    canonicalize_class_name(name)
 }
 
 fn clean_time_to_go(raw: &str) -> String {

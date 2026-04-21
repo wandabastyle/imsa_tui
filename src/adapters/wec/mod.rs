@@ -24,7 +24,7 @@ use crate::{
         snapshot_path, Snapshot,
     },
     snapshot_runtime::derive_session_identifier,
-    timing::{TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
+    timing::{canonicalize_class_name, TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
     timing_persist::{debounce_elapsed, log_series_debug, PersistState, SeriesDebugOutput},
 };
 
@@ -765,12 +765,7 @@ fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<M
 }
 
 fn format_wec_class_name(raw: &str) -> String {
-    let normalized = raw.trim().to_ascii_uppercase();
-    match normalized.as_str() {
-        "HYPERCAR" => "HYPER".to_string(),
-        "LMGT3" => "LMGT3".to_string(),
-        _ => raw.trim().to_string(),
-    }
+    canonicalize_class_name(raw)
 }
 
 fn negotiate(client: &Client) -> Result<NegotiateResponse, String> {
@@ -1016,9 +1011,10 @@ fn apply_session_info(state: &mut WecLiveState, payload: &Value) -> bool {
             let Some(class_id) = map_str(class_map, "classId") else {
                 continue;
             };
-            let class_label = map_str(class_map, "classThreeLettersName")
+            let class_label_raw = map_str(class_map, "classThreeLettersName")
                 .or_else(|| map_str(class_map, "className"))
                 .unwrap_or_else(|| class_id.clone());
+            let class_label = canonicalize_class_name(&class_label_raw);
             class_names.insert(class_id.clone(), class_label.clone());
             if let Some(color_hex) = map_str(class_map, "classColor") {
                 class_colors.insert(class_label, TimingClassColor { color: color_hex });
@@ -1259,7 +1255,7 @@ fn snapshot_from_live_state(state: &WecLiveState) -> Option<(TimingHeader, Vec<T
 }
 
 fn row_to_timing_entry(state: &WecLiveState, row: WecCarState) -> TimingEntry {
-    let class_name = row
+    let class_name_raw = row
         .class_name
         .clone()
         .or_else(|| {
@@ -1268,6 +1264,7 @@ fn row_to_timing_entry(state: &WecLiveState, row: WecCarState) -> TimingEntry {
                 .and_then(|id| state.class_names.get(id).cloned())
         })
         .unwrap_or_else(|| "-".to_string());
+    let class_name = canonicalize_class_name(&class_name_raw);
     let stable_id = format!("wec:{}", row.car_number);
     TimingEntry {
         position: row.position.unwrap_or(0),
