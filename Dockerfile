@@ -1,25 +1,24 @@
-FROM node:22-alpine AS web-build
-WORKDIR /app/web
+FROM debian:bookworm-slim AS binary-fetch
 
-COPY web/package.json web/pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+ARG RELEASE_TAG=latest
 
-COPY web/ ./
-RUN pnpm run build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl tar \
+    && rm -rf /var/lib/apt/lists/*
 
-FROM rust:1.95-bookworm AS rust-build
-WORKDIR /app
+WORKDIR /tmp
 
-COPY Cargo.toml Cargo.lock ./
-COPY src/ ./src/
-COPY tests/ ./tests/
-COPY --from=web-build /app/web/build ./web/build
-
-RUN cargo build --release --locked --bin web_server
+RUN if [ "$RELEASE_TAG" = "latest" ]; then \
+      curl -fL "https://github.com/wandabastyle/imsa_tui/releases/latest/download/imsa-web-linux-amd64.tar.gz" -o imsa-web-linux-amd64.tar.gz; \
+    else \
+      curl -fL "https://github.com/wandabastyle/imsa_tui/releases/download/${RELEASE_TAG}/imsa-web-linux-amd64.tar.gz" -o imsa-web-linux-amd64.tar.gz; \
+    fi \
+    && tar -xzf imsa-web-linux-amd64.tar.gz \
+    && test -f web_server
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 
-COPY --from=rust-build /app/target/release/web_server /web_server
+COPY --from=binary-fetch /tmp/web_server /web_server
 
 ENV WEBUI_AUTO_FUNNEL=0
 ENV WEBUI_COOKIE_SECURE=1
