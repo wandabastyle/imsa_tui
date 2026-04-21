@@ -16,10 +16,16 @@ jobs:
       image: rust:1.95-bookworm
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
       RELEASE_ASSET: imsa-web-linux-amd64.tar.gz
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          set-safe-directory: true
+
+      - name: Mark workspace as git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install release tooling
         run: apt-get update && apt-get install -y --no-install-recommends gh
