@@ -8,6 +8,7 @@
 - [[Reverse-Proxy-Nginx]]
 - [[Web-Auth-and-Sessions]]
 - [[NLS-WebSocket-Field-Map]]
+- [[WEC-SignalR-Field-Map]]
 - [[Operations-Runbook]]
 - [[Troubleshooting]]
 - [[Development-and-CI]]

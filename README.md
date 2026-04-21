@@ -10,7 +10,7 @@ Project wiki (operator-focused deployment/runbooks):
 
 ## Features
 
-- Live IMSA polling (JSONP), NLS websocket streaming, F1 SignalR-style live streaming, and WEC SockJS/DDP streaming.
+- Live IMSA polling (JSONP), NLS websocket streaming, F1 SignalR-style live streaming, and WEC SignalR streaming.
 - Overall leaderboard table with position, car number, class, driver, laps, gaps, lap times, and pit information.
 - Multiple viewing modes:
   - **Overall** (all cars)
@@ -211,22 +211,27 @@ NLS:
 - `wss://livetiming.azurewebsites.net/` websocket feed (`eventId = 20`)
 
 F1:
-- `https://livetiming.formula1.com/signalr/*` negotiate/start endpoints
-- `wss://livetiming.formula1.com/signalr/connect` live stream feed
+- `https://insights.griiip.com/meta/sessions-schedule-live` live schedule discovery
+- `https://insights.griiip.com/live/*` live session snapshots (session-info, participants, ranks, gaps, laps)
+- `https://insights.griiip.com/meta/sessions/*` latest finished race fallback when no live session is available
 
 WEC:
-- `https://livetiming.alkamelsystems.com/fiawec` public LT2 page
-- SockJS + Meteor DDP over `wss://livetiming.alkamelsystems.com/sockjs/.../websocket`
+- `https://insights.griiip.com/live-session-stream/negotiate?negotiateVersion=1` negotiate endpoint
+- Azure SignalR websocket from negotiate response (`sessionstreamhub`)
 
-WEC reverse-engineered flow notes:
+WEC flow notes:
 
-- `docs/wec-lt2-ddp.md`
+- https://github.com/wandabastyle/imsa_tui/wiki/WEC-SignalR-Field-Map
 
 If a payload is raw JSON instead of JSONP, the parser handles both formats.
 
 NLS protocol/header mapping details are documented in the wiki:
 
 - https://github.com/wandabastyle/imsa_tui/wiki/NLS-WebSocket-Field-Map
+
+WEC protocol/header mapping details are documented in the wiki:
+
+- https://github.com/wandabastyle/imsa_tui/wiki/WEC-SignalR-Field-Map
 
 ## Troubleshooting
 

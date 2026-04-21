@@ -5,29 +5,27 @@ use crate::timing::TimingEntry;
 
 use super::width_math::{distribute_extra_space, max_text_width, reduce_widths_in_order};
 
-const IMSA_COLUMN_COUNT: usize = 16;
+const WEC_COLUMN_COUNT: usize = 14;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ImsaColumnWidths {
+pub(crate) struct WecColumnWidths {
     pos: u16,
     car_number: u16,
     class: u16,
     pic: u16,
     driver: u16,
     vehicle: u16,
+    team: u16,
     laps: u16,
-    gap_o: u16,
-    gap_c: u16,
-    next_c: u16,
+    gap: u16,
     last: u16,
     best: u16,
-    bl: u16,
-    pit: u16,
-    stop: u16,
-    fastest: u16,
+    s1: u16,
+    s2: u16,
+    s3: u16,
 }
 
-impl ImsaColumnWidths {
+impl WecColumnWidths {
     const fn header_minimums() -> Self {
         Self {
             pos: 3,
@@ -36,16 +34,14 @@ impl ImsaColumnWidths {
             pic: 3,
             driver: 6,
             vehicle: 7,
+            team: 6,
             laps: 4,
-            gap_o: 5,
-            gap_c: 5,
-            next_c: 6,
+            gap: 3,
             last: 4,
             best: 4,
-            bl: 3,
-            pit: 3,
-            stop: 4,
-            fastest: 14,
+            s1: 2,
+            s2: 2,
+            s3: 2,
         }
     }
 
@@ -53,7 +49,6 @@ impl ImsaColumnWidths {
         if entries.is_empty() {
             return None;
         }
-
         let pos = entries
             .iter()
             .map(|entry| entry.position.to_string().chars().count())
@@ -67,38 +62,15 @@ impl ImsaColumnWidths {
             pic: max_text_width(entries, |entry| &entry.class_rank),
             driver: max_text_width(entries, |entry| &entry.driver),
             vehicle: max_text_width(entries, |entry| &entry.vehicle),
+            team: max_text_width(entries, |entry| &entry.team),
             laps: max_text_width(entries, |entry| &entry.laps),
-            gap_o: max_text_width(entries, |entry| &entry.gap_overall),
-            gap_c: max_text_width(entries, |entry| &entry.gap_class),
-            next_c: max_text_width(entries, |entry| &entry.gap_next_in_class),
+            gap: max_text_width(entries, |entry| &entry.gap_overall),
             last: max_text_width(entries, |entry| &entry.last_lap),
             best: max_text_width(entries, |entry| &entry.best_lap),
-            bl: max_text_width(entries, |entry| &entry.best_lap_no),
-            pit: max_text_width(entries, |entry| &entry.pit),
-            stop: max_text_width(entries, |entry| &entry.pit_stops),
-            fastest: max_text_width(entries, |entry| &entry.fastest_driver),
+            s1: max_text_width(entries, |entry| &entry.sector_1),
+            s2: max_text_width(entries, |entry| &entry.sector_2),
+            s3: max_text_width(entries, |entry| &entry.sector_3),
         })
-    }
-
-    pub(crate) fn merge_keep_larger(self, other: Self) -> Self {
-        Self {
-            pos: self.pos.max(other.pos),
-            car_number: self.car_number.max(other.car_number),
-            class: self.class.max(other.class),
-            pic: self.pic.max(other.pic),
-            driver: self.driver.max(other.driver),
-            vehicle: self.vehicle.max(other.vehicle),
-            laps: self.laps.max(other.laps),
-            gap_o: self.gap_o.max(other.gap_o),
-            gap_c: self.gap_c.max(other.gap_c),
-            next_c: self.next_c.max(other.next_c),
-            last: self.last.max(other.last),
-            best: self.best.max(other.best),
-            bl: self.bl.max(other.bl),
-            pit: self.pit.max(other.pit),
-            stop: self.stop.max(other.stop),
-            fastest: self.fastest.max(other.fastest),
-        }
     }
 
     fn enforce_header_minimums(self) -> Self {
@@ -110,20 +82,18 @@ impl ImsaColumnWidths {
             pic: self.pic.max(mins.pic),
             driver: self.driver.max(mins.driver),
             vehicle: self.vehicle.max(mins.vehicle),
+            team: self.team.max(mins.team),
             laps: self.laps.max(mins.laps),
-            gap_o: self.gap_o.max(mins.gap_o),
-            gap_c: self.gap_c.max(mins.gap_c),
-            next_c: self.next_c.max(mins.next_c),
+            gap: self.gap.max(mins.gap),
             last: self.last.max(mins.last),
             best: self.best.max(mins.best),
-            bl: self.bl.max(mins.bl),
-            pit: self.pit.max(mins.pit),
-            stop: self.stop.max(mins.stop),
-            fastest: self.fastest.max(mins.fastest),
+            s1: self.s1.max(mins.s1),
+            s2: self.s2.max(mins.s2),
+            s3: self.s3.max(mins.s3),
         }
     }
 
-    pub(crate) fn to_array(self) -> [u16; 16] {
+    fn to_array(self) -> [u16; WEC_COLUMN_COUNT] {
         [
             self.pos,
             self.car_number,
@@ -131,20 +101,18 @@ impl ImsaColumnWidths {
             self.pic,
             self.driver,
             self.vehicle,
+            self.team,
             self.laps,
-            self.gap_o,
-            self.gap_c,
-            self.next_c,
+            self.gap,
             self.last,
             self.best,
-            self.bl,
-            self.pit,
-            self.stop,
-            self.fastest,
+            self.s1,
+            self.s2,
+            self.s3,
         ]
     }
 
-    fn from_array(values: [u16; 16]) -> Self {
+    fn from_array(values: [u16; WEC_COLUMN_COUNT]) -> Self {
         Self {
             pos: values[0],
             car_number: values[1],
@@ -152,16 +120,14 @@ impl ImsaColumnWidths {
             pic: values[3],
             driver: values[4],
             vehicle: values[5],
-            laps: values[6],
-            gap_o: values[7],
-            gap_c: values[8],
-            next_c: values[9],
-            last: values[10],
-            best: values[11],
-            bl: values[12],
-            pit: values[13],
-            stop: values[14],
-            fastest: values[15],
+            team: values[6],
+            laps: values[7],
+            gap: values[8],
+            last: values[9],
+            best: values[10],
+            s1: values[11],
+            s2: values[12],
+            s3: values[13],
         }
     }
 
@@ -173,27 +139,38 @@ impl ImsaColumnWidths {
         self.vehicle as usize
     }
 
-    pub(crate) fn fastest_width(self) -> usize {
-        self.fastest as usize
+    pub(crate) fn team_width(self) -> usize {
+        self.team as usize
+    }
+
+    pub(crate) fn merge_keep_larger(self, other: Self) -> Self {
+        let a = self.to_array();
+        let b = other.to_array();
+        let mut merged = [0_u16; WEC_COLUMN_COUNT];
+        for idx in 0..WEC_COLUMN_COUNT {
+            merged[idx] = a[idx].max(b[idx]);
+        }
+        Self::from_array(merged)
     }
 }
 
-pub(crate) fn calculate_imsa_widths(
+pub(crate) fn calculate_wec_widths(
     terminal_width: u16,
     entries: &[TimingEntry],
-    baseline: Option<&ImsaColumnWidths>,
-) -> ImsaColumnWidths {
-    let observed = ImsaColumnWidths::from_entries(entries);
+    baseline: Option<&WecColumnWidths>,
+) -> WecColumnWidths {
+    let observed = WecColumnWidths::from_entries(entries);
     let target = match (baseline.copied(), observed) {
-        (Some(base), Some(obs)) => base.merge_keep_larger(obs).enforce_header_minimums(),
-        (Some(base), None) => base.enforce_header_minimums(),
-        (None, Some(obs)) => obs.enforce_header_minimums(),
-        (None, None) => ImsaColumnWidths::header_minimums(),
-    };
+        (Some(base), Some(obs)) => base.merge_keep_larger(obs),
+        (Some(base), None) => base,
+        (None, Some(obs)) => obs,
+        (None, None) => WecColumnWidths::header_minimums(),
+    }
+    .enforce_header_minimums();
 
     let mut widths = target.to_array();
-    let minimums = ImsaColumnWidths::header_minimums().to_array();
-    let gutters = (IMSA_COLUMN_COUNT.saturating_sub(1)) as u16;
+    let minimums = WecColumnWidths::header_minimums().to_array();
+    let gutters = (WEC_COLUMN_COUNT.saturating_sub(1)) as u16;
     let available_width = terminal_width.saturating_sub(gutters);
     let total_width: u16 = widths.iter().sum();
 
@@ -202,12 +179,12 @@ pub(crate) fn calculate_imsa_widths(
     } else if total_width > available_width {
         let mut deficit = total_width - available_width;
 
-        deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[5]);
+        deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[6, 5]);
         deficit = reduce_widths_in_order(
             &mut widths,
             &minimums,
             deficit,
-            &[1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            &[1, 2, 3, 7, 8, 9, 10, 11, 12, 13],
         );
         deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[4, 0]);
 
@@ -216,10 +193,10 @@ pub(crate) fn calculate_imsa_widths(
         }
     }
 
-    ImsaColumnWidths::from_array(widths)
+    WecColumnWidths::from_array(widths)
 }
 
-pub(crate) fn imsa_constraints(widths: ImsaColumnWidths) -> Vec<Constraint> {
+pub(crate) fn wec_constraints(widths: WecColumnWidths) -> Vec<Constraint> {
     widths
         .to_array()
         .into_iter()

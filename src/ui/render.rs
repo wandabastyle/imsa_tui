@@ -20,7 +20,6 @@ use super::{
         display_event_name, display_session_name, favourites_count_for_series, view_mode_text,
         ViewMode,
     },
-    imsa_widths::ImsaColumnWidths,
     pit::PitTracker,
     popups::{
         centered_rect, group_picker_popup, help_popup, messages_popup, nls_liveticker_popup,
@@ -29,7 +28,7 @@ use super::{
     },
     search::SearchState,
     style::animated_flag_theme,
-    table::{build_table, TableRenderCtx},
+    table::{build_table, TableRenderCtx, TableWidthBaselines},
 };
 
 pub(crate) struct RenderCtx<'a> {
@@ -44,7 +43,7 @@ pub(crate) struct RenderCtx<'a> {
     pub(crate) marquee_tick: usize,
     pub(crate) gap_anchor: Option<&'a GapAnchorInfo>,
     pub(crate) pit_trackers: &'a HashMap<String, PitTracker>,
-    pub(crate) imsa_width_baseline: Option<&'a ImsaColumnWidths>,
+    pub(crate) table_width_baselines: TableWidthBaselines<'a>,
     pub(crate) now: Instant,
     pub(crate) view_mode: ViewMode,
     pub(crate) search: &'a SearchState,
@@ -227,7 +226,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                     visible_entries,
                     &table_ctx,
                     chunks[1].width,
-                    ctx.imsa_width_baseline,
+                    ctx.table_width_baselines,
                 );
                 f.render_stateful_widget(table, chunks[1], &mut state);
             }
@@ -317,7 +316,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                             visible_entries,
                             &table_ctx,
                             area.width,
-                            ctx.imsa_width_baseline,
+                            ctx.table_width_baselines,
                         );
                         f.render_stateful_widget(table, *area, &mut state);
                         global_offset += class_entries.len();
@@ -350,7 +349,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         visible_entries,
                         &table_ctx,
                         chunks[1].width,
-                        ctx.imsa_width_baseline,
+                        ctx.table_width_baselines,
                     );
                     f.render_stateful_widget(table, chunks[1], &mut state);
                 } else {
@@ -401,7 +400,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                         visible_entries,
                         &table_ctx,
                         chunks[1].width,
-                        ctx.imsa_width_baseline,
+                        ctx.table_width_baselines,
                     );
                     f.render_stateful_widget(table, chunks[1], &mut state);
                 }
@@ -476,8 +475,13 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
     if ctx.messages_panel.is_open {
         let area = centered_rect(70, 60, size);
         f.render_widget(Clear, area);
+        let scroll = messages_popup_scroll(
+            ctx.active_notices.len(),
+            ctx.messages_panel.selected_idx,
+            area,
+        );
         f.render_widget(
-            messages_popup(ctx.active_notices, ctx.messages_panel.selected_idx),
+            messages_popup(ctx.active_notices, ctx.messages_panel.selected_idx, scroll),
             area,
         );
     }
@@ -517,4 +521,33 @@ fn visible_slice(
         .min(max_start);
     let end = (start + window).min(entries.len());
     (&entries[start..end], start)
+}
+
+fn messages_popup_scroll(
+    notice_count: usize,
+    selected_idx: usize,
+    area: ratatui::layout::Rect,
+) -> usize {
+    if notice_count == 0 {
+        return 0;
+    }
+
+    let inner_height = area.height.saturating_sub(2) as usize;
+    if inner_height == 0 {
+        return 0;
+    }
+
+    const HEADER_LINES: usize = 2;
+    const FOOTER_LINES: usize = 3;
+
+    let notice_window = inner_height
+        .saturating_sub(HEADER_LINES + FOOTER_LINES)
+        .max(1);
+    let first_visible_notice = selected_idx.saturating_sub(notice_window.saturating_sub(1));
+    let desired_scroll = HEADER_LINES + first_visible_notice;
+
+    let total_lines = HEADER_LINES + notice_count + FOOTER_LINES;
+    let max_scroll = total_lines.saturating_sub(inner_height);
+
+    desired_scroll.min(max_scroll)
 }

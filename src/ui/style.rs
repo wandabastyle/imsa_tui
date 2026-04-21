@@ -91,7 +91,9 @@ pub(crate) fn class_style(
     if active_series == Series::Wec {
         let key = normalize_class_key(class_name);
         if let Some(color) = class_colors.get(&key) {
-            if let Some(fg) = parse_hex_color(&color.foreground) {
+            if let Some(fg) =
+                parse_hex_color(&color.background).or_else(|| parse_hex_color(&color.foreground))
+            {
                 return Style::default().fg(fg).add_modifier(Modifier::BOLD);
             }
         }
@@ -142,11 +144,11 @@ fn parse_hex_color(value: &str) -> Option<Color> {
 
 fn class_style_wec_static(class_key: &str) -> Style {
     match class_key {
-        "LMH" => Style::default()
-            .fg(Color::Rgb(220, 20, 60))
+        "HYPER" | "HYPERCAR" | "LMH" => Style::default()
+            .fg(Color::Rgb(226, 30, 25))
             .add_modifier(Modifier::BOLD),
         "LMGT3" => Style::default()
-            .fg(Color::Rgb(30, 144, 255))
+            .fg(Color::Rgb(11, 147, 20))
             .add_modifier(Modifier::BOLD),
         "LMP1" => Style::default()
             .fg(Color::Rgb(255, 16, 83))
@@ -196,5 +198,25 @@ mod tests {
         let colors = BTreeMap::new();
         let style = class_style("SP9", Series::Dhlm, &colors);
         assert_eq!(style, Style::default());
+    }
+
+    #[test]
+    fn class_style_wec_prefers_live_class_background_color() {
+        let mut colors = BTreeMap::new();
+        colors.insert(
+            "HYPER".to_string(),
+            TimingClassColor {
+                foreground: "#ffffff".to_string(),
+                background: "#e21e19".to_string(),
+            },
+        );
+
+        let style = class_style("HYPER", Series::Wec, &colors);
+        assert_eq!(
+            style,
+            Style::default()
+                .fg(Color::Rgb(226, 30, 25))
+                .add_modifier(Modifier::BOLD)
+        );
     }
 }
