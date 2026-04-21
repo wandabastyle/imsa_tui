@@ -5,7 +5,7 @@
 // - handles one keyboard event
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     io,
     sync::mpsc::{self, Sender},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -17,8 +17,8 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use super::{
     config::{load_config, save_config, AppConfig},
     feed::{
-        drain_messages, drain_series_debug_logs, start_feed, stop_feed, ActiveFeed,
-        IMSA_DEBUG_LOG_CAPACITY,
+        drain_messages, drain_series_debug_logs, push_series_debug_log, start_feed, stop_feed,
+        ActiveFeed, IMSA_DEBUG_LOG_CAPACITY,
     },
     gap::gap_anchor_from_entry,
     grouping::{
@@ -63,6 +63,7 @@ struct SeriesChangeCtx<'a> {
     selected_row: &'a mut usize,
     view_mode: &'a mut ViewMode,
     search: &'a mut SearchState,
+    series_logs: &'a mut VecDeque<String>,
     config: &'a mut AppConfig,
     nls_liveticker_feed: &'a mut Option<ActiveLivetickerFeed>,
     nls_liveticker_entries: &'a mut Vec<LivetickerEntry>,
@@ -383,6 +384,66 @@ fn step_selection(current: usize, len: usize, delta: isize) -> usize {
     ((current as isize + delta).clamp(0, max)) as usize
 }
 
+fn series_log_prefix(series: Series) -> String {
+    format!("[{}]", series.label())
+}
+
+fn retain_logs_for_series(logs: &mut VecDeque<String>, series: Series) {
+    let prefix = series_log_prefix(series);
+    logs.retain(|line| line.starts_with(&prefix));
+}
+
+fn class_color_source_log_line(
+    series: Series,
+    header: &TimingHeader,
+    entries: &[TimingEntry],
+) -> String {
+    if matches!(series, Series::Nls | Series::Dhlm) {
+        return format!(
+            "{} class colors: disabled for this series",
+            series_log_prefix(series)
+        );
+    }
+
+    let visible_classes: BTreeSet<String> = entries
+        .iter()
+        .map(|entry| entry.class_name.trim())
+        .filter(|name| !name.is_empty() && *name != "-")
+        .map(ToString::to_string)
+        .collect();
+
+    let dynamic: Vec<String> = visible_classes
+        .iter()
+        .filter(|class_name| header.class_colors.contains_key(*class_name))
+        .cloned()
+        .collect();
+    let static_fallback: Vec<String> = visible_classes
+        .iter()
+        .filter(|class_name| !header.class_colors.contains_key(*class_name))
+        .cloned()
+        .collect();
+
+    let dynamic_part = if dynamic.is_empty() {
+        "-".to_string()
+    } else {
+        dynamic.join(",")
+    };
+    let static_part = if static_fallback.is_empty() {
+        "-".to_string()
+    } else {
+        static_fallback.join(",")
+    };
+
+    format!(
+        "{} class colors dynamic={} [{}] static={} [{}]",
+        series_log_prefix(series),
+        dynamic.len(),
+        dynamic_part,
+        static_fallback.len(),
+        static_part
+    )
+}
+
 // Switching feeds is centralized so both keyboard shortcuts and popup confirmation
 // run the exact same state-reset flow as more series are added.
 fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
@@ -419,6 +480,7 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
     ctx.highlighted_notice_cars.clear();
     *ctx.message_flag_override = None;
     *ctx.message_flag_last_secs = None;
+    ctx.series_logs.clear();
 
     if *ctx.active_series != Series::Nls {
         stop_liveticker_feed(ctx.nls_liveticker_feed);
@@ -728,6 +790,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                                 selected_row: &mut selected_row,
                                 view_mode: &mut view_mode,
                                 search: &mut search,
+                                series_logs: &mut imsa_debug_logs,
                                 config: &mut config,
                                 nls_liveticker_feed: &mut nls_liveticker_feed,
                                 nls_liveticker_entries: &mut nls_liveticker_entries,
@@ -927,6 +990,21 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     }
                     KeyCode::Char('L') if !show_help => {
                         logs_panel.is_open = !logs_panel.is_open;
+                        if logs_panel.is_open {
+                            retain_logs_for_series(&mut imsa_debug_logs, active_series);
+                            let entry_count = imsa_debug_logs.len();
+                            push_series_debug_log(
+                                &mut imsa_debug_logs,
+                                format!(
+                                    "{} logs panel opened ({entry_count} entries)",
+                                    series_log_prefix(active_series)
+                                ),
+                            );
+                            push_series_debug_log(
+                                &mut imsa_debug_logs,
+                                class_color_source_log_line(active_series, &header, &entries),
+                            );
+                        }
                         logs_panel.scroll = 0;
                         messages_panel.is_open = false;
                         series_picker.is_open = false;
