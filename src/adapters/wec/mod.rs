@@ -1,14 +1,12 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    hash::Hasher,
     net::TcpStream,
-    path::PathBuf,
     sync::mpsc::{Receiver, Sender},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Map, Value};
 use tungstenite::{
     connect,
@@ -18,11 +16,12 @@ use tungstenite::{
 };
 
 use crate::{
-    adapters::insights::{
-        session::{fetch_meta_sessions_for_series, resolve_live_sid_for_series, MetaSessionItem},
-        snapshot::{
-            meaningful_snapshot_fingerprint, now_unix_ms, persist_snapshot, snapshot_path, Snapshot,
-        },
+    adapters::insights::session::{
+        fetch_meta_sessions_for_series, resolve_live_sid_for_series, MetaSessionItem,
+    },
+    adapters::insights::snapshot::{
+        meaningful_snapshot_fingerprint, now_unix_ms, persist_snapshot, restore_snapshot_from_disk,
+        snapshot_path, Snapshot,
     },
     snapshot_runtime::derive_session_identifier,
     timing::{TimingClassColor, TimingEntry, TimingHeader, TimingMessage},
@@ -37,7 +36,7 @@ const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 const SIGNALR_RS: char = '\u{1e}';
-const WEC_SIGNALR_CHANNELS: &[&str] = &[
+const WEC_SIGNALR_CHANNELS: &[&str; 8] = &[
     "session-info",
     "participants",
     "ranks",
@@ -179,49 +178,24 @@ pub fn websocket_worker_with_debug(
     };
 
     let mut persist = PersistState::new(snapshot_path("wec_snapshot.json"));
-    let mut last_snapshot: Option<Snapshot> = None;
-    let mut last_session_id: Option<String> = None;
-    let mut restored = false;
-    if let Some(path) = snapshot_path("wec_snapshot.json") {
-        use crate::timing_persist::read_json;
-        if let Some(saved) =
-            read_json::<crate::adapters::insights::snapshot::PersistedSnapshot>(&path)
-        {
-            let snapshot = Snapshot {
-                header: saved.header,
-                entries: saved.entries,
-                session_id: saved.session_id.clone(),
-                fingerprint: saved.meaningful_fingerprint,
-            };
-            let _ = tx.send(TimingMessage::Snapshot {
-                source_id,
-                header: snapshot.header.clone(),
-                entries: snapshot.entries.clone(),
-            });
-            last_snapshot = Some(snapshot.clone());
-            last_session_id = snapshot.session_id.clone();
-            restored = true;
-        }
-    }
-    if restored {
+    let mut last_snapshot =
+        restore_snapshot_from_disk(&mut persist, &tx, source_id, "WEC", &debug_output);
+    if last_snapshot.is_some() {
         let _ = tx.send(TimingMessage::Status {
             source_id,
             text: "[SNAPSHOT] Restored from saved data".to_string(),
         });
     }
+    let mut last_session_id = last_snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.session_id.clone());
     let mut fallback_detail_logged = false;
 
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_snapshot.as_ref() {
                 if persist.dirty_since_last_save {
-                    persist_snapshot(
-                        &mut persist,
-                        snapshot,
-                        "wec_snapshot.json",
-                        "WEC",
-                        &debug_output,
-                    );
+                    persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", &debug_output);
                 }
             }
             break;
@@ -419,7 +393,7 @@ pub fn websocket_worker_with_debug(
                         persist_snapshot(
                             &mut persist,
                             snapshot,
-                            "wec_snapshot.json",
+                            now_unix_ms(),
                             "WEC",
                             &debug_output,
                         );
@@ -766,6 +740,7 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
         entries,
         session_id,
         fingerprint,
+        extra: (),
     })
 }
 
@@ -1675,6 +1650,7 @@ fn emit_snapshot(
         entries: entries.clone(),
         session_id: session_id.clone(),
         fingerprint: meaningful_snapshot_fingerprint(&header, &entries),
+        extra: (),
     };
     let first_real_of_session = !snapshot.entries.is_empty() && session_id != *last_session_id;
     let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
@@ -1692,7 +1668,7 @@ fn emit_snapshot(
         || (persist.dirty_since_last_save
             && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
     if save_now {
-        persist_snapshot(persist, &snapshot, "wec_snapshot.json", "WEC", debug_output);
+        persist_snapshot(persist, &snapshot, now_unix_ms(), "WEC", debug_output);
     }
 
     *last_session_id = session_id;
@@ -1781,7 +1757,7 @@ mod tests {
                 "sessionClasses": [
                     {"classId":"HYPERCAR","classThreeLettersName":"HYPER","classColor":"#ff0000"}
                 ]
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1797,7 +1773,7 @@ mod tests {
                         "drivers": [{"displayName":"ALESSANDRO PIER GUIDI"}]
                     }
                 ]
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1814,7 +1790,7 @@ mod tests {
                         "classId": "HYPERCAR"
                     }
                 ]
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1830,7 +1806,7 @@ mod tests {
                         "lapNumber": 160
                     }
                 ]
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1841,7 +1817,7 @@ mod tests {
                 "lapNumber": 160,
                 "lapTimeMillis": 95321,
                 "isEndedInPit": false
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1852,7 +1828,7 @@ mod tests {
                 "sectorNumber": 1,
                 "lapNumber": 160,
                 "sectorTimeMillis": 19512
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1863,7 +1839,7 @@ mod tests {
                 "sectorNumber": 2,
                 "lapNumber": 160,
                 "sectorTimeMillis": 31856
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1874,7 +1850,7 @@ mod tests {
                 "sectorNumber": 3,
                 "lapNumber": 160,
                 "sectorTimeMillis": 44169
-            })],
+            })][..],
         );
 
         let (header, entries) = snapshot_from_live_state(&state).expect("snapshot");
@@ -1903,7 +1879,7 @@ mod tests {
                     {"pid": 1, "carNumber":"50", "overallPosition":1, "position":1, "lapNumber":10},
                     {"pid": 2, "carNumber":"6", "overallPosition":2, "position":2, "lapNumber":10}
                 ]
-            })],
+            })][..],
         );
         apply_signalr_arguments(
             &mut state,
@@ -1912,7 +1888,7 @@ mod tests {
                 "items": [
                     {"pid": 2, "carNumber":"6", "gapToFirstMillis":1200, "gapToAheadMillis":1200, "gapToAheadLaps":0}
                 ]
-            })],
+            })][..],
         );
 
         let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");

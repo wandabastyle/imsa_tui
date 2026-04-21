@@ -1,13 +1,12 @@
 use std::{
     collections::HashMap,
-    hash::{Hash, Hasher},
-    path::PathBuf,
+    hash::Hash,
     sync::mpsc::{Receiver, Sender},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::{
@@ -25,38 +24,22 @@ use crate::{
             parse_signalr_frame, send_join_group, send_signalr_handshake, split_signalr_frames,
             SignalRFrame,
         },
+        snapshot::{
+            meaningful_snapshot_fingerprint_with_extra, now_unix_ms, persist_snapshot,
+            restore_snapshot_from_disk, snapshot_path, Snapshot,
+        },
     },
-    snapshot_runtime::{
-        base_snapshot_fingerprint, derive_session_identifier, hash_entry_common_fields,
-    },
+    snapshot_runtime::derive_session_identifier,
     timing::{TimingEntry, TimingHeader, TimingMessage},
-    timing_persist::{
-        data_local_snapshot_path, debounce_elapsed, log_series_debug, read_json, write_json_pretty,
-        PersistState, SeriesDebugOutput,
-    },
+    timing_persist::{debounce_elapsed, log_series_debug, PersistState, SeriesDebugOutput},
 };
 
 const F1_SERIES_ID: u64 = 370;
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
-const F1_SIGNALR_CHANNELS: &[&str] = &["session-info", "participants", "ranks", "gaps", "laps"];
+const F1_SIGNALR_CHANNELS: &[&str; 5] = &["session-info", "participants", "ranks", "gaps", "laps"];
 
-#[derive(Debug, Clone)]
-struct F1Snapshot {
-    header: TimingHeader,
-    entries: Vec<TimingEntry>,
-    session_id: Option<String>,
-    fingerprint: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedF1Snapshot {
-    saved_unix_ms: u64,
-    session_id: Option<String>,
-    meaningful_fingerprint: u64,
-    header: TimingHeader,
-    entries: Vec<TimingEntry>,
-}
+type F1Snapshot = Snapshot;
 
 #[derive(Debug, Deserialize)]
 struct SessionResultsResponse {
@@ -142,8 +125,9 @@ pub fn worker_with_debug(
         }
     };
 
-    let mut persist = PersistState::new(snapshot_path());
-    let mut last_snapshot = restore_snapshot_from_disk(&mut persist, &tx, source_id, &debug_output);
+    let mut persist = PersistState::new(snapshot_path("f1_snapshot.json"));
+    let mut last_snapshot =
+        restore_snapshot_from_disk(&mut persist, &tx, source_id, "F1", &debug_output);
     let mut last_session_id = last_snapshot
         .as_ref()
         .and_then(|snapshot| snapshot.session_id.clone());
@@ -153,7 +137,7 @@ pub fn worker_with_debug(
         if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_snapshot.as_ref() {
                 if persist.dirty_since_last_save {
-                    persist_snapshot(&mut persist, snapshot, &debug_output);
+                    persist_snapshot(&mut persist, snapshot, now_unix_ms(), "F1", &debug_output);
                 }
             }
             break;
@@ -681,6 +665,7 @@ fn snapshot_from_parts(
         session_id,
         header,
         entries,
+        extra: (),
     })
 }
 
@@ -710,7 +695,7 @@ fn emit_snapshot(
         || (persist.dirty_since_last_save
             && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
     if save_now {
-        persist_snapshot(persist, &snapshot, debug_output);
+        persist_snapshot(persist, &snapshot, now_unix_ms(), "F1", debug_output);
     }
 
     *last_session_id = snapshot.session_id.clone();
@@ -812,71 +797,8 @@ fn set_opt_u32(slot: &mut Option<u32>, incoming: Option<u32>) {
 }
 
 fn meaningful_snapshot_fingerprint(header: &TimingHeader, entries: &[TimingEntry]) -> u64 {
-    let mut hasher = base_snapshot_fingerprint(header);
-    for entry in entries {
-        hash_entry_common_fields(&mut hasher, entry);
-        entry.gap_class.trim().hash(&mut hasher);
-        entry.pit_stops.trim().hash(&mut hasher);
-    }
-    hasher.finish()
-}
-
-fn snapshot_path() -> Option<PathBuf> {
-    data_local_snapshot_path("f1_snapshot.json")
-}
-
-fn persist_snapshot(runtime: &mut PersistState, snapshot: &F1Snapshot, debug: &SeriesDebugOutput) {
-    let Some(path) = runtime.path.as_ref() else {
-        return;
-    };
-    let payload = PersistedF1Snapshot {
-        saved_unix_ms: now_unix_ms(),
-        session_id: snapshot.session_id.clone(),
-        meaningful_fingerprint: snapshot.fingerprint,
-        header: snapshot.header.clone(),
-        entries: snapshot.entries.clone(),
-    };
-    if let Err(err) = write_json_pretty(path, &payload) {
-        log_series_debug(debug, "F1", format!("snapshot persist failed: {err}"));
-        return;
-    }
-    runtime.last_persisted_hash = Some(snapshot.fingerprint);
-    runtime.last_save_at = Some(SystemTime::now());
-    runtime.dirty_since_last_save = false;
-}
-
-fn restore_snapshot_from_disk(
-    runtime: &mut PersistState,
-    tx: &Sender<TimingMessage>,
-    source_id: u64,
-    debug: &SeriesDebugOutput,
-) -> Option<F1Snapshot> {
-    let path = runtime.path.as_ref()?;
-    let saved = read_json::<PersistedF1Snapshot>(path)?;
-    let snapshot = F1Snapshot {
-        header: saved.header,
-        entries: saved.entries,
-        session_id: saved.session_id,
-        fingerprint: saved.meaningful_fingerprint,
-    };
-    runtime.last_persisted_hash = Some(snapshot.fingerprint);
-    runtime.last_save_at = Some(SystemTime::now());
-    let _ = tx.send(TimingMessage::Snapshot {
-        source_id,
-        header: snapshot.header.clone(),
-        entries: snapshot.entries.clone(),
-    });
-    log_series_debug(
-        debug,
-        "F1",
-        format!("snapshot restored from {}", path.display()),
-    );
-    Some(snapshot)
-}
-
-fn now_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
+    meaningful_snapshot_fingerprint_with_extra(header, entries, |hasher, entry| {
+        entry.gap_class.trim().hash(hasher);
+        entry.pit_stops.trim().hash(hasher);
+    })
 }

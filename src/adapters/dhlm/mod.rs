@@ -15,11 +15,11 @@ use crate::{
     adapters::nls::protocol::{entry_from_value, notices_from_ws_message},
     adapters::nurburgring_ws,
     timing::{TimingEntry, TimingHeader, TimingMessage},
-    timing_persist::{data_local_snapshot_path, log_series_debug, PersistState, SeriesDebugOutput},
+    timing_persist::{log_series_debug, PersistState, SeriesDebugOutput},
 };
 
 use self::snapshot::{
-    derive_session_id, meaningful_snapshot_fingerprint, persist_snapshot,
+    derive_session_id, dhlm_snapshot_path, meaningful_snapshot_fingerprint, persist_snapshot,
     persist_snapshot_if_dirty, restore_snapshot_from_disk, DhlmSnapshot,
 };
 
@@ -27,7 +27,7 @@ const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const DEFAULT_DHLM_EVENT_ID: &str = "50";
 
 fn dhlm_dump_path() -> Option<PathBuf> {
-    data_local_snapshot_path("dhlm_dump.json")
+    crate::adapters::insights::snapshot::snapshot_path("dhlm_dump.json")
 }
 
 fn extract_cup_from_message(text: &str) -> Option<String> {
@@ -67,7 +67,7 @@ pub fn websocket_worker_with_debug(
     };
     let mut latest_entries: Vec<TimingEntry> = Vec::new();
 
-    let mut persist = PersistState::new(dhlm_dump_path());
+    let mut persist = PersistState::new(dhlm_snapshot_path());
     let mut last_good_snapshot: Option<DhlmSnapshot> = None;
     let mut last_session_id: Option<String> = restore_snapshot_from_disk(
         &mut persist,
@@ -176,6 +176,7 @@ pub fn websocket_worker_with_debug(
                             entries: latest_entries.clone(),
                             session_id: session_id.clone(),
                             fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+                            extra: (),
                         };
 
                         let should_persist = last_good_snapshot
@@ -233,6 +234,7 @@ pub fn websocket_worker_with_debug(
                         entries: latest_entries.clone(),
                         session_id: session_id.clone(),
                         fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+                        extra: (),
                     };
 
                     let first_real_of_session = last_good_snapshot.is_none()

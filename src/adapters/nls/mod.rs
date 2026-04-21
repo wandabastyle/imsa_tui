@@ -98,6 +98,7 @@ pub fn websocket_worker_with_debug(
             entries: latest_entries.clone(),
             session_id: last_session_id.clone(),
             fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+            extra: (),
         });
     }
 
@@ -275,6 +276,7 @@ pub fn websocket_worker_with_debug(
                             entries: latest_entries.clone(),
                             session_id: session_id.clone(),
                             fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+                            extra: (),
                         };
 
                         let first_real_of_session =
@@ -353,6 +355,7 @@ pub fn websocket_worker_with_debug(
                                     &header,
                                     &latest_entries,
                                 ),
+                                extra: (),
                             };
 
                             let first_real_of_session =

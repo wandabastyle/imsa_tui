@@ -62,16 +62,15 @@ struct ImsaRuntimeState {
     debug_output: ImsaDebugOutput,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedImsaSnapshot {
-    saved_unix_ms: u64,
-    session_id: Option<String>,
-    meaningful_fingerprint: u64,
-    header: TimingHeader,
-    entries: Vec<TimingEntry>,
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ImsaSnapshotExtra {
     raw_results_payload: Option<Value>,
     raw_race_data_payload: Option<Value>,
 }
+
+#[cfg(test)]
+type PersistedImsaSnapshot =
+    crate::adapters::insights::snapshot::PersistedSnapshot<ImsaSnapshotExtra>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PayloadClassification {
@@ -483,7 +482,7 @@ mod tests {
         let results = json!({"B": [], "S": "Session Complete"});
         let race_data = json!({"A": "", "B": "Session Complete", "C": "0", "T": ""});
 
-        let classification = classify_payload(&results, &race_data, &[]);
+        let classification = classify_payload(&results, &race_data, &[][..]);
         assert_eq!(classification, PayloadClassification::Placeholder);
     }
 
@@ -492,7 +491,7 @@ mod tests {
         let results = json!({"B": [{"A": 1, "N": "31", "F": "Driver A", "L": "100"}]});
         let race_data = json!({"B": "Session Complete"});
 
-        let classification = classify_payload(&results, &race_data, &[]);
+        let classification = classify_payload(&results, &race_data, &[][..]);
         assert_eq!(classification, PayloadClassification::Real);
     }
 
