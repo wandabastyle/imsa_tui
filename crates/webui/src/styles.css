@@ -152,6 +152,10 @@ p {
   margin-top: 0.08rem;
 }
 
+.search-label {
+  font-weight: 700;
+}
+
 .table-wrap {
   border: 1px solid var(--border);
   border-radius: 6px;

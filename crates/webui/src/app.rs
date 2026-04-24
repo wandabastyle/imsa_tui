@@ -1047,7 +1047,8 @@ pub fn app() -> Html {
                                     snapshot={active_snapshot.clone()}
                                     view_mode_label={view_mode_text.clone()}
                                     fav_count={fav_count_for_series}
-                                    search_label={if (*app).search.query.is_empty() { String::new() } else { format!("Search: {}", (*app).search.query) }}
+                                    search_query={(*app).search.query.clone()}
+                                    search_active={(*app).search.input_active}
                                     demo_enabled={(*app).demo_enabled}
                                     error_text={active_snapshot.as_ref().and_then(|snapshot| snapshot.last_error.clone()).unwrap_or_default()}
                                 />
@@ -1111,7 +1112,8 @@ struct HeaderBarProps {
     snapshot: Option<SeriesSnapshot>,
     view_mode_label: String,
     fav_count: usize,
-    search_label: String,
+    search_query: String,
+    search_active: bool,
     demo_enabled: bool,
     error_text: String,
 }
@@ -1164,20 +1166,16 @@ fn header_bar(props: &HeaderBarProps) -> Html {
                 )}
             </div>
             <div class="line dim">
-                {format!(
-                    "Keys: h help | d demo | {} {} {}",
-                    if props.search_label.is_empty() {
-                        "Search: -".to_string()
-                    } else {
-                        props.search_label.clone()
-                    },
-                    if props.demo_enabled { "| DEMO" } else { "" },
-                    if props.error_text.is_empty() {
-                        String::new()
-                    } else {
-                        format!("| Error: {}", props.error_text)
-                    }
-                )}
+                {"Keys: h help | d demo"}
+                if props.search_active {
+                    <>{" | "}<span class="search-label">{"Search:"}</span>{format!(" {}", if props.search_query.is_empty() { "-".to_string() } else { props.search_query.clone() })}</>
+                }
+                if props.demo_enabled {
+                    {" | DEMO"}
+                }
+                if !props.error_text.is_empty() {
+                    {format!(" | Error: {}", props.error_text)}
+                }
             </div>
         </section>
     }
