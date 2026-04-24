@@ -1,0 +1,20 @@
+[build]
+target = "index.html"
+dist = "build"
+public_url = "/"
+minify = "never"
+
+[watch]
+watch = ["../crates/webui/src", "../crates/web-shared/src"]
+
+[[proxy]]
+backend = "http://127.0.0.1:8080/api"
+
+[[proxy]]
+backend = "http://127.0.0.1:8080/auth"
+
+[[proxy]]
+backend = "http://127.0.0.1:8080/healthz"
+
+[[proxy]]
+backend = "http://127.0.0.1:8080/readyz"

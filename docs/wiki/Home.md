@@ -31,7 +31,7 @@ Recommended path: Docker Compose + Nginx Proxy Manager.
 
 ## Navigation
 
-- [[Quick-Start-Compose-and-NPM]]
+- [[Quick-Start-Compose-and-Trunk]]
 - [[Deployment-Docker-Compose]]
 - [[Deployment-Docker]]
 - [[Reverse-Proxy-Nginx-Proxy-Manager]]

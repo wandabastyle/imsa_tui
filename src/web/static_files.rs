@@ -1,4 +1,4 @@
-// Static asset serving for the built Svelte frontend with SPA fallback routing.
+// Static asset serving for the built Trunk/Yew frontend with SPA fallback routing.
 
 use std::path::{Path, PathBuf};
 
@@ -54,7 +54,7 @@ pub async fn asset_or_index(config: StaticConfig, request_path: &str) -> impl In
                 return serve_file_or_404(candidate).await;
             }
 
-            // SPA fallback so deep links are handled by SvelteKit client routing.
+            // SPA fallback so deep links are handled by the Yew client app.
             serve_file_or_404(config.root_dir.join("index.html")).await
         }
         #[cfg(feature = "embed-ui")]

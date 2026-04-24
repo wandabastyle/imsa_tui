@@ -12,23 +12,18 @@ use axum::{
     Json,
 };
 use rand::distr::{Alphanumeric, SampleString};
-use serde::Serialize;
 use serde_json::json;
+use web_shared::{DemoStateResponse, Preferences, PutDemoRequest};
 
 use crate::timing::Series;
 
-use super::{prefs::Preferences, state::WebAppState};
+use super::{prefs, state::WebAppState};
 
 const SESSION_COOKIE_NAME: &str = "imsa_session";
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 struct ErrorResponse {
     error: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct PutDemoRequest {
-    pub enabled: bool,
 }
 
 pub async fn get_snapshot(
@@ -73,7 +68,7 @@ pub async fn get_demo_state(State(state): State<WebAppState>, headers: HeaderMap
             .into_response();
     };
 
-    let response = state.demo_state_for_session(&session_token);
+    let response: DemoStateResponse = state.demo_state_for_session(&session_token);
     (StatusCode::OK, Json(response)).into_response()
 }
 
@@ -92,7 +87,7 @@ pub async fn put_demo_state(
             .into_response();
     };
 
-    let response = state.set_demo_for_session(&session_token, payload.enabled);
+    let response: DemoStateResponse = state.set_demo_for_session(&session_token, payload.enabled);
     (StatusCode::OK, Json(response)).into_response()
 }
 
@@ -102,7 +97,7 @@ pub async fn get_preferences(State(state): State<WebAppState>, headers: HeaderMa
     match state.current_preferences_for(&profile_id) {
         Ok(preferences) => with_profile_cookie(
             set_cookie,
-            (StatusCode::OK, Json(preferences)).into_response(),
+            (StatusCode::OK, Json(to_api_preferences(preferences))).into_response(),
         ),
         Err(err) => with_profile_cookie(
             set_cookie,
@@ -121,11 +116,13 @@ pub async fn put_preferences(
     Json(next): Json<Preferences>,
 ) -> Response {
     let (profile_id, set_cookie) = profile_context(&state, &headers);
+    let next = from_api_preferences(next);
 
     match state.update_preferences_for(&profile_id, next) {
-        Ok(updated) => {
-            with_profile_cookie(set_cookie, (StatusCode::OK, Json(updated)).into_response())
-        }
+        Ok(updated) => with_profile_cookie(
+            set_cookie,
+            (StatusCode::OK, Json(to_api_preferences(updated))).into_response(),
+        ),
         Err(err) => with_profile_cookie(
             set_cookie,
             (
@@ -141,9 +138,10 @@ pub async fn reset_preferences(State(state): State<WebAppState>, headers: Header
     let (profile_id, set_cookie) = profile_context(&state, &headers);
 
     match state.reset_preferences_for(&profile_id) {
-        Ok(defaults) => {
-            with_profile_cookie(set_cookie, (StatusCode::OK, Json(defaults)).into_response())
-        }
+        Ok(defaults) => with_profile_cookie(
+            set_cookie,
+            (StatusCode::OK, Json(to_api_preferences(defaults))).into_response(),
+        ),
         Err(err) => with_profile_cookie(
             set_cookie,
             (
@@ -152,6 +150,42 @@ pub async fn reset_preferences(State(state): State<WebAppState>, headers: Header
             )
                 .into_response(),
         ),
+    }
+}
+
+fn to_api_preferences(value: prefs::Preferences) -> Preferences {
+    let mut favourites: Vec<String> = value.favourites.into_iter().collect();
+    favourites.sort();
+    Preferences {
+        favourites,
+        selected_series: to_api_series(value.selected_series),
+    }
+}
+
+fn from_api_preferences(value: Preferences) -> prefs::Preferences {
+    prefs::Preferences {
+        favourites: value.favourites.into_iter().collect(),
+        selected_series: from_api_series(value.selected_series),
+    }
+}
+
+fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
+    match value {
+        crate::timing::Series::Imsa => web_shared::Series::Imsa,
+        crate::timing::Series::Nls => web_shared::Series::Nls,
+        crate::timing::Series::F1 => web_shared::Series::F1,
+        crate::timing::Series::Wec => web_shared::Series::Wec,
+        crate::timing::Series::Dhlm => web_shared::Series::Dhlm,
+    }
+}
+
+fn from_api_series(value: web_shared::Series) -> crate::timing::Series {
+    match value {
+        web_shared::Series::Imsa => crate::timing::Series::Imsa,
+        web_shared::Series::Nls => crate::timing::Series::Nls,
+        web_shared::Series::F1 => crate::timing::Series::F1,
+        web_shared::Series::Wec => crate::timing::Series::Wec,
+        web_shared::Series::Dhlm => crate::timing::Series::Dhlm,
     }
 }
 

@@ -1,7 +1,6 @@
 /target
-/web/node_modules
-/web/.svelte-kit
 /web/build
+/web/.trunk
 session-*.md
 docs/data/*.ndjson
 docs/data/nls_ws_field_catalog.md

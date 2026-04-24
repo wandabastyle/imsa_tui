@@ -79,6 +79,11 @@
   - Added automatic NLS checkered flag promotion when computed `time_to_go` reaches zero (`0`, `0:00`, `00:00`, `00:00:00`) or is unknown (`-`).
   - Updated `refresh_header_time_to_go` in `src/nls.rs` to set `flag = "Checkered"` only when the current flag is `Green` or default (`-`) and `HEATTYPE=R`.
   - Preserved non-green race control states (`Yellow`, `Red`, `Code 60`, etc.) when countdown reaches zero.
+- Completed: **Phase F1** on branch `wasm`
+  - Migrated web frontend from Svelte/Vite/TypeScript to Rust Yew + Trunk.
+  - Added shared Rust web DTO crate (`crates/web-shared`) and new Yew frontend crate (`crates/webui`).
+  - Updated backend web API boundaries to emit shared serde contracts.
+  - Replaced frontend build/dev workflows and docs with Trunk-based commands.
 
 ## Next Phases (Planned)
 

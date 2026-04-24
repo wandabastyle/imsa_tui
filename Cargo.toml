@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/web-shared", "crates/webui"]
+resolver = "2"
+
 [package]
 name = "imsa_tui"
 version = "0.6.1"
@@ -24,12 +28,19 @@ rand = "0.10"
 argon2 = "0.5"
 libc = "0.2"
 include_dir = { version = "0.7", optional = true }
+web-shared = { path = "crates/web-shared" }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
-opt-level = "z"
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+[profile.release.package.imsa_tui]
+opt-level = 3
+
+[profile.release.package.webui]
+opt-level = "z"
