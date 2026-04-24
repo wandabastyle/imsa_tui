@@ -444,6 +444,7 @@ pub fn app() -> Html {
     {
         let authenticated = authenticated.clone();
         let app = app.clone();
+        let latest_app = latest_app.clone();
         let latest_series_picker_open = latest_series_picker_open.clone();
         let latest_group_picker_open = latest_group_picker_open.clone();
         use_effect_with(
@@ -459,6 +460,7 @@ pub fn app() -> Html {
                         Ok(created) => {
                             let snapshot = EventListener::new(&created, "snapshot", {
                                 let app = app.clone();
+                                let latest_app = latest_app.clone();
                                 let latest_series_picker_open = latest_series_picker_open.clone();
                                 let latest_group_picker_open = latest_group_picker_open.clone();
                                 move |event| {
@@ -475,24 +477,26 @@ pub fn app() -> Html {
                                         return;
                                     };
 
-                                    let mut next = (*app).clone();
+                                    let mut next = (*latest_app.borrow()).clone();
                                     if *latest_series_picker_open.borrow()
                                         || *latest_group_picker_open.borrow()
                                     {
                                         return;
                                     }
                                     next.snapshots.insert(snapshot.series, snapshot.snapshot);
-                                    app.set(next);
+                                    app.set(next.clone());
+                                    *latest_app.borrow_mut() = next;
                                 }
                             });
 
                             let errors = EventListener::new(&created, "error", {
                                 let app = app.clone();
+                                let latest_app = latest_app.clone();
                                 let target_series = *series;
                                 let latest_series_picker_open = latest_series_picker_open.clone();
                                 let latest_group_picker_open = latest_group_picker_open.clone();
                                 move |_| {
-                                    let mut next = (*app).clone();
+                                    let mut next = (*latest_app.borrow()).clone();
                                     if *latest_series_picker_open.borrow()
                                         || *latest_group_picker_open.borrow()
                                     {
@@ -507,7 +511,8 @@ pub fn app() -> Html {
                                         next.connection_errors =
                                             next.connection_errors[start..].to_vec();
                                     }
-                                    app.set(next);
+                                    app.set(next.clone());
+                                    *latest_app.borrow_mut() = next;
                                 }
                             });
 
@@ -516,7 +521,7 @@ pub fn app() -> Html {
                             error_listener = Some(errors);
                         }
                         Err(err) => {
-                            let mut next = (*app).clone();
+                            let mut next = (*latest_app.borrow()).clone();
                             next.connection_errors.push(format!(
                                 "stream open failed: {} ({err:?})",
                                 series_label(*series)
@@ -525,7 +530,8 @@ pub fn app() -> Html {
                                 let start = next.connection_errors.len().saturating_sub(5);
                                 next.connection_errors = next.connection_errors[start..].to_vec();
                             }
-                            app.set(next);
+                            app.set(next.clone());
+                            *latest_app.borrow_mut() = next;
                         }
                     }
                 }
