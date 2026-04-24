@@ -323,8 +323,8 @@ async fn fetch_snapshot(series: Series) -> Result<SnapshotResponse, String> {
     fetch_json::<SnapshotResponse>(&format!("/api/snapshot/{}", series.as_key_prefix())).await
 }
 
-fn persist_preferences(app: UseStateHandle<AppState>) {
-    let snapshot = (*app).clone();
+fn persist_preferences_from_state(state: &AppState) {
+    let snapshot = state.clone();
     spawn_local(async move {
         let payload = Preferences {
             favourites: {
@@ -592,6 +592,8 @@ pub fn app() -> Html {
                             match keyboard_event.key().as_str() {
                                 "Escape" => {
                                     next.search.input_active = false;
+                                    next.search.query.clear();
+                                    next.search.current_match = 0;
                                     app.set(next.clone());
                                     *latest_app.borrow_mut() = next;
                                     keyboard_event.prevent_default();
@@ -663,12 +665,12 @@ pub fn app() -> Html {
                                     next.selected_row = 0;
                                     next.gap_anchor_stable_id = None;
                                     app.set(next.clone());
-                                    *latest_app.borrow_mut() = next;
+                                    *latest_app.borrow_mut() = next.clone();
                                     show_series_picker.set(false);
                                     *latest_series_picker_open.borrow_mut() = false;
                                     show_group_picker.set(false);
                                     *latest_group_picker_open.borrow_mut() = false;
-                                    persist_preferences(app.clone());
+                                    persist_preferences_from_state(&next);
                                     keyboard_event.prevent_default();
                                     return;
                                 }
@@ -763,6 +765,9 @@ pub fn app() -> Html {
                             "Escape" => {
                                 if next.show_help {
                                     next.show_help = false;
+                                } else if !next.search.query.is_empty() {
+                                    next.search.query.clear();
+                                    next.search.current_match = 0;
                                 }
                             }
                             "h" | "?" => {
@@ -823,8 +828,8 @@ pub fn app() -> Html {
                                         next.favourites.insert(key);
                                     }
                                     app.set(next.clone());
-                                    *latest_app.borrow_mut() = next;
-                                    persist_preferences(app.clone());
+                                    *latest_app.borrow_mut() = next.clone();
+                                    persist_preferences_from_state(&next);
                                     keyboard_event.prevent_default();
                                     return;
                                 }
