@@ -66,6 +66,7 @@ pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
             "/api/preferences",
             get(api::get_preferences).put(api::put_preferences),
         )
+        .route("/api/nls/liveticker", get(api::get_nls_liveticker))
         .route(
             "/api/demo",
             get(api::get_demo_state).put(api::put_demo_state),

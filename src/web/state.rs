@@ -5,14 +5,17 @@ use std::{
     collections::hash_map::DefaultHasher,
     collections::HashMap,
     hash::{Hash, Hasher},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use tokio::sync::broadcast;
-use web_shared::{DemoStateResponse, SnapshotResponse};
+use web_shared::{DemoStateResponse, NlsLivetickerResponse, SnapshotResponse};
 
-use crate::timing::{Series, TimingEntry, TimingHeader, TimingMessage};
+use crate::{
+    adapters::nls::liveticker::{self, ActiveLivetickerFeed, LivetickerWorkerMessage},
+    timing::{Series, TimingEntry, TimingHeader, TimingMessage, TimingNotice},
+};
 
 use crate::demo;
 use crate::favourites;
@@ -24,9 +27,18 @@ use super::prefs::{load_preferences, reset_preferences, save_preferences, Prefer
 pub struct SeriesSnapshot {
     pub header: TimingHeader,
     pub entries: Vec<TimingEntry>,
+    pub notices: Vec<TimingNotice>,
     pub status: String,
     pub last_error: Option<String>,
     pub last_update_unix_ms: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct NlsLivetickerState {
+    feed: Option<ActiveLivetickerFeed>,
+    entries: Vec<liveticker::LivetickerEntry>,
+    last_error: Option<String>,
+    last_update_unix_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -35,6 +47,7 @@ pub struct WebAppState {
     preferences: Arc<RwLock<HashMap<String, Preferences>>>,
     session_demo: Arc<RwLock<HashMap<String, SessionDemoState>>>,
     feed_controller: Arc<RwLock<Option<FeedController>>>,
+    nls_liveticker: Arc<Mutex<NlsLivetickerState>>,
     profile_cookie_secure: bool,
     streams: Arc<HashMap<Series, broadcast::Sender<()>>>,
 }
@@ -88,6 +101,7 @@ impl WebAppState {
             preferences: Arc::new(RwLock::new(HashMap::new())),
             session_demo: Arc::new(RwLock::new(HashMap::new())),
             feed_controller: Arc::new(RwLock::new(None)),
+            nls_liveticker: Arc::new(Mutex::new(NlsLivetickerState::default())),
             profile_cookie_secure,
             streams: Arc::new(streams),
         }
@@ -143,7 +157,59 @@ impl WebAppState {
                 snapshot.status = "Live timing connected".to_string();
                 snapshot.last_update_unix_ms = Some(now_unix_ms());
             }
-            TimingMessage::Notice { .. } => {}
+            TimingMessage::Notice { notice, .. } => {
+                snapshot.notices.push(notice.clone());
+                if snapshot.notices.len() > 300 {
+                    let remove = snapshot.notices.len().saturating_sub(300);
+                    snapshot.notices.drain(0..remove);
+                }
+            }
+        }
+    }
+
+    pub fn nls_liveticker_response(&self) -> NlsLivetickerResponse {
+        let mut guard = match self.nls_liveticker.lock() {
+            Ok(g) => g,
+            Err(_) => return NlsLivetickerResponse::default(),
+        };
+
+        if guard.feed.is_none() {
+            guard.feed = Some(liveticker::start_liveticker_feed());
+        }
+
+        let mut pending = Vec::new();
+        if let Some(feed) = guard.feed.as_ref() {
+            while let Ok(message) = feed.rx.try_recv() {
+                pending.push(message);
+            }
+        }
+
+        for message in pending {
+            match message {
+                LivetickerWorkerMessage::Snapshot { entries } => {
+                    guard.entries = entries;
+                    guard.last_error = None;
+                    guard.last_update_unix_ms = Some(now_unix_ms());
+                }
+                LivetickerWorkerMessage::Error { text } => {
+                    guard.last_error = Some(text);
+                }
+            }
+        }
+
+        NlsLivetickerResponse {
+            entries: guard
+                .entries
+                .iter()
+                .map(|entry| web_shared::NlsLivetickerEntry {
+                    day_label: entry.day_label.clone(),
+                    time_text: entry.time_text.clone(),
+                    message: entry.message.clone(),
+                    id: entry.id.clone(),
+                })
+                .collect(),
+            last_error: guard.last_error.clone(),
+            last_update_unix_ms: guard.last_update_unix_ms,
         }
     }
 
@@ -232,6 +298,7 @@ impl WebAppState {
         let snapshot = SeriesSnapshot {
             header,
             entries,
+            notices: Vec::new(),
             status: format!("{} demo data", series.label()),
             last_error: None,
             last_update_unix_ms: Some(now),
@@ -374,6 +441,15 @@ fn to_api_series_snapshot(snapshot: SeriesSnapshot) -> web_shared::SeriesSnapsho
                 pit_stops: entry.pit_stops,
                 fastest_driver: entry.fastest_driver,
                 stable_id: entry.stable_id,
+            })
+            .collect(),
+        notices: snapshot
+            .notices
+            .into_iter()
+            .map(|notice| web_shared::TimingNotice {
+                id: notice.id,
+                time: notice.time,
+                text: notice.text,
             })
             .collect(),
         status: snapshot.status,

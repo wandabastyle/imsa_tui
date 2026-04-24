@@ -1,12 +1,18 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, HashMap, HashSet},
+    rc::Rc,
+};
 
 use gloo_events::EventListener;
 use gloo_net::http::Request;
+use gloo_timers::future::TimeoutFuture;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 use web_shared::{
-    class_display_name, DemoStateResponse, LoginRequest, Preferences, Series, SeriesSnapshot,
-    SessionStateResponse, SnapshotResponse, TimingClassColor, TimingEntry,
+    class_display_name, DemoStateResponse, LoginRequest, NlsLivetickerResponse, Preferences,
+    Series, SeriesSnapshot, SessionStateResponse, SnapshotResponse, TimingClassColor, TimingEntry,
+    TimingNotice,
 };
 use yew::prelude::*;
 
@@ -52,6 +58,10 @@ struct AppState {
     selected_row: usize,
     gap_anchor_stable_id: Option<String>,
     show_help: bool,
+    show_messages: bool,
+    show_liveticker: bool,
+    notices: Vec<TimingNotice>,
+    nls_liveticker: NlsLivetickerResponse,
     search: SearchState,
     demo_enabled: bool,
     connection_errors: Vec<String>,
@@ -67,6 +77,10 @@ impl Default for AppState {
             selected_row: 0,
             gap_anchor_stable_id: None,
             show_help: false,
+            show_messages: false,
+            show_liveticker: false,
+            notices: Vec::new(),
+            nls_liveticker: NlsLivetickerResponse::default(),
             search: SearchState::default(),
             demo_enabled: false,
             connection_errors: Vec::new(),
@@ -323,6 +337,10 @@ async fn fetch_snapshot(series: Series) -> Result<SnapshotResponse, String> {
     fetch_json::<SnapshotResponse>(&format!("/api/snapshot/{}", series.as_key_prefix())).await
 }
 
+async fn fetch_nls_liveticker() -> Result<NlsLivetickerResponse, String> {
+    fetch_json::<NlsLivetickerResponse>("/api/nls/liveticker").await
+}
+
 fn persist_preferences_from_state(state: &AppState) {
     let snapshot = state.clone();
     spawn_local(async move {
@@ -483,6 +501,9 @@ pub fn app() -> Html {
                                     {
                                         return;
                                     }
+                                    if snapshot.series == next.active_series {
+                                        next.notices = snapshot.snapshot.notices.clone();
+                                    }
                                     next.snapshots.insert(snapshot.series, snapshot.snapshot);
                                     app.set(next.clone());
                                     *latest_app.borrow_mut() = next;
@@ -548,6 +569,42 @@ pub fn app() -> Html {
     }
 
     {
+        let authenticated = authenticated.clone();
+        let app = app.clone();
+        let latest_app = latest_app.clone();
+        use_effect_with(
+            (
+                (*authenticated),
+                (*app).active_series,
+                (*app).show_liveticker,
+            ),
+            move |(is_authenticated, active_series, show_liveticker)| {
+                let mut cancelled = None;
+                if *is_authenticated && (*active_series == Series::Nls || *show_liveticker) {
+                    cancelled = Some(Rc::new(Cell::new(false)));
+                    let cancelled_for_task = cancelled.as_ref().expect("cancel flag").clone();
+                    spawn_local(async move {
+                        while !cancelled_for_task.get() {
+                            if let Ok(response) = fetch_nls_liveticker().await {
+                                let mut next = (*latest_app.borrow()).clone();
+                                next.nls_liveticker = response;
+                                app.set(next.clone());
+                                *latest_app.borrow_mut() = next;
+                            }
+                            TimeoutFuture::new(2500).await;
+                        }
+                    });
+                }
+                move || {
+                    if let Some(flag) = cancelled {
+                        flag.set(true);
+                    }
+                }
+            },
+        );
+    }
+
+    {
         let app = app.clone();
         let authenticated = authenticated.clone();
         let show_series_picker = show_series_picker.clone();
@@ -602,6 +659,29 @@ pub fn app() -> Html {
                                 "Enter" => {
                                     next.search.input_active = false;
                                     next.search.current_match = 0;
+                                    let active_snapshot =
+                                        next.snapshots.get(&next.active_series).cloned();
+                                    let active_entries =
+                                        active_snapshot.map(|s| s.entries).unwrap_or_default();
+                                    let groups = grouped_entries(&active_entries);
+                                    let view_entries = entries_for_view(
+                                        &next.view_mode,
+                                        &active_entries,
+                                        &groups,
+                                        &next.favourites,
+                                        next.active_series,
+                                    );
+                                    let search_matches: Vec<usize> = view_entries
+                                        .iter()
+                                        .enumerate()
+                                        .filter_map(|(idx, entry)| {
+                                            entry_matches_search(entry, &next.search.query)
+                                                .then_some(idx)
+                                        })
+                                        .collect();
+                                    if let Some(first_match) = search_matches.first().copied() {
+                                        next.selected_row = first_match;
+                                    }
                                     app.set(next.clone());
                                     *latest_app.borrow_mut() = next;
                                     keyboard_event.prevent_default();
@@ -661,6 +741,11 @@ pub fn app() -> Html {
                                 "Enter" => {
                                     next.active_series =
                                         series_from_index(*latest_series_picker_index.borrow());
+                                    next.notices = next
+                                        .snapshots
+                                        .get(&next.active_series)
+                                        .map(|snapshot| snapshot.notices.clone())
+                                        .unwrap_or_default();
                                     next.view_mode = ViewMode::Overall;
                                     next.selected_row = 0;
                                     next.gap_anchor_stable_id = None;
@@ -765,6 +850,10 @@ pub fn app() -> Html {
                             "Escape" => {
                                 if next.show_help {
                                     next.show_help = false;
+                                } else if next.show_messages {
+                                    next.show_messages = false;
+                                } else if next.show_liveticker {
+                                    next.show_liveticker = false;
                                 } else if !next.search.query.is_empty() {
                                     next.search.query.clear();
                                     next.search.current_match = 0;
@@ -772,6 +861,16 @@ pub fn app() -> Html {
                             }
                             "h" | "?" => {
                                 next.show_help = !next.show_help;
+                            }
+                            "m" => {
+                                next.show_liveticker = false;
+                                next.show_messages = !next.show_messages;
+                            }
+                            "l" => {
+                                if next.active_series == Series::Nls {
+                                    next.show_messages = false;
+                                    next.show_liveticker = !next.show_liveticker;
+                                }
                             }
                             "g" => {
                                 next.view_mode = next_view_mode(&next.view_mode, groups.len());
@@ -888,6 +987,16 @@ pub fn app() -> Html {
                                         app_handle.set(state);
                                     }
                                 });
+                            }
+                            "c" => {
+                                if next.show_messages {
+                                    next.notices.clear();
+                                    if let Some(snapshot) =
+                                        next.snapshots.get_mut(&next.active_series)
+                                    {
+                                        snapshot.notices.clear();
+                                    }
+                                }
                             }
                             _ => return,
                         }
@@ -1054,6 +1163,10 @@ pub fn app() -> Html {
                                     fav_count={fav_count_for_series}
                                     search_query={(*app).search.query.clone()}
                                     search_active={(*app).search.input_active}
+                                    search_current={if search_matches.is_empty() { 0 } else { search_current_match + 1 }}
+                                    search_total={search_matches.len()}
+                                    notices_count={(*app).notices.len()}
+                                    liveticker_count={(*app).nls_liveticker.entries.len()}
                                     demo_enabled={(*app).demo_enabled}
                                     error_text={active_snapshot.as_ref().and_then(|snapshot| snapshot.last_error.clone()).unwrap_or_default()}
                                 />
@@ -1083,6 +1196,12 @@ pub fn app() -> Html {
                                 open={*show_series_picker}
                                 selected_series={series_from_index(*series_picker_index)}
                             />
+                            <MessagesModal open={(*app).show_messages} notices={(*app).notices.clone()} />
+                            <NlsLivetickerModal
+                                open={(*app).show_liveticker}
+                                entries={(*app).nls_liveticker.entries.clone()}
+                                last_error={(*app).nls_liveticker.last_error.clone().unwrap_or_default()}
+                            />
                         </>
                     }
                 }
@@ -1101,10 +1220,16 @@ async fn initialize_app_state(app: UseStateHandle<AppState>) -> Result<(), Strin
         }
     }
 
+    let notices = snapshots
+        .get(&preferences.selected_series)
+        .map(|snapshot| snapshot.notices.clone())
+        .unwrap_or_default();
+
     app.set(AppState {
         snapshots,
         active_series: preferences.selected_series,
         favourites: preferences.favourites.into_iter().collect(),
+        notices,
         demo_enabled: demo.enabled,
         ..AppState::default()
     });
@@ -1119,6 +1244,10 @@ struct HeaderBarProps {
     fav_count: usize,
     search_query: String,
     search_active: bool,
+    search_current: usize,
+    search_total: usize,
+    notices_count: usize,
+    liveticker_count: usize,
     demo_enabled: bool,
     error_text: String,
 }
@@ -1171,9 +1300,17 @@ fn header_bar(props: &HeaderBarProps) -> Html {
                 )}
             </div>
             <div class="line dim">
-                {"Keys: h help | d demo"}
-                if props.search_active {
-                    <>{" | "}<span class="search-label">{"Search:"}</span>{format!(" {}", if props.search_query.is_empty() { "-".to_string() } else { props.search_query.clone() })}</>
+                {format!(
+                    "Keys: h help | m messages ({}){} | d demo",
+                    props.notices_count,
+                    if props.series == Series::Nls {
+                        format!(" | l ticker ({})", props.liveticker_count)
+                    } else {
+                        String::new()
+                    }
+                )}
+                if props.search_active || !props.search_query.trim().is_empty() {
+                    <>{" | "}<span class={classes!("search-label", if props.search_active { Some("active") } else { None })}>{"Search:"}</span>{format!(" {} ({}/{})", if props.search_query.is_empty() { "-".to_string() } else { props.search_query.clone() }, props.search_current, props.search_total)}</>
                 }
                 if props.demo_enabled {
                     {" | DEMO"}
@@ -1503,7 +1640,7 @@ fn help_modal(props: &HelpModalProps) -> Html {
         <div class="backdrop">
             <section class="modal">
                 <h2>{"Keyboard Help"}</h2>
-                <pre>{"h toggle help (? also works)\ng cycle views\nG open group picker\no overall view\nt series picker\narrows/j/k move\nPgUp/PgDn fast scroll\nspace toggle favourite\nf jump favourite\ns search mode (type, Enter apply, Esc cancel)\nn/p next/prev match\nd toggle demo/live data source\nEsc close popup"}</pre>
+                <pre>{"h toggle help (? also works)\nm open/close messages (c clear while open)\nl open/close NLS ticker\ng cycle views\nG open group picker\no overall view\nt series picker\narrows/j/k move\nPgUp/PgDn fast scroll\nspace toggle favourite\nf jump favourite\ns search mode (type, Enter apply, Esc clear)\nn/p next/prev match\nd toggle demo/live data source\nEsc close popup"}</pre>
             </section>
         </div>
     }
@@ -1611,6 +1748,84 @@ fn series_modal(props: &SeriesModalProps) -> Html {
                         })
                     }
                 </div>
+            </section>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct MessagesModalProps {
+    open: bool,
+    notices: Vec<TimingNotice>,
+}
+
+#[function_component(MessagesModal)]
+fn messages_modal(props: &MessagesModalProps) -> Html {
+    if !props.open {
+        return html! {};
+    }
+
+    html! {
+        <div class="backdrop">
+            <section class="modal">
+                <h2>{format!("Messages ({})", props.notices.len())}</h2>
+                if props.notices.is_empty() {
+                    <p class="empty">{"No messages available."}</p>
+                } else {
+                    <div class="list">
+                        {
+                            for props.notices.iter().rev().map(|notice| {
+                                html! {
+                                    <article class="notice-item">
+                                        <div class="notice-time">{if notice.time.trim().is_empty() { "-".to_string() } else { notice.time.clone() }}</div>
+                                        <div class="notice-text">{notice.text.clone()}</div>
+                                    </article>
+                                }
+                            })
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct NlsLivetickerModalProps {
+    open: bool,
+    entries: Vec<web_shared::NlsLivetickerEntry>,
+    last_error: String,
+}
+
+#[function_component(NlsLivetickerModal)]
+fn nls_liveticker_modal(props: &NlsLivetickerModalProps) -> Html {
+    if !props.open {
+        return html! {};
+    }
+
+    html! {
+        <div class="backdrop">
+            <section class="modal">
+                <h2>{format!("NLS Liveticker ({})", props.entries.len())}</h2>
+                if !props.last_error.trim().is_empty() {
+                    <p class="empty">{format!("Last error: {}", props.last_error)}</p>
+                }
+                if props.entries.is_empty() {
+                    <p class="empty">{"No liveticker entries yet."}</p>
+                } else {
+                    <div class="list">
+                        {
+                            for props.entries.iter().map(|entry| {
+                                html! {
+                                    <article class="notice-item">
+                                        <div class="notice-time">{format!("{} {}", entry.day_label, entry.time_text)}</div>
+                                        <div class="notice-text">{entry.message.clone()}</div>
+                                    </article>
+                                }
+                            })
+                        }
+                    </div>
+                }
             </section>
         </div>
     }

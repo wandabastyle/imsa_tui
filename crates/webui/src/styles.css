@@ -153,6 +153,10 @@ p {
 }
 
 .search-label {
+  font-weight: 500;
+}
+
+.search-label.active {
   font-weight: 700;
 }
 
@@ -275,6 +279,24 @@ tr.search-mark:not(.selected) {
   border-color: var(--accent);
   background: #1b3c62;
   font-weight: 700;
+}
+
+.notice-item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  background: #0f2238;
+}
+
+.notice-time {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  margin-bottom: 0.18rem;
+}
+
+.notice-text {
+  white-space: pre-wrap;
+  line-height: 1.35;
 }
 
 @media (max-width: 768px) {

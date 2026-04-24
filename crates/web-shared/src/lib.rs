@@ -85,15 +85,40 @@ pub struct TimingEntry {
 pub struct SeriesSnapshot {
     pub header: TimingHeader,
     pub entries: Vec<TimingEntry>,
+    #[serde(default)]
+    pub notices: Vec<TimingNotice>,
     pub status: String,
     pub last_error: Option<String>,
     pub last_update_unix_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimingNotice {
+    pub id: String,
+    pub time: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotResponse {
     pub series: Series,
     pub snapshot: SeriesSnapshot,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NlsLivetickerEntry {
+    pub day_label: String,
+    pub time_text: String,
+    pub message: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NlsLivetickerResponse {
+    #[serde(default)]
+    pub entries: Vec<NlsLivetickerEntry>,
+    pub last_error: Option<String>,
+    pub last_update_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

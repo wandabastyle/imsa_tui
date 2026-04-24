@@ -13,7 +13,7 @@ use axum::{
 };
 use rand::distr::{Alphanumeric, SampleString};
 use serde_json::json;
-use web_shared::{DemoStateResponse, Preferences, PutDemoRequest};
+use web_shared::{DemoStateResponse, NlsLivetickerResponse, Preferences, PutDemoRequest};
 
 use crate::timing::Series;
 
@@ -151,6 +151,11 @@ pub async fn reset_preferences(State(state): State<WebAppState>, headers: Header
                 .into_response(),
         ),
     }
+}
+
+pub async fn get_nls_liveticker(State(state): State<WebAppState>) -> Response {
+    let response: NlsLivetickerResponse = state.nls_liveticker_response();
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 fn to_api_preferences(value: prefs::Preferences) -> Preferences {
