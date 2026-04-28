@@ -15,7 +15,8 @@ env:
   IMAGE_NAME: wandabastyle/imsa_tui
 
 jobs:
-  publish:
+  build-and-push:
+    name: Build and push image
     runs-on: ubuntu-latest
 
     steps:
@@ -28,27 +29,41 @@ jobs:
       - name: Build image
         run: |
           docker build \
-            -t "$REGISTRY/$IMAGE_NAME:latest" \
             -t "$REGISTRY/$IMAGE_NAME:${{ github.sha }}" \
             .
 
       - name: Push image
-        run: |
-          docker push "$REGISTRY/$IMAGE_NAME:latest"
-          docker push "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+        run: docker push "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
 
   smoke-pull-latest:
-    name: Smoke pull latest image
+    name: Smoke compose from SHA image
     runs-on: ubuntu-latest
-    needs: publish
+    needs: build-and-push
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
 
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
       - name: Pull Docker image via Compose
-        run: docker compose pull
+        run: |
+          for attempt in {1..12}; do
+            if docker compose pull; then
+              exit 0
+            fi
+            echo "pull failed, retrying in 5s ($attempt/12)"
+            sleep 5
+          done
+          echo "compose pull failed after retries"
+          exit 1
 
       - name: Start Compose stack
         run: docker compose up -d
@@ -78,3 +93,21 @@ jobs:
       - name: Tear down Compose stack
         if: always()
         run: docker compose down -v
+
+  promote-latest:
+    name: Promote SHA to latest
+    runs-on: ubuntu-latest
+    needs: smoke-pull-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Promote image tag
+        run: |
+          docker pull "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+          docker tag "$REGISTRY/$IMAGE_NAME:${{ github.sha }}" "$REGISTRY/$IMAGE_NAME:latest"
+          docker push "$REGISTRY/$IMAGE_NAME:latest"

@@ -9,7 +9,7 @@ services:
     restart: "no"
 
   imsa-web:
-    image: ghcr.io/wandabastyle/imsa_tui:latest
+    image: ghcr.io/wandabastyle/imsa_tui:${IMAGE_TAG:-latest}
     pull_policy: always
     container_name: imsa-web
     restart: unless-stopped
