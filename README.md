@@ -135,14 +135,14 @@ Release binary commands:
 ./target/release/web_server --stop
 ```
 
-Docker Compose deployment (GitHub Release binary):
+Docker Compose deployment (GHCR image):
 
 ```bash
-# build image from latest release asset
-docker compose build
+# pull latest image from GHCR
+docker compose pull
 
-# build image from a specific release tag
-env RELEASE_TAG=vX.Y.Z docker compose build
+# pull a specific image tag
+env IMSA_IMAGE_TAG=vX.Y.Z docker compose pull
 
 # start the web server container in background
 docker compose up -d

@@ -9,12 +9,7 @@ services:
     restart: "no"
 
   imsa-web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        RELEASE_TAG: ${RELEASE_TAG:-latest}
-    image: imsa-web:local
+    image: ghcr.io/wandabastyle/imsa_tui:${IMSA_IMAGE_TAG:-latest}
     container_name: imsa-web
     restart: unless-stopped
     depends_on:
