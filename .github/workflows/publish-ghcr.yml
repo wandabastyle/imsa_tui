@@ -36,3 +36,45 @@ jobs:
         run: |
           docker push "$REGISTRY/$IMAGE_NAME:latest"
           docker push "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+
+  smoke-pull-latest:
+    name: Smoke pull latest image
+    runs-on: ubuntu-latest
+    needs: publish
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Pull Docker image via Compose
+        run: docker compose pull
+
+      - name: Start Compose stack
+        run: docker compose up -d
+
+      - name: Probe /healthz
+        run: |
+          for attempt in {1..20}; do
+            body="$(curl -fsS http://127.0.0.1:18080/healthz | tr -d '\r\n' || true)"
+            if [ "$body" = "ok" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "healthz probe failed"
+          docker compose ps
+          docker compose logs imsa-web
+          exit 1
+
+      - name: Compose status
+        if: always()
+        run: docker compose ps
+
+      - name: Compose logs
+        if: always()
+        run: docker compose logs imsa-web
+
+      - name: Tear down Compose stack
+        if: always()
+        run: docker compose down -v
