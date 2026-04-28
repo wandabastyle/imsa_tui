@@ -5,14 +5,17 @@ use std::{
     collections::hash_map::DefaultHasher,
     collections::HashMap,
     hash::{Hash, Hasher},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::Serialize;
 use tokio::sync::broadcast;
+use web_shared::{DemoStateResponse, NlsLivetickerResponse, SnapshotResponse};
 
-use crate::timing::{Series, TimingEntry, TimingHeader, TimingMessage};
+use crate::{
+    adapters::nls::liveticker::{self, ActiveLivetickerFeed, LivetickerWorkerMessage},
+    timing::{Series, TimingEntry, TimingHeader, TimingMessage, TimingNotice},
+};
 
 use crate::demo;
 use crate::favourites;
@@ -20,19 +23,22 @@ use crate::favourites;
 use super::bridge::FeedController;
 use super::prefs::{load_preferences, reset_preferences, save_preferences, Preferences};
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct SeriesSnapshot {
     pub header: TimingHeader,
     pub entries: Vec<TimingEntry>,
+    pub notices: Vec<TimingNotice>,
     pub status: String,
     pub last_error: Option<String>,
     pub last_update_unix_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SnapshotResponse {
-    pub series: Series,
-    pub snapshot: SeriesSnapshot,
+#[derive(Debug, Default)]
+struct NlsLivetickerState {
+    feed: Option<ActiveLivetickerFeed>,
+    entries: Vec<liveticker::LivetickerEntry>,
+    last_error: Option<String>,
+    last_update_unix_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -41,6 +47,7 @@ pub struct WebAppState {
     preferences: Arc<RwLock<HashMap<String, Preferences>>>,
     session_demo: Arc<RwLock<HashMap<String, SessionDemoState>>>,
     feed_controller: Arc<RwLock<Option<FeedController>>>,
+    nls_liveticker: Arc<Mutex<NlsLivetickerState>>,
     profile_cookie_secure: bool,
     streams: Arc<HashMap<Series, broadcast::Sender<()>>>,
 }
@@ -64,11 +71,6 @@ struct SessionDemoState {
     seed: u64,
     started_unix_ms: u64,
     last_seen_unix_ms: u64,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct DemoSessionResponse {
-    pub enabled: bool,
 }
 
 impl WebAppState {
@@ -99,6 +101,7 @@ impl WebAppState {
             preferences: Arc::new(RwLock::new(HashMap::new())),
             session_demo: Arc::new(RwLock::new(HashMap::new())),
             feed_controller: Arc::new(RwLock::new(None)),
+            nls_liveticker: Arc::new(Mutex::new(NlsLivetickerState::default())),
             profile_cookie_secure,
             streams: Arc::new(streams),
         }
@@ -109,8 +112,10 @@ impl WebAppState {
     }
 
     pub fn snapshot_response_for(&self, series: Series) -> Option<SnapshotResponse> {
-        self.snapshot_for(series)
-            .map(|snapshot| SnapshotResponse { series, snapshot })
+        self.snapshot_for(series).map(|snapshot| SnapshotResponse {
+            series: to_api_series(series),
+            snapshot: to_api_series_snapshot(snapshot),
+        })
     }
 
     pub fn apply_timing_message(&self, series: Series, message: &TimingMessage) {
@@ -152,7 +157,59 @@ impl WebAppState {
                 snapshot.status = "Live timing connected".to_string();
                 snapshot.last_update_unix_ms = Some(now_unix_ms());
             }
-            TimingMessage::Notice { .. } => {}
+            TimingMessage::Notice { notice, .. } => {
+                snapshot.notices.push(notice.clone());
+                if snapshot.notices.len() > 300 {
+                    let remove = snapshot.notices.len().saturating_sub(300);
+                    snapshot.notices.drain(0..remove);
+                }
+            }
+        }
+    }
+
+    pub fn nls_liveticker_response(&self) -> NlsLivetickerResponse {
+        let mut guard = match self.nls_liveticker.lock() {
+            Ok(g) => g,
+            Err(_) => return NlsLivetickerResponse::default(),
+        };
+
+        if guard.feed.is_none() {
+            guard.feed = Some(liveticker::start_liveticker_feed());
+        }
+
+        let mut pending = Vec::new();
+        if let Some(feed) = guard.feed.as_ref() {
+            while let Ok(message) = feed.rx.try_recv() {
+                pending.push(message);
+            }
+        }
+
+        for message in pending {
+            match message {
+                LivetickerWorkerMessage::Snapshot { entries } => {
+                    guard.entries = entries;
+                    guard.last_error = None;
+                    guard.last_update_unix_ms = Some(now_unix_ms());
+                }
+                LivetickerWorkerMessage::Error { text } => {
+                    guard.last_error = Some(text);
+                }
+            }
+        }
+
+        NlsLivetickerResponse {
+            entries: guard
+                .entries
+                .iter()
+                .map(|entry| web_shared::NlsLivetickerEntry {
+                    day_label: entry.day_label.clone(),
+                    time_text: entry.time_text.clone(),
+                    message: entry.message.clone(),
+                    id: entry.id.clone(),
+                })
+                .collect(),
+            last_error: guard.last_error.clone(),
+            last_update_unix_ms: guard.last_update_unix_ms,
         }
     }
 
@@ -162,12 +219,12 @@ impl WebAppState {
         }
     }
 
-    pub fn demo_state_for_session(&self, session_token: &str) -> DemoSessionResponse {
+    pub fn demo_state_for_session(&self, session_token: &str) -> DemoStateResponse {
         let now = now_unix_ms();
         let mut guard = match self.session_demo.write() {
             Ok(g) => g,
             Err(_) => {
-                return DemoSessionResponse { enabled: false };
+                return DemoStateResponse { enabled: false };
             }
         };
         retain_recent_sessions(&mut guard, now);
@@ -182,17 +239,17 @@ impl WebAppState {
             });
         entry.last_seen_unix_ms = now;
 
-        DemoSessionResponse {
+        DemoStateResponse {
             enabled: entry.enabled,
         }
     }
 
-    pub fn set_demo_for_session(&self, session_token: &str, enabled: bool) -> DemoSessionResponse {
+    pub fn set_demo_for_session(&self, session_token: &str, enabled: bool) -> DemoStateResponse {
         let now = now_unix_ms();
         let mut guard = match self.session_demo.write() {
             Ok(g) => g,
             Err(_) => {
-                return DemoSessionResponse { enabled: false };
+                return DemoStateResponse { enabled: false };
             }
         };
         retain_recent_sessions(&mut guard, now);
@@ -211,7 +268,7 @@ impl WebAppState {
         entry.enabled = enabled;
         entry.last_seen_unix_ms = now;
 
-        DemoSessionResponse { enabled }
+        DemoStateResponse { enabled }
     }
 
     pub fn demo_snapshot_response_for(
@@ -241,12 +298,16 @@ impl WebAppState {
         let snapshot = SeriesSnapshot {
             header,
             entries,
+            notices: Vec::new(),
             status: format!("{} demo data", series.label()),
             last_error: None,
             last_update_unix_ms: Some(now),
         };
 
-        Some(SnapshotResponse { series, snapshot })
+        Some(SnapshotResponse {
+            series: to_api_series(series),
+            snapshot: to_api_series_snapshot(snapshot),
+        })
     }
 
     pub fn subscribe_series(&self, series: Series) -> Option<broadcast::Receiver<()>> {
@@ -323,6 +384,77 @@ impl WebAppState {
             .map_err(|_| "preferences lock poisoned".to_string())?;
         guard.insert(profile_id.to_string(), defaults.clone());
         Ok(defaults)
+    }
+}
+
+fn to_api_series(value: Series) -> web_shared::Series {
+    match value {
+        Series::Imsa => web_shared::Series::Imsa,
+        Series::Nls => web_shared::Series::Nls,
+        Series::F1 => web_shared::Series::F1,
+        Series::Wec => web_shared::Series::Wec,
+        Series::Dhlm => web_shared::Series::Dhlm,
+    }
+}
+
+fn to_api_series_snapshot(snapshot: SeriesSnapshot) -> web_shared::SeriesSnapshot {
+    web_shared::SeriesSnapshot {
+        header: web_shared::TimingHeader {
+            session_name: snapshot.header.session_name,
+            session_type_raw: snapshot.header.session_type_raw,
+            event_name: snapshot.header.event_name,
+            track_name: snapshot.header.track_name,
+            day_time: snapshot.header.day_time,
+            flag: snapshot.header.flag,
+            time_to_go: snapshot.header.time_to_go,
+            class_colors: snapshot
+                .header
+                .class_colors
+                .into_iter()
+                .map(|(key, value)| (key, web_shared::TimingClassColor { color: value.color }))
+                .collect(),
+        },
+        entries: snapshot
+            .entries
+            .into_iter()
+            .map(|entry| web_shared::TimingEntry {
+                position: entry.position,
+                car_number: entry.car_number,
+                class_name: entry.class_name,
+                class_rank: entry.class_rank,
+                driver: entry.driver,
+                vehicle: entry.vehicle,
+                team: entry.team,
+                laps: entry.laps,
+                gap_overall: entry.gap_overall,
+                gap_class: entry.gap_class,
+                gap_next_in_class: entry.gap_next_in_class,
+                last_lap: entry.last_lap,
+                best_lap: entry.best_lap,
+                sector_1: entry.sector_1,
+                sector_2: entry.sector_2,
+                sector_3: entry.sector_3,
+                sector_4: entry.sector_4,
+                sector_5: entry.sector_5,
+                best_lap_no: entry.best_lap_no,
+                pit: entry.pit,
+                pit_stops: entry.pit_stops,
+                fastest_driver: entry.fastest_driver,
+                stable_id: entry.stable_id,
+            })
+            .collect(),
+        notices: snapshot
+            .notices
+            .into_iter()
+            .map(|notice| web_shared::TimingNotice {
+                id: notice.id,
+                time: notice.time,
+                text: notice.text,
+            })
+            .collect(),
+        status: snapshot.status,
+        last_error: snapshot.last_error,
+        last_update_unix_ms: snapshot.last_update_unix_ms,
     }
 }
 

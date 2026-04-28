@@ -6,23 +6,23 @@ Rust checks:
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets --all-features
+cargo clippy --all-targets --no-default-features -- -D warnings
 cargo test
 ```
 
 Web checks:
 
 ```bash
-cd web
-pnpm install --frozen-lockfile
-pnpm run verify
+rustup target add wasm32-unknown-unknown
+cargo check -p webui --target wasm32-unknown-unknown
+trunk build --release --config web/Trunk.toml
 ```
 
 ## CI Jobs
 
 - `rust-checks`: format, clippy, tests.
-- `web-checks`: frontend verify.
-- `integration-embed-ui`: build web assets and run Rust check with all features.
+- `web-checks`: wasm compile for `webui` and release `trunk build`.
+- `integration-embed-ui`: trunk build of web assets and Rust check with all features.
 - `docker-compose-smoke`: builds and boots Compose stack, probes `/healthz`, then tears down.
 
 ## NLS WebSocket Field Catalog

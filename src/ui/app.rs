@@ -733,7 +733,12 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             if let Event::Key(key) = event::read()? {
                 if search.input_active {
                     match key.code {
-                        KeyCode::Esc => search.input_active = false,
+                        KeyCode::Esc => {
+                            search.query.clear();
+                            search.matches.clear();
+                            search.current_match = 0;
+                            search.input_active = false;
+                        }
                         KeyCode::Enter => {
                             search.input_active = false;
                             refresh_search_matches(&mut search, &current_view_entries);
@@ -1014,6 +1019,11 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                     KeyCode::Esc => {
                         if show_help {
                             show_help = false;
+                        } else if !search.query.trim().is_empty() || !search.matches.is_empty() {
+                            search.query.clear();
+                            search.matches.clear();
+                            search.current_match = 0;
+                            search.input_active = false;
                         } else {
                             stop_feed(&mut feed);
                             stop_liveticker_feed(&mut nls_liveticker_feed);

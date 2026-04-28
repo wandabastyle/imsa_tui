@@ -1,9 +1,5 @@
 # Quick Start Compose and Trunk
 
-This page has moved.
-
-- Updated guide: `Quick-Start-Compose-and-Trunk.md`
-
 ## Prerequisites
 
 - Docker engine with Compose plugin.
@@ -21,6 +17,18 @@ curl -i http://127.0.0.1:18080/healthz
 ```
 
 Expected health response body is `ok`.
+
+## Local Web UI Development (Trunk)
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked
+
+cargo run --bin web_server
+trunk serve --config web/Trunk.toml
+```
+
+Open `http://127.0.0.1:1420` for the dev UI.
 
 ## Configure Nginx Proxy Manager
 

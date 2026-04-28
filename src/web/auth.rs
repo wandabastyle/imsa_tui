@@ -30,6 +30,7 @@ use std::{
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
+use web_shared::{LoginRequest, SessionStateResponse};
 
 #[derive(Debug, Clone)]
 pub struct WebAuthConfig {
@@ -183,16 +184,6 @@ impl WebAuthConfig {
         }
         cookie
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LoginRequest {
-    pub access_code: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SessionStateResponse {
-    pub authenticated: bool,
 }
 
 #[derive(Debug, Serialize)]

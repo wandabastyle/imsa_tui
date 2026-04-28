@@ -31,31 +31,29 @@ jobs:
         run: cargo test --no-default-features
 
   web-checks:
-    name: Web verify
+    name: Web (Yew/Trunk)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@08c4be7e2e672a47d11bd04269e27e5f3e8529cb # v6.0.0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          version: 10
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
 
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
 
-      - name: Install web dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: web
+      - name: Install Trunk
+        run: cargo install trunk --locked
 
-      - name: pnpm run verify
-        run: pnpm run verify
-        working-directory: web
+      - name: cargo check -p webui --target wasm32-unknown-unknown
+        run: cargo check -p webui --target wasm32-unknown-unknown
+
+      - name: trunk build --release
+        run: trunk build --release --config web/Trunk.toml
 
   integration-embed-ui:
     name: Integration embed-ui
@@ -64,33 +62,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@08c4be7e2e672a47d11bd04269e27e5f3e8529cb # v6.0.0
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install web dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: web
+      - name: Install Trunk
+        run: cargo install trunk --locked
 
       - name: Build web assets
-        run: pnpm run build
-        working-directory: web
+        run: trunk build --release --config web/Trunk.toml
 
       - name: cargo check --all-targets --all-features
         run: cargo check --all-targets --all-features
