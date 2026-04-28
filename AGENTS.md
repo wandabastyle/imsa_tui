@@ -14,7 +14,6 @@
 
 - After changing any file, run the relevant lint/check commands for affected areas.
 - Continue fixing and re-running lint/check commands until all reported errors are resolved.
-- Do not use inline suppressions for `svelte/prefer-svelte-reactivity` (for example `// eslint-disable-next-line svelte/prefer-svelte-reactivity`); refactor to compliant Svelte reactivity patterns instead.
 
 ## Verification Matrix
 
@@ -22,8 +21,9 @@
   - `cargo fmt --check`
   - `cargo clippy --all-targets --no-default-features -- -D warnings`
   - `cargo test`
-- Web-only changes must pass (in `web/`):
-  - `pnpm run verify`
+- Web-only changes (Yew/Trunk) must pass:
+  - `cargo check -p webui --target wasm32-unknown-unknown`
+  - `trunk build --release --config web/Trunk.toml`
 - Cross-cutting changes (Rust + Web) must pass both Rust and Web checks.
 
 ## Commits
