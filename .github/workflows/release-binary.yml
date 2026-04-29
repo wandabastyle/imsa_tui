@@ -33,8 +33,15 @@ jobs:
       - name: Add wasm target
         run: rustup target add wasm32-unknown-unknown
 
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-release-binary
+
       - name: Install Trunk
-        run: cargo install trunk --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
 
       - name: Build web assets
         run: trunk build --release --config web/Trunk.toml
