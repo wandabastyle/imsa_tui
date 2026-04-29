@@ -1526,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "imsa_tui"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "argon2",
  "axum",
@@ -3636,7 +3636,7 @@ dependencies = [
 
 [[package]]
 name = "web-shared"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
@@ -3690,7 +3690,7 @@ dependencies = [
 
 [[package]]
 name = "webui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gloo-events 0.2.0",
  "gloo-net 0.6.0",
