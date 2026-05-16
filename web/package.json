@@ -1,0 +1,28 @@
+{
+  "name": "imsa-tui-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "vp check && pnpm run typecheck",
+    "verify": "pnpm run check && pnpm run build"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/node": "^25.6.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite-plus": "latest"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

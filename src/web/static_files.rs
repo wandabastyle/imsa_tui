@@ -1,4 +1,4 @@
-// Static asset serving for the built Trunk/Yew frontend with SPA fallback routing.
+// Static asset serving for the built Vite frontend with SPA fallback routing.
 
 use std::path::{Path, PathBuf};
 

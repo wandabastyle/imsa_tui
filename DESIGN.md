@@ -7,8 +7,8 @@ This project uses a dark, compact motorsport timing-screen visual system. Interf
 ## Stack
 
 - **TUI:** Rust, `ratatui`, `crossterm`
-- **Web UI:** Yew compiled to WASM with Trunk
-- **Web styling:** Plain CSS in `crates/webui/src/styles.css`
+- **Web UI:** Svelte with Vite+
+- **Web styling:** Plain CSS in `web/src/app.css`
 - **Backend:** Axum/Tokio web server with embedded or disk-served web assets
 - **Shared web contracts:** `crates/web-shared`
 - **Core TUI styling:** `src/ui/style.rs`, `src/ui/render.rs`, `src/ui/table.rs`

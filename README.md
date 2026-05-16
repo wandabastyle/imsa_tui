@@ -30,8 +30,6 @@ Project wiki (operator-focused deployment/runbooks):
 ## Requirements
 
 - Rust toolchain (stable recommended)
-- `wasm32-unknown-unknown` Rust target (`rustup target add wasm32-unknown-unknown`)
-- Trunk (`cargo install trunk --locked`)
 - Network access to IMSA timing endpoints
 
 ## Installation
@@ -66,20 +64,20 @@ Release run:
 ./target/release/imsa_tui
 ```
 
-Web UI development run (Trunk + Rust backend):
+Web UI development run (Vite+ + Rust backend):
 
 ```bash
 cargo run --bin web_server
-trunk serve --config web/Trunk.toml
+cd web && vp dev
 ```
 
-Open `http://127.0.0.1:1420` (Trunk dev server). API/auth/static requests under
+Open `http://127.0.0.1:1420` (Vite dev server). API/auth/static requests under
 `/api`, `/auth`, `/healthz`, and `/readyz` are proxied to the backend on `:8080`.
 
 Web UI production build + backend serving:
 
 ```bash
-trunk build --release --config web/Trunk.toml
+cd web && vp build
 
 cargo run --bin web_server
 ```
@@ -164,7 +162,7 @@ Docker/web quick notes:
 
 Detailed deployment and operations docs are in the wiki:
 
-- Quick Start (Compose + Trunk): https://github.com/wandabastyle/imsa_tui/wiki/Quick-Start-Compose-and-Trunk
+- Quick Start (Compose + Vite+): https://github.com/wandabastyle/imsa_tui/wiki/Quick-Start-Compose-and-Trunk
 - Docker Compose deployment: https://github.com/wandabastyle/imsa_tui/wiki/Deployment-Docker-Compose
 - Plain Docker deployment: https://github.com/wandabastyle/imsa_tui/wiki/Deployment-Docker
 - Reverse proxy (Nginx Proxy Manager): https://github.com/wandabastyle/imsa_tui/wiki/Reverse-Proxy-Nginx-Proxy-Manager
@@ -259,8 +257,6 @@ Quick checks:
 cargo fmt --check
 cargo clippy --all-targets --no-default-features -- -D warnings
 cargo test
-cargo check -p webui --target wasm32-unknown-unknown
-trunk build --release --config web/Trunk.toml
 ```
 
 ## License
