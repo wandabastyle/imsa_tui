@@ -8,8 +8,21 @@ use std::{
 
 use reqwest::blocking::Client;
 
-const LIVETICKER_URL: &str =
-    "https://www.nuerburgring-langstrecken-serie.de/wp-content/themes/pofo-child/liveticker.php";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LivetickerFeedKind {
+    Nls,
+    N24,
+}
+
+impl LivetickerFeedKind {
+    fn url(self) -> &'static str {
+        match self {
+            Self::Nls => "https://www.nuerburgring-langstrecken-serie.de/wp-content/themes/pofo-child/liveticker.php",
+            Self::N24 => "https://www.24h-rennen.de/liveticker.php",
+        }
+    }
+}
+
 const POLL_INTERVAL: Duration = Duration::from_secs(20);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -29,13 +42,15 @@ pub enum LivetickerWorkerMessage {
 
 #[derive(Debug)]
 pub struct ActiveLivetickerFeed {
+    pub kind: LivetickerFeedKind,
     stop_tx: Sender<()>,
     pub rx: Receiver<LivetickerWorkerMessage>,
 }
 
-pub fn start_liveticker_feed() -> ActiveLivetickerFeed {
+pub fn start_liveticker_feed(kind: LivetickerFeedKind) -> ActiveLivetickerFeed {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let (tx, rx) = mpsc::channel::<LivetickerWorkerMessage>();
+    let url = kind.url();
 
     thread::spawn(move || {
         let client = Client::builder()
@@ -60,7 +75,7 @@ pub fn start_liveticker_feed() -> ActiveLivetickerFeed {
                 break;
             }
 
-            match fetch_liveticker_entries(&client) {
+            match fetch_liveticker_entries(&client, url) {
                 Ok(latest_entries) => {
                     let merged_entries = merge_entries(&latest_entries, &cached_entries);
                     if merged_entries != cached_entries {
@@ -83,7 +98,7 @@ pub fn start_liveticker_feed() -> ActiveLivetickerFeed {
         }
     });
 
-    ActiveLivetickerFeed { stop_tx, rx }
+    ActiveLivetickerFeed { kind, stop_tx, rx }
 }
 
 pub fn stop_liveticker_feed(feed: &mut Option<ActiveLivetickerFeed>) {
@@ -114,9 +129,9 @@ fn merge_entries(
     merged
 }
 
-fn fetch_liveticker_entries(client: &Client) -> Result<Vec<LivetickerEntry>, String> {
+fn fetch_liveticker_entries(client: &Client, url: &str) -> Result<Vec<LivetickerEntry>, String> {
     let response = client
-        .get(LIVETICKER_URL)
+        .get(url)
         .send()
         .map_err(|err| format!("request error: {err}"))?;
 

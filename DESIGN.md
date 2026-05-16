@@ -30,7 +30,7 @@ This project uses a dark, compact motorsport timing-screen visual system. Interf
 
 ## Tokens
 
-Web tokens live in `crates/webui/src/styles.css`.
+Web tokens live in `web/src/app.css`. Add new semantic tokens before using them broadly in components.
 
 | Token | Value | Usage |
 | --- | --- | --- |
@@ -39,13 +39,25 @@ Web tokens live in `crates/webui/src/styles.css`.
 | `--bg-muted` | `#122236` | Inputs, controls, secondary panels |
 | `--text` | `#d9e3f2` | Primary text |
 | `--text-dim` | `#9fb3cf` | Supporting text and metadata |
-| `--accent` | `#2e7bc6` | Selection, active controls, search emphasis |
+| `--accent` | `#2e7bc6` | Active controls, search emphasis, borders |
 | `--ok` | `#009944` | Green flag / successful state |
 | `--warn` | `#ffdd00` | Yellow flag / car notice highlight |
 | `--danger` | `#8f2d35` | Errors and red-state surfaces |
 | `--border` | `#1c3b5d` | Panel, table, and control borders |
+| `--bg-selected` | `#16345a` | Selected row background |
+| `--bg-search` | `#223d66` | Search match background (all matches) |
+| `--bg-search-current` | `#1a4575` | Current search match background (stronger) |
+| `--bg-modal` | `#0a1a2d` | Modal surface background |
+| `--bg-control` | `#0f2439` | Control/input surfaces |
+| `--bg-table-header` | `#0d1f33` | Table header background |
+| `--grid` | `#152a40` | Table grid lines |
+| `--pit-in` | `#4dd0e1` | Pit entry pulse (cyan) |
+| `--pit-active` | `#ffdd00` | In-pit state (yellow) |
+| `--pit-out` | `#f48fb1` | Pit exit pulse (light magenta) |
 
-TUI colors should map to the same concepts through `ratatui::style::Color` helpers instead of drifting into unrelated palettes.
+TUI colors should map to the same concepts through `ratatui::style::Color` helpers instead of drifting into unrelated palettes. TUI-specific tokens (selection, search, notice, pit states) should be centralized in `src/ui/style.rs`.
+
+When adding TUI semantic colors (e.g., for selection, search, pit states), prefer creating centralized helpers in `src/ui/style.rs` rather than hardcoding `Color::Rgb()` values directly in table or popup rendering code. This ensures TUI and Web stay aligned in intent even if exact color values differ.
 
 ---
 
@@ -110,7 +122,7 @@ Pit state can override class color, but should not hide row selection or search 
 Purpose: event/session status, flag state, mode, update age, favourites count, key hints, search state, and errors.
 
 - TUI implementation: `src/ui/render.rs`.
-- Web implementation: `HeaderView` in `crates/webui/src/app.rs` plus `.header` styles.
+- Web implementation: `HeaderBar.svelte` in `web/src/lib/components/` plus `.header` styles.
 - Flag state may theme the whole header.
 - Keep key hints short and stable.
 - Show `DEMO` prominently when enabled.
@@ -121,7 +133,7 @@ Purpose: event/session status, flag state, mode, update age, favourites count, k
 Purpose: primary live timing surface.
 
 - TUI implementation: `src/ui/table.rs`.
-- Web implementation: `TableView` in `crates/webui/src/app.rs` plus table styles.
+- Web implementation: `TimingTable.svelte` in `web/src/lib/components/` plus table styles.
 - Tables are dense, full-width, and scroll the data area, not the whole page.
 - Headers are sticky in Web and bold in TUI.
 - Selected rows need a distinct blue/gray background and strong contrast.
@@ -185,6 +197,39 @@ Web-only.
 
 ---
 
+## Responsive Table Policy
+
+Timing tables should remain legible across terminal sizes and browser viewports without losing critical data.
+
+### Scrolling
+
+- Web table panel must set `min-height: 0; flex: 1; overflow: auto;` so it owns vertical scrolling.
+- TUI avoids wrapping timing data inside cells; truncate or marquee long text.
+- Timing values, lap times, gaps, sectors, and car numbers must stay `nowrap`.
+
+### Horizontal Overflow
+
+- Horizontal overflow is acceptable when series data shapes require it (e.g., WEC/NLS sector columns).
+- Primary columns (position, car number, driver, gap, lap times) should remain visible; secondary columns may scroll off-screen.
+
+### Truncation Priority
+
+When space is constrained, truncate in this order:
+1. **Fastest driver** (marquee when selected only)
+2. **Team name** (marquee when selected only)
+3. **Vehicle name** (marquee when selected only)
+4. **Driver name** (marquee when selected only)
+5. **Class name** (keep short; abbreviate if needed)
+6. **Pit/sector columns** (last resort; keep pit status visible)
+
+### Empty States
+
+- Show a clear message when no data is available.
+- Indicate which series/feed is being waited on.
+- Provide a hint for how to proceed (e.g., "Press `d` for demo mode" or "Waiting for IMSA feed…").
+
+---
+
 ## Interaction
 
 Keyboard-first behaviour is part of the product identity.
@@ -238,10 +283,10 @@ Interaction rules:
 - Centralize TUI semantic styling in `src/ui/style.rs`.
 - Keep frame-level layout and header rendering in `src/ui/render.rs`.
 - Keep row/table styling, selection, favourites, class styling, pit styling, and marquee behaviour in `src/ui/table.rs`.
-- Keep Web design tokens and component styles in `crates/webui/src/styles.css`.
+- Keep Web design tokens and component styles in `web/src/app.css` and Svelte component `<style>` blocks.
 - Add new semantic Web colors as named CSS variables before using them broadly.
 - Mirror new semantic color intent in TUI helpers.
-- Avoid one-off inline colors in Yew markup unless the value comes from feed data, such as live class colors.
+- Avoid one-off inline colors in Svelte markup unless the value comes from feed data, such as live class colors.
 - Prefer small explicit style helpers over broad theme abstractions.
 - Check visual changes in both TUI and Web for IMSA, NLS/DHLM, F1, and WEC data shapes.
 - Run formatting and available checks before treating visual changes as complete.

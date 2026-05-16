@@ -12,7 +12,7 @@ use std::{
 };
 
 use reqwest::blocking::Client;
-use serde_json::{json, Value};
+use serde_json::json;
 use tungstenite::{connect, Message};
 
 use crate::{
@@ -50,6 +50,7 @@ use self::schedule::{
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
 const DEFAULT_NLS_EVENT_ID: &str = "20";
+#[cfg(test)]
 const N24_EVENT_ID: &str = "50";
 #[cfg(test)]
 const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
@@ -74,6 +75,7 @@ pub fn websocket_worker_with_debug(
     let mut latest_entries: Vec<TimingEntry> = Vec::new();
     let website_client = Client::builder()
         .timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
         .build()
         .ok();
     let mut termine_event_name: Option<String> = None;
@@ -195,49 +197,12 @@ pub fn websocket_worker_with_debug(
             }
             continue;
         }
-
-        let mut ws_cup: Option<String> = None;
-        for _ in 0..5 {
-            match socket.read() {
-                Ok(Message::Text(text)) => {
-                    let parsed: Value = match serde_json::from_str(&text) {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-                    if let Some(cup) = parsed
-                        .get("CUP")
-                        .or_else(|| parsed.get("EVENTNAME"))
-                        .and_then(|v| v.as_str())
-                    {
-                        ws_cup = Some(cup.to_string());
-                        break;
-                    }
-                }
-                _ => continue,
-            }
-        }
-
-        let cup_is_dhlm = active_event_id == N24_EVENT_ID
-            && ws_cup
-                .as_ref()
-                .map(|c| c.to_ascii_lowercase().contains("dhlm"))
-                .unwrap_or(false);
-
-        if cup_is_dhlm {
-            if let Some(snapshot) = last_good_live_snapshot.as_ref() {
-                let _ = tx.send(TimingMessage::Status {
-                    source_id,
-                    text: "[SNAPSHOT] Using saved data (CUP is DHLM)".to_string(),
-                });
-                let _ = tx.send(TimingMessage::Snapshot {
-                    source_id,
-                    header: snapshot.header.clone(),
-                    entries: snapshot.entries.clone(),
-                });
-                log_series_debug(&debug_output, "NLS", "cup is dhlm, using snapshot");
-                return;
-            }
-        }
+        let subscribed_event_id = active_event_id;
+        log_series_debug(
+            &debug_output,
+            "NLS",
+            format!("subscribed eventId {}", active_event_id),
+        );
 
         loop {
             if stop_rx.try_recv().is_ok() {
@@ -250,6 +215,25 @@ pub fn websocket_worker_with_debug(
                     );
                 }
                 break 'outer;
+            }
+
+            if Instant::now() >= next_website_refresh {
+                if let Some(client) = website_client.as_ref() {
+                    if let Some(status_text) = refresh_active_event_id(
+                        &mut active_event_id,
+                        determine_active_nuerburgring_event_id(client),
+                    ) {
+                        if active_event_id != subscribed_event_id {
+                            let _ = tx.send(TimingMessage::Status {
+                                source_id,
+                                text: status_text,
+                            });
+                            next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
+                            break;
+                        }
+                    }
+                }
+                next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
             }
 
             match socket.read() {
@@ -723,6 +707,57 @@ mod tests {
     }
 
     #[test]
+    fn entry_from_value_24h_uses_s9_for_pit_state() {
+        // For 24h (event_id "50"), S9 contains pit state, S8 contains time
+        let row = json!({
+            "POSITION": "1",
+            "STNR": "84",
+            "CLASSNAME": "SP 9",
+            "CLASSRANK": "1",
+            "NAME": "Driver",
+            "CAR": "Car",
+            "TEAM": "Team",
+            "LAPS": "50",
+            "GAP": "-",
+            "LASTLAPTIME": "8:20.000",
+            "FASTESTLAP": "8:10.000",
+            "S8TIME": "1:30.000",
+            "S9TIME": "PIT"
+        });
+
+        let entry = entry_from_value(&row, "50").expect("entry");
+        // sector_5 should display "PIT" when S9 contains pit state
+        assert_eq!(entry.sector_5, "PIT");
+        // pit should be derived from raw S9 which contains "PIT"
+        assert_eq!(entry.pit, "Yes");
+    }
+
+    #[test]
+    fn entry_from_value_24h_s9_out_means_not_in_pit() {
+        let row = json!({
+            "POSITION": "1",
+            "STNR": "84",
+            "CLASSNAME": "SP 9",
+            "CLASSRANK": "1",
+            "NAME": "Driver",
+            "CAR": "Car",
+            "TEAM": "Team",
+            "LAPS": "50",
+            "GAP": "-",
+            "LASTLAPTIME": "8:20.000",
+            "FASTESTLAP": "8:10.000",
+            "S8TIME": "1:30.000",
+            "S9TIME": "OUT"
+        });
+
+        let entry = entry_from_value(&row, "50").expect("entry");
+        // sector_5 should display "OUT" when S9 contains pit out state
+        assert_eq!(entry.sector_5, "OUT");
+        // pit should be derived from raw S9 which contains "OUT"
+        assert_eq!(entry.pit, "No");
+    }
+
+    #[test]
     fn parse_german_date_range_handles_24h_format() {
         let parsed = parse_german_date_range("14. – 17.05.2026").expect("range");
         assert_eq!(
@@ -757,6 +792,28 @@ mod tests {
         assert_eq!(parsed.0.day, 27);
         assert_eq!(parsed.1.day, 30);
         assert_eq!(parsed.0.month, 5);
+    }
+
+    #[test]
+    fn extract_date_range_finds_body_when_metadata_has_title_first() {
+        let html = r#"
+            <title>ADAC RAVENOL 24h Nürburgring</title>
+            <meta property="og:title" content="ADAC RAVENOL 24h Nürburgring">
+            <div>Some other content</div>
+            <div>ADAC RAVENOL 24h Nürburgring</div>
+            <div>14. &#8211; 17.05.2026</div>
+            <div>Other event</div>
+        "#;
+        let lines = html_to_text_lines(html);
+
+        let parsed = extract_date_range_for_event_title(&lines, N24_TARGET_EVENT_TITLE, 2026)
+            .expect("should find date range from body, not metadata");
+        assert_eq!(parsed.0.day, 14);
+        assert_eq!(parsed.1.day, 17);
+        assert_eq!(parsed.0.month, 5);
+        assert_eq!(parsed.1.month, 5);
+        assert_eq!(parsed.0.year, 2026);
+        assert_eq!(parsed.1.year, 2026);
     }
 
     #[test]
@@ -959,6 +1016,47 @@ mod tests {
             header.event_name,
             "Deutsche Historische Langstrecken Meisterschaft (DHLM)"
         );
+    }
+
+    #[test]
+    fn pid4_prefers_websocket_cup_for_event_id_50() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+        let payload = r#"{"PID":"4","CUP":"ADAC RAVENOL 24h Nürburgring","TRACKSTATE":"0","HEATTYPE":"R","ENDTIME":"0","TIMESTATE":"0","TIME":"12:00:00"}"#;
+
+        let _ = parse_ws_message(
+            payload,
+            &mut header,
+            Some("NLS6: 1. ADAC Eifel Trophy (4h)"), // termine_event_name from NLS Termine
+            Some("NLS Homepage Fallback"),
+            &mut countdown,
+            &mut is_race_session,
+            "50", // event_id for 24h
+        );
+
+        assert_eq!(header.event_name, "ADAC RAVENOL 24h Nürburgring");
+    }
+
+    #[test]
+    fn pid4_uses_termine_for_event_id_20() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+        let payload = r#"{"PID":"4","CUP":"ADAC RAVENOL 24h Nürburgring","TRACKSTATE":"0","HEATTYPE":"R","ENDTIME":"0","TIMESTATE":"0","TIME":"12:00:00"}"#;
+
+        let _ = parse_ws_message(
+            payload,
+            &mut header,
+            Some("NLS6: 1. ADAC Eifel Trophy (4h)"), // termine_event_name from NLS Termine
+            Some("NLS Homepage Fallback"),
+            &mut countdown,
+            &mut is_race_session,
+            "20", // event_id for regular NLS
+        );
+
+        // For event_id 20, Termine should still win over websocket CUP
+        assert_eq!(header.event_name, "NLS6: 1. ADAC Eifel Trophy (4h)");
     }
 
     #[test]

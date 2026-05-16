@@ -69,6 +69,8 @@ pub struct TimingHeader {
     #[serde(default)]
     pub session_type_raw: String,
     pub event_name: String,
+    #[serde(default)]
+    pub event_id: String,
     pub track_name: String,
     pub day_time: String,
     pub flag: String,

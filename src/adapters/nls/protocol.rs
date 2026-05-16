@@ -142,13 +142,25 @@ pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
 
     let is_24h = event_id == "50";
 
+    // For 24h, raw S9 contains pit state (PIT/IN/OUT), not time
+    let s9_raw = raw_sector_field(v, 9);
+
     let (sector_1, sector_2, sector_3, sector_4, sector_5) = if is_24h {
+        // For 24h, display pit state in sector_5 when S9 contains PIT/IN/OUT
+        let s5_display = if s9_raw.eq_ignore_ascii_case("PIT")
+            || s9_raw.eq_ignore_ascii_case("IN")
+            || s9_raw.eq_ignore_ascii_case("OUT")
+        {
+            s9_raw.clone()
+        } else {
+            sum_sector_times(&raw_sector_field(v, 8), &s9_raw)
+        };
         (
             sum_sector_times(&raw_sector_field(v, 1), &raw_sector_field(v, 2)),
             sum_sector_times(&raw_sector_field(v, 3), &raw_sector_field(v, 4)),
             sum_sector_times(&raw_sector_field(v, 5), &raw_sector_field(v, 6)),
             raw_sector_field(v, 7),
-            sum_sector_times(&raw_sector_field(v, 8), &raw_sector_field(v, 9)),
+            s5_display,
         )
     } else {
         (
@@ -180,7 +192,9 @@ pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
         sector_4,
         sector_5: sector_5.clone(),
         best_lap_no: "-".to_string(),
-        pit: pit_flag_from_inout_state(&sector_5),
+        // For 24h, derive pit state from raw S9 (contains PIT/IN/OUT)
+        // For NLS, derive pit state from S5 (which contains IN/OUT state)
+        pit: pit_flag_from_inout_state(if is_24h { &s9_raw } else { &sector_5 }),
         pit_stops: "-".to_string(),
         fastest_driver: "-".to_string(),
         stable_id,
@@ -246,6 +260,9 @@ pub(super) fn parse_ws_message(
     let parsed: Value = serde_json::from_str(text).ok()?;
     let pid = get_str(&parsed, "PID")?;
 
+    // Track event_id in header for web liveticker switching
+    header.event_id = event_id.to_string();
+
     match pid {
         "0" => {
             if let Some(heat_type) = get_str(&parsed, "HEATTYPE") {
@@ -264,6 +281,15 @@ pub(super) fn parse_ws_message(
 
             if cup_is_dhlm {
                 header.event_name = ws_cup.unwrap().to_string();
+            } else if event_id == "50" {
+                // For 24h/N24 events, prefer websocket CUP/EVENTNAME over NLS Termine title
+                if let Some(cup) = ws_cup {
+                    header.event_name = cup.to_string();
+                } else if let Some(termine_name) = termine_event_name {
+                    header.event_name = termine_name.to_string();
+                } else if let Some(homepage_name) = homepage_event_name {
+                    header.event_name = homepage_name.to_string();
+                }
             } else if let Some(termine_name) = termine_event_name {
                 header.event_name = termine_name.to_string();
             } else if let Some(homepage_name) = homepage_event_name {
@@ -313,6 +339,17 @@ pub(super) fn parse_ws_message(
 
             if cup_is_dhlm {
                 header.event_name = ws_cup.unwrap().to_string();
+            } else if event_id == "50" {
+                // For 24h/N24 events, prefer websocket CUP/EVENTNAME over NLS Termine title
+                if let Some(cup) = ws_cup {
+                    header.event_name = cup.to_string();
+                } else if let Some(termine_name) = termine_event_name {
+                    header.event_name = termine_name.to_string();
+                } else if let Some(homepage_name) = homepage_event_name {
+                    header.event_name = homepage_name.to_string();
+                } else if header.event_name.is_empty() {
+                    header.event_name = "NLS Live Timing".to_string();
+                }
             } else if let Some(termine_name) = termine_event_name {
                 header.event_name = termine_name.to_string();
             } else if let Some(homepage_name) = homepage_event_name {

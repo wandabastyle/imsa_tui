@@ -395,16 +395,21 @@ pub(super) fn extract_date_range_for_event_title(
     target_event_title: &str,
     year: i32,
 ) -> Option<(CalendarDate, CalendarDate)> {
-    let target_idx = lines
+    let indices: Vec<usize> = lines
         .iter()
-        .position(|line| line.contains(target_event_title))?;
+        .enumerate()
+        .filter(|(_, line)| line.contains(target_event_title))
+        .map(|(idx, _)| idx)
+        .collect();
 
-    for line in lines.iter().skip(target_idx + 1).take(12) {
-        let Some((start, end)) = parse_german_date_range(line) else {
-            continue;
-        };
-        if start.year == year && end.year == year {
-            return Some((start, end));
+    for target_idx in indices {
+        for line in lines.iter().skip(target_idx + 1).take(12) {
+            let Some((start, end)) = parse_german_date_range(line) else {
+                continue;
+            };
+            if start.year == year && end.year == year {
+                return Some((start, end));
+            }
         }
     }
 
