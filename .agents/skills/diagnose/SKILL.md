@@ -1,11 +1,13 @@
 ---
 name: diagnose
-description: Disciplined diagnosis loop for hard bugs and performance regressions. Reproduce → minimise → hypothesise → instrument → fix → regression-test. Use when user says "diagnose this" / "debug this", reports a bug, says something is broken/throwing/failing, or describes a performance regression.
+description: Disciplined diagnosis loop for hard bugs, performance regressions, and non-deterministic failures. Use ONLY when user says "diagnose this" / "debug this" for complex issues, reports performance regressions, or describes flaky/intermittent failures. For routine test failures or simple bugs, prefer systematic-debugging.
 ---
 
 # Diagnose
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
+
+**When to use this vs systematic-debugging:** Use diagnose for complex, hard-to-reproduce, or performance-related bugs. For routine test failures, build issues, or simple unexpected behavior, use systematic-debugging instead.
 
 When exploring the codebase, use the project's domain glossary to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
 

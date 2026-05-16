@@ -17,12 +17,9 @@
 - Identify changes from the plan that can be implemented in parallel, and use sub-agents to implement the features efficiently
 - When using sub-agents to implement features, act as a coordinator only
 - Use the best model for the task - premium models for complex tasks (like coding) and mid-tier models for simpler tasks, like documentation
-- After completing features (large or small), always run commands like lint, type check and next build to check code quality
-
-## DATABASE SCHEMA CHANGES
-
-- Whenever you make changes to the database schema, ALWAYS run the drizzle generate and migrate commands
-- NEVER run drizzle push!
+- After completing features (large or small), always run verification commands:
+  - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets --no-default-features -- -D warnings`, `cargo test`
+  - **Web**: `pnpm run check` (Vite+ build + Svelte typecheck)
 
 ## TESTING
 
@@ -34,6 +31,8 @@
 
 - Always follow the UI design system when creating or reviewing components or pages.
 - Design System: @DESIGN.md
+
+**Important:** This project uses a dense, compact motorsport timing-screen aesthetic. The `frontend-design` skill's general "bold aesthetic" guidance should be overridden by the specific requirements in DESIGN.md when working on UI components.
 
 ## SKILLS
 

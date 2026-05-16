@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Use when encountering routine bugs, test failures, build failures, or unexpected behavior. For hard bugs, performance regressions, or flaky failures, use diagnose instead.
 ---
 
 # Systematic Debugging
@@ -10,6 +10,8 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 Random fixes waste time and create new bugs. Quick patches mask underlying issues.
 
 **Core principle:** ALWAYS find root cause before attempting fixes. Symptom fixes are failure.
+
+**When to use this vs diagnose:** Use systematic-debugging for routine bugs, test failures, build failures, and straightforward unexpected behavior. For hard bugs, performance regressions, or non-deterministic/flaky failures, use diagnose instead.
 
 **Violating the letter of this process is violating the spirit of debugging.**
 
