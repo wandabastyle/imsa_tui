@@ -9,6 +9,7 @@ use tungstenite::Error as WsError;
 use crate::timing::{TimingEntry, TimingHeader, TimingNotice};
 
 use super::countdown::{now_millis, refresh_header_time_to_go, CountdownState};
+use super::schedule::{N24_EVENT_ID, N24_TARGET_EVENT_TITLE};
 
 fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
     obj.get(key).and_then(|x| x.as_str())
@@ -116,6 +117,34 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
     };
     let sum = t1.saturating_add(t2);
     format_centisecs(sum)
+}
+
+fn resolve_event_name(
+    ws_cup: Option<&str>,
+    termine_event_name: Option<&str>,
+    homepage_event_name: Option<&str>,
+    event_id: &str,
+) -> String {
+    // Check if ws_cup is available (DHLM check handled separately by caller)
+    if let Some(cup) = ws_cup {
+        return cup.to_string();
+    }
+
+    // 24h event fallback
+    if event_id == N24_EVENT_ID {
+        return N24_TARGET_EVENT_TITLE.to_string();
+    }
+
+    // Fall back to termine or homepage names
+    if let Some(termine_name) = termine_event_name {
+        return termine_name.to_string();
+    }
+
+    if let Some(homepage_name) = homepage_event_name {
+        return homepage_name.to_string();
+    }
+
+    "NLS Live Timing".to_string()
 }
 
 fn pit_flag_from_inout_state(inout_state: &str) -> String {
@@ -281,21 +310,16 @@ pub(super) fn parse_ws_message(
 
             if cup_is_dhlm {
                 header.event_name = ws_cup.unwrap().to_string();
-            } else if event_id == "50" {
-                // For 24h/N24 events, prefer websocket CUP/EVENTNAME over NLS Termine title
-                if let Some(cup) = ws_cup {
-                    header.event_name = cup.to_string();
-                } else if let Some(termine_name) = termine_event_name {
-                    header.event_name = termine_name.to_string();
-                } else if let Some(homepage_name) = homepage_event_name {
-                    header.event_name = homepage_name.to_string();
-                }
+            } else if let Some(cup) = ws_cup {
+                // Always prefer websocket CUP/EVENTNAME when available
+                header.event_name = cup.to_string();
+            } else if event_id == N24_EVENT_ID {
+                // 24h fallback when websocket doesn't send CUP/EVENTNAME
+                header.event_name = N24_TARGET_EVENT_TITLE.to_string();
             } else if let Some(termine_name) = termine_event_name {
                 header.event_name = termine_name.to_string();
             } else if let Some(homepage_name) = homepage_event_name {
                 header.event_name = homepage_name.to_string();
-            } else if let Some(cup) = ws_cup {
-                header.event_name = cup.to_string();
             }
 
             if let Some(track_name) = first_non_empty(&parsed, &["TRACKNAME", "TRACK"]) {
@@ -339,25 +363,9 @@ pub(super) fn parse_ws_message(
 
             if cup_is_dhlm {
                 header.event_name = ws_cup.unwrap().to_string();
-            } else if event_id == "50" {
-                // For 24h/N24 events, prefer websocket CUP/EVENTNAME over NLS Termine title
-                if let Some(cup) = ws_cup {
-                    header.event_name = cup.to_string();
-                } else if let Some(termine_name) = termine_event_name {
-                    header.event_name = termine_name.to_string();
-                } else if let Some(homepage_name) = homepage_event_name {
-                    header.event_name = homepage_name.to_string();
-                } else if header.event_name.is_empty() {
-                    header.event_name = "NLS Live Timing".to_string();
-                }
-            } else if let Some(termine_name) = termine_event_name {
-                header.event_name = termine_name.to_string();
-            } else if let Some(homepage_name) = homepage_event_name {
-                header.event_name = homepage_name.to_string();
-            } else if let Some(cup) = ws_cup {
-                header.event_name = cup.to_string();
-            } else if header.event_name.is_empty() {
-                header.event_name = "NLS Live Timing".to_string();
+            } else {
+                header.event_name =
+                    resolve_event_name(ws_cup, termine_event_name, homepage_event_name, event_id);
             }
             let end_time_raw = get_str(&parsed, "ENDTIME")
                 .and_then(|s| s.parse::<u64>().ok())

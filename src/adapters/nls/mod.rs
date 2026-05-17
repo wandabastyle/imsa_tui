@@ -989,9 +989,10 @@ mod tests {
             "20",
         );
 
+        // WebSocket CUP should now win over homepage fallback
         assert_eq!(
             header.event_name,
-            "24hQ - 18.-19.04.2026 ADAC 24h Nürburgring Qualifiers (2x4h)"
+            "NLS3: 57. Adenauer ADAC Rundstrecken-Trophy (4h)"
         );
     }
 
@@ -1039,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn pid4_uses_termine_for_event_id_20() {
+    fn pid4_prefers_websocket_cup_for_event_id_20() {
         let mut header = TimingHeader::default();
         let mut countdown: Option<CountdownState> = None;
         let mut is_race_session = false;
@@ -1055,8 +1056,52 @@ mod tests {
             "20", // event_id for regular NLS
         );
 
-        // For event_id 20, Termine should still win over websocket CUP
-        assert_eq!(header.event_name, "NLS6: 1. ADAC Eifel Trophy (4h)");
+        // WebSocket CUP should now win even for non-24h events
+        assert_eq!(header.event_name, "ADAC RAVENOL 24h Nürburgring");
+    }
+
+    #[test]
+    fn pid4_event_id_50_without_ws_cup_uses_24h_fallback_not_termine() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+        // Payload without CUP/EVENTNAME
+        let payload = r#"{"PID":"4","TRACKSTATE":"0","HEATTYPE":"R","ENDTIME":"0","TIMESTATE":"0","TIME":"12:00:00"}"#;
+
+        let _ = parse_ws_message(
+            payload,
+            &mut header,
+            Some("NLS6: 1. ADAC Eifel Trophy (4h)"),
+            Some("NLS Homepage Fallback"),
+            &mut countdown,
+            &mut is_race_session,
+            "50",
+        );
+
+        // Should use 24h fallback, not the termine event name
+        assert_eq!(header.event_name, "ADAC RAVENOL 24h Nürburgring");
+    }
+
+    #[test]
+    fn pid0_event_id_50_without_ws_cup_uses_24h_fallback_not_termine() {
+        let mut header = TimingHeader::default();
+        let mut countdown: Option<CountdownState> = None;
+        let mut is_race_session = false;
+        // Minimal PID 0 without CUP
+        let payload = r#"{"PID":"0","HEATTYPE":"R","RESULT":[]}"#;
+
+        let _ = parse_ws_message(
+            payload,
+            &mut header,
+            Some("NLS6: 1. ADAC Eifel Trophy (4h)"),
+            Some("NLS Homepage Fallback"),
+            &mut countdown,
+            &mut is_race_session,
+            "50",
+        );
+
+        // Should use 24h fallback, not the termine event name
+        assert_eq!(header.event_name, "ADAC RAVENOL 24h Nürburgring");
     }
 
     #[test]

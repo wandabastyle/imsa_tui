@@ -1,10 +1,10 @@
 use reqwest::{blocking::Client, Url};
 
 const DEFAULT_NLS_EVENT_ID: &str = "20";
-const N24_EVENT_ID: &str = "50";
+pub(super) const N24_EVENT_ID: &str = "50";
 const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/language/de/startseite/";
 const N24_TERMINE_URL: &str = "https://www.24h-rennen.de/termine/";
-const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
+pub(super) const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CalendarDate {
