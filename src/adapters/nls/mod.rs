@@ -466,6 +466,17 @@ mod tests {
     }
 
     #[test]
+    fn current_time_to_end_returns_zero_when_endtime_is_zero() {
+        let header = TimingHeader {
+            time_to_go: "00:00:01".to_string(),
+            ..TimingHeader::default()
+        };
+
+        let rendered = countdown::current_time_to_end_at(&header, 0, "0", 0, 1_000_000);
+        assert_eq!(rendered, "00:00:00");
+    }
+
+    #[test]
     fn refresh_sets_checkered_when_tte_reaches_zero_on_green() {
         let mut header = TimingHeader {
             flag: "Green".to_string(),
@@ -595,6 +606,189 @@ mod tests {
             "20",
         );
         assert!(is_race_session);
+    }
+
+    #[test]
+    fn restore_sanitizes_event50_race_with_one_second_left_to_zero_and_checkered() {
+        use crate::timing_persist::PersistState;
+        use snapshot::restore_snapshot_from_disk;
+        use std::sync::mpsc::{channel, Receiver};
+
+        // Create a temporary directory for the test
+        let temp_dir = std::env::temp_dir();
+        let snapshot_path = temp_dir.join(format!("nls_test_snapshot_{}.json", std::process::id()));
+
+        // Create persisted snapshot with event 50 race session and 1 second remaining
+        // Use minimal JSON that matches the actual struct fields
+        let snapshot_json = r#"{
+            "saved_unix_ms": 1000000,
+            "session_id": "50-123",
+            "meaningful_fingerprint": 12345,
+            "header": {
+                "session_name": "Race",
+                "session_type_raw": "R",
+                "event_name": "ADAC RAVENOL 24h Nürburgring",
+                "event_id": "50",
+                "track_name": "Nürburgring",
+                "day_time": "12:00:00",
+                "flag": "Green",
+                "time_to_go": "00:00:01",
+                "class_colors": {}
+            },
+            "entries": [
+                {
+                    "position": 1,
+                    "car_number": "1",
+                    "class_name": "SP9",
+                    "class_rank": "1",
+                    "driver": "Driver",
+                    "vehicle": "Car",
+                    "team": "Team",
+                    "laps": "150",
+                    "gap_overall": "-",
+                    "gap_class": "-",
+                    "gap_next_in_class": "-",
+                    "last_lap": "8:00.000",
+                    "best_lap": "7:55.000",
+                    "sector_1": "-",
+                    "sector_2": "-",
+                    "sector_3": "-",
+                    "sector_4": "-",
+                    "sector_5": "-",
+                    "best_lap_no": "-",
+                    "pit": "-",
+                    "pit_stops": "-",
+                    "fastest_driver": "-",
+                    "stable_id": "1-SP9"
+                }
+            ]
+        }"#;
+
+        std::fs::write(&snapshot_path, snapshot_json).expect("write test snapshot");
+
+        let (tx, rx): (
+            std::sync::mpsc::Sender<TimingMessage>,
+            Receiver<TimingMessage>,
+        ) = channel();
+        let mut persist = PersistState::new(Some(snapshot_path.clone()));
+        let mut header = TimingHeader::default();
+        let mut entries = Vec::new();
+
+        let session_id = restore_snapshot_from_disk(
+            &mut persist,
+            &mut header,
+            &mut entries,
+            &tx,
+            999,
+            &SeriesDebugOutput::Silent,
+        );
+
+        // Verify session_id is returned
+        assert_eq!(session_id, Some("50-123".to_string()));
+
+        // Verify header was sanitized
+        assert_eq!(header.event_id, "50");
+        assert_eq!(header.session_type_raw, "R");
+        assert_eq!(header.time_to_go, "00:00:00");
+        assert_eq!(header.flag, "Checkered");
+
+        // Verify message was sent
+        let msg = rx.recv().expect("receive message");
+        match msg {
+            TimingMessage::Snapshot {
+                source_id,
+                header: snapshot_header,
+                entries: snapshot_entries,
+            } => {
+                assert_eq!(source_id, 999);
+                assert_eq!(snapshot_header.time_to_go, "00:00:00");
+                assert_eq!(snapshot_header.flag, "Checkered");
+                assert_eq!(snapshot_entries.len(), 1);
+            }
+            _ => panic!("expected Snapshot message"),
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_file(&snapshot_path);
+    }
+
+    #[test]
+    fn restore_leaves_non_event50_snapshots_unmodified() {
+        use crate::timing_persist::PersistState;
+        use snapshot::restore_snapshot_from_disk;
+        use std::sync::mpsc::{channel, Receiver};
+
+        // Create a temporary directory for the test
+        let temp_dir = std::env::temp_dir();
+        let snapshot_path = temp_dir.join(format!(
+            "nls_test_snapshot_regular_{}.json",
+            std::process::id()
+        ));
+
+        // Create persisted snapshot with regular NLS event (not 50)
+        // Use minimal JSON that matches the actual struct fields
+        let snapshot_json = r#"{
+            "saved_unix_ms": 1000000,
+            "session_id": "20-456",
+            "meaningful_fingerprint": 54321,
+            "header": {
+                "session_name": "Race",
+                "session_type_raw": "R",
+                "event_name": "NLS Race",
+                "event_id": "20",
+                "track_name": "Nürburgring",
+                "day_time": "12:00:00",
+                "flag": "Green",
+                "time_to_go": "00:00:01",
+                "class_colors": {}
+            },
+            "entries": []
+        }"#;
+
+        std::fs::write(&snapshot_path, snapshot_json).expect("write test snapshot");
+
+        let (tx, rx): (
+            std::sync::mpsc::Sender<TimingMessage>,
+            Receiver<TimingMessage>,
+        ) = channel();
+        let mut persist = PersistState::new(Some(snapshot_path.clone()));
+        let mut header = TimingHeader::default();
+        let mut entries = Vec::new();
+
+        let session_id = restore_snapshot_from_disk(
+            &mut persist,
+            &mut header,
+            &mut entries,
+            &tx,
+            999,
+            &SeriesDebugOutput::Silent,
+        );
+
+        // Verify session_id is returned
+        assert_eq!(session_id, Some("20-456".to_string()));
+
+        // Verify header was NOT sanitized - should keep original values
+        assert_eq!(header.event_id, "20");
+        assert_eq!(header.time_to_go, "00:00:01");
+        assert_eq!(header.flag, "Green");
+
+        // Verify message was sent with original values
+        let msg = rx.recv().expect("receive message");
+        match msg {
+            TimingMessage::Snapshot {
+                source_id,
+                header: snapshot_header,
+                entries: _,
+            } => {
+                assert_eq!(source_id, 999);
+                assert_eq!(snapshot_header.time_to_go, "00:00:01");
+                assert_eq!(snapshot_header.flag, "Green");
+            }
+            _ => panic!("expected Snapshot message"),
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_file(&snapshot_path);
     }
 
     #[test]
