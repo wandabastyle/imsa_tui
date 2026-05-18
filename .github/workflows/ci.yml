@@ -113,7 +113,7 @@ jobs:
 
       - name: Svelte check
         if: needs.changes.outputs.web == 'true'
-        run: cd web && pnpm run typecheck
+        run: cd web && vp run typecheck
 
       - name: Build web assets
         if: needs.changes.outputs.web == 'true'
