@@ -8,17 +8,20 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# Make Vite+ available (installer adds to shell files but Docker RUN doesn't source them)
+ENV PATH="/root/.local/bin:${PATH}"
+
 # Copy package files first for better layer caching
 COPY web/package.json web/pnpm-lock.yaml ./web/
 
 # Install web dependencies
-RUN cd web && vp install --frozen-lockfile
+RUN command -v vp && cd web && vp install --frozen-lockfile
 
 # Copy the rest of the project
 COPY . .
 
 # Build web assets with Vite+
-RUN cd web && vp build
+RUN command -v vp && cd web && vp build
 
 # Build the Rust binary with embedded UI
 RUN cargo build --release --bin web_server --features embed-ui
