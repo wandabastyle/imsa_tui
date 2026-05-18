@@ -9,7 +9,8 @@ RUN apt-get update \
 WORKDIR /app
 
 # Make Vite+ available (installer adds to shell files but Docker RUN doesn't source them)
-ENV PATH="/root/.local/bin:${PATH}"
+ENV VP_HOME="/root/.vite-plus"
+ENV PATH="${VP_HOME}/bin:${PATH}"
 
 # Copy package files first for better layer caching
 COPY web/package.json web/pnpm-lock.yaml ./web/
