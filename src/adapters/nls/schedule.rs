@@ -1,10 +1,10 @@
 use reqwest::{blocking::Client, Url};
 
 const DEFAULT_NLS_EVENT_ID: &str = "20";
-const N24_EVENT_ID: &str = "50";
+pub(super) const N24_EVENT_ID: &str = "50";
 const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/language/de/startseite/";
 const N24_TERMINE_URL: &str = "https://www.24h-rennen.de/termine/";
-const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
+pub(super) const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CalendarDate {
@@ -395,16 +395,21 @@ pub(super) fn extract_date_range_for_event_title(
     target_event_title: &str,
     year: i32,
 ) -> Option<(CalendarDate, CalendarDate)> {
-    let target_idx = lines
+    let indices: Vec<usize> = lines
         .iter()
-        .position(|line| line.contains(target_event_title))?;
+        .enumerate()
+        .filter(|(_, line)| line.contains(target_event_title))
+        .map(|(idx, _)| idx)
+        .collect();
 
-    for line in lines.iter().skip(target_idx + 1).take(12) {
-        let Some((start, end)) = parse_german_date_range(line) else {
-            continue;
-        };
-        if start.year == year && end.year == year {
-            return Some((start, end));
+    for target_idx in indices {
+        for line in lines.iter().skip(target_idx + 1).take(12) {
+            let Some((start, end)) = parse_german_date_range(line) else {
+                continue;
+            };
+            if start.year == year && end.year == year {
+                return Some((start, end));
+            }
         }
     }
 

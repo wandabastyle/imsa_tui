@@ -36,6 +36,7 @@ pub struct SeriesSnapshot {
 #[derive(Debug, Default)]
 struct NlsLivetickerState {
     feed: Option<ActiveLivetickerFeed>,
+    kind: Option<liveticker::LivetickerFeedKind>,
     entries: Vec<liveticker::LivetickerEntry>,
     last_error: Option<String>,
     last_update_unix_ms: Option<u64>,
@@ -48,6 +49,7 @@ pub struct WebAppState {
     session_demo: Arc<RwLock<HashMap<String, SessionDemoState>>>,
     feed_controller: Arc<RwLock<Option<FeedController>>>,
     nls_liveticker: Arc<Mutex<NlsLivetickerState>>,
+    nls_event_id: Arc<RwLock<Option<String>>>,
     profile_cookie_secure: bool,
     streams: Arc<HashMap<Series, broadcast::Sender<()>>>,
 }
@@ -102,6 +104,7 @@ impl WebAppState {
             session_demo: Arc::new(RwLock::new(HashMap::new())),
             feed_controller: Arc::new(RwLock::new(None)),
             nls_liveticker: Arc::new(Mutex::new(NlsLivetickerState::default())),
+            nls_event_id: Arc::new(RwLock::new(None)),
             profile_cookie_secure,
             streams: Arc::new(streams),
         }
@@ -167,14 +170,31 @@ impl WebAppState {
         }
     }
 
-    pub fn nls_liveticker_response(&self) -> NlsLivetickerResponse {
+    pub fn nls_liveticker_response(&self, event_id: Option<&str>) -> NlsLivetickerResponse {
         let mut guard = match self.nls_liveticker.lock() {
             Ok(g) => g,
             Err(_) => return NlsLivetickerResponse::default(),
         };
 
-        if guard.feed.is_none() {
-            guard.feed = Some(liveticker::start_liveticker_feed());
+        // Determine the desired feed kind based on event_id
+        // Event ID "50" corresponds to N24, otherwise use NLS feed
+        let desired_kind = match event_id {
+            Some("50") => liveticker::LivetickerFeedKind::N24,
+            _ => liveticker::LivetickerFeedKind::Nls,
+        };
+
+        // Check if we need to switch feeds
+        let need_new_feed = guard.feed.is_none() || guard.kind != Some(desired_kind);
+        if need_new_feed {
+            // Stop existing feed if any
+            if let Some(ref mut _feed) = guard.feed {
+                liveticker::stop_liveticker_feed(&mut guard.feed);
+            }
+            // Start new feed with the desired kind
+            guard.feed = Some(liveticker::start_liveticker_feed(desired_kind));
+            guard.kind = Some(desired_kind);
+            // Clear entries when switching feeds
+            guard.entries.clear();
         }
 
         let mut pending = Vec::new();
@@ -210,6 +230,18 @@ impl WebAppState {
                 .collect(),
             last_error: guard.last_error.clone(),
             last_update_unix_ms: guard.last_update_unix_ms,
+        }
+    }
+
+    /// Get the currently tracked NLS event ID
+    pub fn nls_event_id(&self) -> Option<String> {
+        self.nls_event_id.read().ok()?.clone()
+    }
+
+    /// Update the NLS event ID from snapshot header
+    pub fn update_nls_event_id(&self, event_id: &str) {
+        if let Ok(mut guard) = self.nls_event_id.write() {
+            *guard = Some(event_id.to_string());
         }
     }
 
@@ -403,6 +435,7 @@ fn to_api_series_snapshot(snapshot: SeriesSnapshot) -> web_shared::SeriesSnapsho
             session_name: snapshot.header.session_name,
             session_type_raw: snapshot.header.session_type_raw,
             event_name: snapshot.header.event_name,
+            event_id: snapshot.header.event_id,
             track_name: snapshot.header.track_name,
             day_time: snapshot.header.day_time,
             flag: snapshot.header.flag,

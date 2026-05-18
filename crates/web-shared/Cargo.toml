@@ -3,5 +3,9 @@ name = "web-shared"
 version = "0.1.1"
 edition = "2021"
 
+[package.metadata.ts-rs]
+export_to = "../../web/src/lib/generated"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+ts-rs = { version = "10", features = ["chrono-impl", "ordered-float-impl"] }

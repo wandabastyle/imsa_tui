@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/web-shared", "crates/webui"]
+members = [".", "crates/web-shared"]
 resolver = "2"
 
 [package]
@@ -41,6 +41,3 @@ strip = true
 
 [profile.release.package.imsa_tui]
 opt-level = 3
-
-[profile.release.package.webui]
-opt-level = "z"

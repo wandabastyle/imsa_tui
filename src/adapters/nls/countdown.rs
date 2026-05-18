@@ -41,14 +41,14 @@ pub(super) fn current_time_to_end(
 }
 
 pub(super) fn current_time_to_end_at(
-    header: &TimingHeader,
+    _header: &TimingHeader,
     end_time_raw: u64,
     time_state_raw: &str,
     received_at_ms: u64,
     now_ms: u64,
 ) -> String {
     if end_time_raw == 0 {
-        return header.time_to_go.clone();
+        return "00:00:00".to_string();
     }
 
     let remaining_ms = if time_state_raw == "0" {

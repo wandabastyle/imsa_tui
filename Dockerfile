@@ -1,20 +1,26 @@
 FROM rust:1.95-bookworm AS builder
 
-ARG TRUNK_VERSION=0.21.14
-
+# Install Vite+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
+    && curl -fsSL https://vite.plus | bash \
     && rm -rf /var/lib/apt/lists/*
-
-RUN rustup target add wasm32-unknown-unknown
-RUN curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
-    | tar -xz -C /usr/local/bin trunk
 
 WORKDIR /app
 
+# Copy package files first for better layer caching
+COPY web/package.json web/pnpm-lock.yaml ./web/
+
+# Install web dependencies
+RUN cd web && vp install --frozen-lockfile
+
+# Copy the rest of the project
 COPY . .
 
-RUN trunk build --release --config web/Trunk.toml
+# Build web assets with Vite+
+RUN cd web && vp build
+
+# Build the Rust binary with embedded UI
 RUN cargo build --release --bin web_server --features embed-ui
 
 FROM gcr.io/distroless/cc-debian12:nonroot

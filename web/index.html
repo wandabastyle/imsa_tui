@@ -4,7 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>imsa_tui Web</title>
-    <link data-trunk rel="rust" data-wasm-opt="0" href="../crates/webui/Cargo.toml" />
+    <style>
+      body {
+        margin: 0;
+        background: #050d17;
+        color: #d9e3f2;
+        font-family: 'Iosevka', 'JetBrains Mono', 'Fira Code', monospace;
+      }
+    </style>
   </head>
-  <body></body>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

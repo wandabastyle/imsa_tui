@@ -19,7 +19,7 @@ pub(crate) fn build_request(
         .insert(ORIGIN, HeaderValue::from_static(origin));
     request
         .headers_mut()
-        .insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0"));
+        .insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"));
     request
 }
 

@@ -154,7 +154,8 @@ pub async fn reset_preferences(State(state): State<WebAppState>, headers: Header
 }
 
 pub async fn get_nls_liveticker(State(state): State<WebAppState>) -> Response {
-    let response: NlsLivetickerResponse = state.nls_liveticker_response();
+    let event_id = state.nls_event_id();
+    let response: NlsLivetickerResponse = state.nls_liveticker_response(event_id.as_deref());
     (StatusCode::OK, Json(response)).into_response()
 }
 

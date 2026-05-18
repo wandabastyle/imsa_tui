@@ -28,23 +28,21 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install release tooling
-        run: apt-get update && apt-get install -y --no-install-recommends gh
+        run: apt-get update && apt-get install -y --no-install-recommends gh curl ca-certificates
 
-      - name: Add wasm target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install Vite+
+        run: curl -fsSL https://vite.plus | bash
+
+      - name: Install web dependencies
+        run: cd web && vp install --frozen-lockfile
+
+      - name: Build web assets
+        run: cd web && vp build
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-release-binary
-
-      - name: Install Trunk
-        uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
-
-      - name: Build web assets
-        run: trunk build --release --config web/Trunk.toml
 
       - name: Build release web_server binary
         run: cargo build --release --locked --bin web_server

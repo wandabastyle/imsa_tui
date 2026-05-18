@@ -200,6 +200,15 @@ fn start_feed_bridge_internal(
                 continue;
             };
 
+            // Track event_id from NLS snapshots for liveticker switching
+            if series == Series::Nls {
+                if let TimingMessage::Snapshot { ref header, .. } = message {
+                    if !header.event_id.is_empty() {
+                        state_for_bridge.update_nls_event_id(&header.event_id);
+                    }
+                }
+            }
+
             state_for_bridge.apply_timing_message(series, &message);
             state_for_bridge.notify_series_update(series);
         }

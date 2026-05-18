@@ -105,6 +105,9 @@ pub(crate) fn drain_messages(
                 if new_header.time_to_go != "-" {
                     header.time_to_go = new_header.time_to_go;
                 }
+                if !new_header.event_id.is_empty() {
+                    header.event_id = new_header.event_id;
+                }
                 *entries = new_entries;
                 *status = "Live timing connected".to_string();
                 *last_error = None;

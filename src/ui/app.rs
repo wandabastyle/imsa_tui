@@ -34,7 +34,8 @@ use super::{
     width_state::SeriesWidthBaselines,
 };
 use crate::adapters::nls::liveticker::{
-    stop_liveticker_feed, ActiveLivetickerFeed, LivetickerEntry, LivetickerWorkerMessage,
+    stop_liveticker_feed, ActiveLivetickerFeed, LivetickerEntry, LivetickerFeedKind,
+    LivetickerWorkerMessage,
 };
 
 use crate::demo;
@@ -489,7 +490,14 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
         *ctx.nls_liveticker_last_error = None;
         *ctx.nls_liveticker_panel = NlsLivetickerPanelState::closed();
     } else if ctx.nls_liveticker_feed.is_none() {
-        *ctx.nls_liveticker_feed = Some(crate::adapters::nls::liveticker::start_liveticker_feed());
+        let initial_kind = if ctx.header.event_id == "50" {
+            LivetickerFeedKind::N24
+        } else {
+            LivetickerFeedKind::Nls
+        };
+        *ctx.nls_liveticker_feed = Some(crate::adapters::nls::liveticker::start_liveticker_feed(
+            initial_kind,
+        ));
     }
 
     ctx.config.selected_series = *ctx.active_series;
@@ -539,7 +547,14 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
     let mut nls_liveticker_last_update: Option<Instant> = None;
     let mut nls_liveticker_last_error: Option<String> = None;
     let mut nls_liveticker_feed = if active_series == Series::Nls {
-        Some(crate::adapters::nls::liveticker::start_liveticker_feed())
+        let initial_kind = if header.event_id == "50" {
+            LivetickerFeedKind::N24
+        } else {
+            LivetickerFeedKind::Nls
+        };
+        Some(crate::adapters::nls::liveticker::start_liveticker_feed(
+            initial_kind,
+        ))
     } else {
         None
     };
@@ -575,6 +590,27 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                 &mut last_error,
                 &mut last_update,
             );
+
+            // Check for NLS event ID changes to switch liveticker feed
+            if active_series == Series::Nls {
+                // Check if we need to switch ticker feed based on header event_id
+                let expected_kind = if header.event_id == "50" {
+                    LivetickerFeedKind::N24
+                } else {
+                    LivetickerFeedKind::Nls
+                };
+                if let Some(ref feed) = nls_liveticker_feed {
+                    if feed.kind != expected_kind {
+                        stop_liveticker_feed(&mut nls_liveticker_feed);
+                        nls_liveticker_feed = Some(
+                            crate::adapters::nls::liveticker::start_liveticker_feed(expected_kind),
+                        );
+                        nls_liveticker_entries.clear();
+                        nls_liveticker_last_update = None;
+                        nls_liveticker_last_error = None;
+                    }
+                }
+            }
 
             for notice in incoming_notices {
                 apply_flag_message_notice(

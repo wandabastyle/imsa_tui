@@ -1,74 +1,45 @@
-# Agent Rules
+# CRITICAL RULES - MUST FOLLOW
 
-## Release Tags
+## RESPONSES
 
-- Always create release tags as annotated tags (`git tag -a`), never lightweight tags.
-- Every release tag (`vX.Y.Z`) must include a short description in the tag message.
-- Tag message format:
-  - first line: version (`vX.Y.Z`)
-  - then 2-5 bullets with key changes and any operator-impacting behavior.
-- If a lightweight or incomplete release tag is created locally by mistake and has not been pushed,
-  delete and recreate it as a fully annotated tag.
+- Keep responses concise and to the point - unless the user asks otherwise
 
-## Linting
+## PLANNING MODE
 
-- After changing any file, run the relevant lint/check commands for affected areas.
-- Continue fixing and re-running lint/check commands until all reported errors are resolved.
+- Always ask clarifying questions
+- Never assume design, tech stack or features
+- Use deep-dive sub-agents to assist with research
+- Use deep-dive sub-agents to review the different aspects of your plan before presenting to the user
 
-## Verification Matrix
+## CHANGE / EDIT MODE
 
-- Rust-only changes must pass:
-  - `cargo fmt --check`
-  - `cargo clippy --all-targets --no-default-features -- -D warnings`
-  - `cargo test`
-- Web-only changes (Yew/Trunk) must pass:
-  - `cargo check -p webui --target wasm32-unknown-unknown`
-  - `trunk build --release --config web/Trunk.toml`
-- Cross-cutting changes (Rust + Web) must pass both Rust and Web checks.
+- Never implement features yourself when possible - use sub-agents!
+- Identify changes from the plan that can be implemented in parallel, and use sub-agents to implement the features efficiently
+- When using sub-agents to implement features, act as a coordinator only
+- Use the best model for the task - premium models for complex tasks (like coding) and mid-tier models for simpler tasks, like documentation
+- After completing features (large or small), always run verification commands:
+  - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets --no-default-features -- -D warnings`, `cargo test`
+  - **Web**: `pnpm run check` (Vite+ build + Svelte typecheck)
 
-## Commits
+## TESTING
 
-- Use conventional-style commit subjects (`fix(...)`, `feat(...)`, `chore(...)`, `docs(...)`, `refactor(...)`, `test(...)`).
-- Keep commits scoped: do not mix unrelated changes in the same commit.
-- Do not amend commits unless explicitly requested.
-- Never commit secrets (`.env`, tokens, credential files).
+- Use any testing tools, libraries available to the project for testing your changes
+- Never assume your changes simply work, always test!
+- If the project does not have any testing tools, scripts, MCP tools, skills, etc. available for testing, ask the user whether testing should be skipped.
 
-## Branch and Merge
+## UI DESIGN
 
-- Never work directly on `main` for feature/fix/doc changes.
-- Before making changes, create or switch to a dedicated branch (for example `feat/...`, `fix/...`, `chore/...`).
-- When work is ready, open a pull request and merge through the PR flow only (no direct pushes to `main`).
-- Do feature/fix work on a dedicated branch; merge to `main` only after checks pass.
-- Before merge, ensure working tree is clean and all required checks are green.
-- Do not force-push protected branches.
+- Always follow the UI design system when creating or reviewing components or pages.
+- Design System: @DESIGN.md
 
-## Shell Command Compatibility
+**Important:** This project uses a dense, compact motorsport timing-screen aesthetic. The `frontend-design` skill's general "bold aesthetic" guidance should be overridden by the specific requirements in DESIGN.md when working on UI components.
 
-- When suggesting terminal commands to operators, prefer fish-friendly syntax.
-- Avoid bash-only constructs in examples (for example `$(...)`, HEREDOCs, and `&&` chains).
-- Prefer simple one-command-per-line sequences that run in both fish and bash when possible.
+## SKILLS
 
-## Docs and Tests Sync
+Skills provide specialized instructions and workflows for specific tasks.
 
-- If behavior, runtime flags, storage paths, or operational flow changes, update `README.md` in the same branch.
-- Keep `README.md` concise for quick-start usage and high-level project context.
-- For operator runbooks, deployment variants, reverse-proxy setup, and deeper troubleshooting, update the GitHub Wiki in the same workstream.
-- When wiki content changes, keep the local mirror in `docs/wiki/` in sync so wiki updates are reproducible from the repository.
-- Decide README vs Wiki by scope: put essential, frequently-needed commands in `README.md`; put detailed procedures and extended references in Wiki pages.
-- Wiki publish workflow (after updating `docs/wiki/`):
-  1. Ensure wiki git repo exists (create/edit one page in GitHub UI once if needed).
-  2. Clone wiki repo locally (for example to `/tmp/imsa_tui.wiki`).
-  3. Copy `docs/wiki/*.md` into the cloned wiki repo.
-  4. Commit with a docs-scoped message.
-  5. Push to `wandabastyle/imsa_tui.wiki.git`.
-  6. Verify navigation links/pages render on the GitHub wiki.
-- If a tracked phase/plan item changes status, update `docs/TODO.md` in the same branch.
-- For behavior changes, add or update regression/unit tests in the same branch.
-
-## Version Bumps
-
-- Keep feature/fix commits separate from version bump commits.
-- Bump crate version only when preparing a release.
-- A dedicated release branch is not required; do the version bump as a separate commit on the active working branch.
-- Merge to `main` through the PR flow (no direct pushes to protected `main`).
-- After merge, create the annotated release tag on `main` and ensure the tag points to the version bump commit.
+**To use a skill:**
+1. Analyze the user's request and determine the correct skill (e.g., `tdd` for test-driven development)
+2. Read the file located at: `.agents/skills/<skill-name>/SKILL.md` using your file reader tool
+3. Completely read, absorb, and apply the instructions in that `SKILL.md` file
+4. Do not write any code until you have followed the planning/spec steps defined in the skill file

@@ -9,6 +9,7 @@ use tungstenite::Error as WsError;
 use crate::timing::{TimingEntry, TimingHeader, TimingNotice};
 
 use super::countdown::{now_millis, refresh_header_time_to_go, CountdownState};
+use super::schedule::{N24_EVENT_ID, N24_TARGET_EVENT_TITLE};
 
 fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
     obj.get(key).and_then(|x| x.as_str())
@@ -118,6 +119,34 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
     format_centisecs(sum)
 }
 
+fn resolve_event_name(
+    ws_cup: Option<&str>,
+    termine_event_name: Option<&str>,
+    homepage_event_name: Option<&str>,
+    event_id: &str,
+) -> String {
+    // Check if ws_cup is available (DHLM check handled separately by caller)
+    if let Some(cup) = ws_cup {
+        return cup.to_string();
+    }
+
+    // 24h event fallback
+    if event_id == N24_EVENT_ID {
+        return N24_TARGET_EVENT_TITLE.to_string();
+    }
+
+    // Fall back to termine or homepage names
+    if let Some(termine_name) = termine_event_name {
+        return termine_name.to_string();
+    }
+
+    if let Some(homepage_name) = homepage_event_name {
+        return homepage_name.to_string();
+    }
+
+    "NLS Live Timing".to_string()
+}
+
 fn pit_flag_from_inout_state(inout_state: &str) -> String {
     let normalized = inout_state.trim().to_ascii_uppercase();
     if normalized.is_empty() || normalized == "-" {
@@ -142,13 +171,25 @@ pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
 
     let is_24h = event_id == "50";
 
+    // For 24h, raw S9 contains pit state (PIT/IN/OUT), not time
+    let s9_raw = raw_sector_field(v, 9);
+
     let (sector_1, sector_2, sector_3, sector_4, sector_5) = if is_24h {
+        // For 24h, display pit state in sector_5 when S9 contains PIT/IN/OUT
+        let s5_display = if s9_raw.eq_ignore_ascii_case("PIT")
+            || s9_raw.eq_ignore_ascii_case("IN")
+            || s9_raw.eq_ignore_ascii_case("OUT")
+        {
+            s9_raw.clone()
+        } else {
+            sum_sector_times(&raw_sector_field(v, 8), &s9_raw)
+        };
         (
             sum_sector_times(&raw_sector_field(v, 1), &raw_sector_field(v, 2)),
             sum_sector_times(&raw_sector_field(v, 3), &raw_sector_field(v, 4)),
             sum_sector_times(&raw_sector_field(v, 5), &raw_sector_field(v, 6)),
             raw_sector_field(v, 7),
-            sum_sector_times(&raw_sector_field(v, 8), &raw_sector_field(v, 9)),
+            s5_display,
         )
     } else {
         (
@@ -180,7 +221,9 @@ pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
         sector_4,
         sector_5: sector_5.clone(),
         best_lap_no: "-".to_string(),
-        pit: pit_flag_from_inout_state(&sector_5),
+        // For 24h, derive pit state from raw S9 (contains PIT/IN/OUT)
+        // For NLS, derive pit state from S5 (which contains IN/OUT state)
+        pit: pit_flag_from_inout_state(if is_24h { &s9_raw } else { &sector_5 }),
         pit_stops: "-".to_string(),
         fastest_driver: "-".to_string(),
         stable_id,
@@ -246,6 +289,9 @@ pub(super) fn parse_ws_message(
     let parsed: Value = serde_json::from_str(text).ok()?;
     let pid = get_str(&parsed, "PID")?;
 
+    // Track event_id in header for web liveticker switching
+    header.event_id = event_id.to_string();
+
     match pid {
         "0" => {
             if let Some(heat_type) = get_str(&parsed, "HEATTYPE") {
@@ -264,12 +310,16 @@ pub(super) fn parse_ws_message(
 
             if cup_is_dhlm {
                 header.event_name = ws_cup.unwrap().to_string();
+            } else if let Some(cup) = ws_cup {
+                // Always prefer websocket CUP/EVENTNAME when available
+                header.event_name = cup.to_string();
+            } else if event_id == N24_EVENT_ID {
+                // 24h fallback when websocket doesn't send CUP/EVENTNAME
+                header.event_name = N24_TARGET_EVENT_TITLE.to_string();
             } else if let Some(termine_name) = termine_event_name {
                 header.event_name = termine_name.to_string();
             } else if let Some(homepage_name) = homepage_event_name {
                 header.event_name = homepage_name.to_string();
-            } else if let Some(cup) = ws_cup {
-                header.event_name = cup.to_string();
             }
 
             if let Some(track_name) = first_non_empty(&parsed, &["TRACKNAME", "TRACK"]) {
@@ -313,14 +363,9 @@ pub(super) fn parse_ws_message(
 
             if cup_is_dhlm {
                 header.event_name = ws_cup.unwrap().to_string();
-            } else if let Some(termine_name) = termine_event_name {
-                header.event_name = termine_name.to_string();
-            } else if let Some(homepage_name) = homepage_event_name {
-                header.event_name = homepage_name.to_string();
-            } else if let Some(cup) = ws_cup {
-                header.event_name = cup.to_string();
-            } else if header.event_name.is_empty() {
-                header.event_name = "NLS Live Timing".to_string();
+            } else {
+                header.event_name =
+                    resolve_event_name(ws_cup, termine_event_name, homepage_event_name, event_id);
             }
             let end_time_raw = get_str(&parsed, "ENDTIME")
                 .and_then(|s| s.parse::<u64>().ok())
