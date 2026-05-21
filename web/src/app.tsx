@@ -13,7 +13,13 @@ import { NlsLivetickerModal } from './lib/components/nls-liveticker-modal';
 import { SeriesModal } from './lib/components/series-modal';
 import { TimingTable } from './lib/components/timing-table';
 import { useAppState, useKeyboard, type AppState, type UseAppStateReturn } from './lib/hooks';
-import { ALL_SERIES, type Series, type TimingEntry, type TimingClassColor, type ViewMode } from './lib/types';
+import {
+  handleGroupPickerKeydown,
+  handleMainKeydown,
+  handleSearchKeydown,
+  handleSeriesPickerKeydown,
+} from './lib/keyboard-handlers';
+import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from './lib/types';
 
 import './app.css';
 
@@ -260,245 +266,45 @@ export const App = (): JSX.Element => {
     await persistPreferences();
   }, [activeEntries, favouriteKey, persistPreferences, setState, state.activeSeries, state.selectedRow]);
 
-  // Keyboard handlers
-  const handleGroupPickerKeydown = useCallback((event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      setState((prev: AppState) => ({ ...prev, showGroupPicker: false }));
-      event.preventDefault();
-    } else if (event.key === 'ArrowDown' || event.key === 'j') {
-      setState((prev: AppState) => ({
-        ...prev,
-        groupPickerIndex: (prev.groupPickerIndex + INDEX_INCREMENT) % state.groups.length,
-      }));
-      event.preventDefault();
-    } else if (event.key === 'ArrowUp' || event.key === 'k') {
-      setState((prev: AppState) => ({
-        ...prev,
-        groupPickerIndex:
-          prev.groupPickerIndex === DEFAULT_GROUP_PICKER_INDEX
-            ? state.groups.length + INDEX_DECREMENT
-            : prev.groupPickerIndex + INDEX_DECREMENT,
-      }));
-      event.preventDefault();
-    } else if (event.key === 'Enter') {
-      selectGroup(state.groupPickerIndex);
-      event.preventDefault();
-    }
+  // Keyboard handlers - wrappers for extracted handlers
+  const onGroupPickerKeydown = useCallback((event: KeyboardEvent): void => {
+    handleGroupPickerKeydown(event, {
+      groupPickerIndex: state.groupPickerIndex,
+      groupsLength: state.groups.length,
+      selectGroup,
+      setState,
+    });
   }, [selectGroup, setState, state.groupPickerIndex, state.groups.length]);
 
-  const handleMainKeydown = useCallback((event: KeyboardEvent): void => {
-    switch (event.key) {
-      case 'Escape': {
-        if (state.showHelp) {
-          setState((prev: AppState) => ({ ...prev, showHelp: false }));
-          event.preventDefault();
-        }
-        break;
-      }
-      case 'h':
-      case '?': {
-        setState((prev: AppState) => ({ ...prev, showHelp: !prev.showHelp }));
-        event.preventDefault();
-        break;
-      }
-      case 'g': {
-        cycleView();
-        event.preventDefault();
-        break;
-      }
-      case 'G': {
-        setState((prev: AppState) => ({
-          ...prev,
-          groupPickerIndex:
-            prev.viewMode.kind === 'class' && prev.groups.length > MINIMUM_LENGTH
-              ? Math.min(prev.viewMode.index, prev.groups.length + INDEX_DECREMENT)
-              : DEFAULT_GROUP_PICKER_INDEX,
-          showGroupPicker: true,
-        }));
-        event.preventDefault();
-        break;
-      }
-      case 'o': {
-        setState((prev: AppState) => ({
-          ...prev,
-          gapAnchorStableId: null,
-          selectedRow: DEFAULT_SELECTED_ROW,
-          viewMode: { kind: 'overall' },
-        }));
-        event.preventDefault();
-        break;
-      }
-      case 't': {
-        setState((prev: AppState) => ({
-          ...prev,
-          seriesPickerIndex: ALL_SERIES.indexOf(prev.activeSeries),
-          showSeriesPicker: true,
-        }));
-        event.preventDefault();
-        break;
-      }
-      case 'ArrowDown':
-      case 'j': {
-        shiftSelection(JUMP_FORWARD);
-        event.preventDefault();
-        break;
-      }
-      case 'ArrowUp':
-      case 'k': {
-        shiftSelection(JUMP_BACKWARD);
-        event.preventDefault();
-        break;
-      }
-      case 'PageDown': {
-        shiftSelection(PAGE_JUMP_SIZE);
-        event.preventDefault();
-        break;
-      }
-      case 'PageUp': {
-        shiftSelection(-PAGE_JUMP_SIZE);
-        event.preventDefault();
-        break;
-      }
-      case 'Home': {
-        setState((prev: AppState) => ({ ...prev, selectedRow: DEFAULT_SELECTED_ROW }));
-        event.preventDefault();
-        break;
-      }
-      case 'End': {
-        setState((prev: AppState) => ({
-          ...prev,
-          selectedRow: Math.max(activeEntries.length + INDEX_DECREMENT, DEFAULT_SELECTED_ROW),
-        }));
-        event.preventDefault();
-        break;
-      }
-      case ' ': {
-        void toggleFavourite();
-        event.preventDefault();
-        break;
-      }
-      case 'f': {
-        jumpFavourite();
-        event.preventDefault();
-        break;
-      }
-      case 's': {
-        setState((prev: AppState) => ({
-          ...prev,
-          search: {
-            currentMatch: 0,
-            inputActive: true,
-            matches: [],
-            query: '',
-          },
-        }));
-        event.preventDefault();
-        break;
-      }
-      case 'n': {
-        jumpSearch(JUMP_FORWARD);
-        event.preventDefault();
-        break;
-      }
-      case 'p': {
-        jumpSearch(JUMP_BACKWARD);
-        event.preventDefault();
-        break;
-      }
-      case 'd': {
-        void toggleDemoMode();
-        event.preventDefault();
-        break;
-      }
-      case 'l': {
-        setState((prev: AppState) => ({
-          ...prev,
-          showHelp: false,
-          showMessages: false,
-          showNlsLiveticker: !prev.showNlsLiveticker,
-        }));
-        if (!state.showNlsLiveticker) {
-          void refreshNlsLiveticker();
-        }
-        event.preventDefault();
-        break;
-      }
-      case 'm': {
-        setState((prev: AppState) => ({
-          ...prev,
-          showHelp: false,
-          showMessages: !prev.showMessages,
-          showNlsLiveticker: false,
-        }));
-        event.preventDefault();
-        break;
-      }
-      default: {
-        break;
-      }
-    }
+  const onMainKeydown = useCallback((event: KeyboardEvent): void => {
+    handleMainKeydown(event, {
+      activeEntriesLength: activeEntries.length,
+      cycleView,
+      jumpFavourite,
+      jumpSearch,
+      refreshNlsLiveticker,
+      setState,
+      shiftSelection,
+      showHelp: state.showHelp,
+      showNlsLiveticker: state.showNlsLiveticker,
+      toggleDemoMode,
+      toggleFavourite,
+    });
   }, [activeEntries.length, cycleView, jumpFavourite, jumpSearch, refreshNlsLiveticker, setState, shiftSelection, state.showHelp, state.showNlsLiveticker, toggleDemoMode, toggleFavourite]);
 
-  const handleSearchKeydown = useCallback((event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      setState((prev: AppState) => ({
-        ...prev,
-        search: { ...prev.search, inputActive: false },
-      }));
-      event.preventDefault();
-    } else if (event.key === 'Enter') {
-      setState((prev: AppState) => ({
-        ...prev,
-        search: { ...prev.search, currentMatch: FIRST_MATCH_INDEX, inputActive: false },
-      }));
-      if (searchMatches.length > MINIMUM_LENGTH) {
-        setState((prev: AppState) => ({ ...prev, selectedRow: searchMatches[FIRST_MATCH_INDEX] }));
-      }
-      event.preventDefault();
-    } else if (event.key === 'Backspace') {
-      setState((prev: AppState) => ({
-        ...prev,
-        search: {
-          ...prev.search,
-          query: prev.search.query.slice(SLICE_START_INDEX, -SLICE_REMOVE_LAST),
-        },
-      }));
-      event.preventDefault();
-    } else if (event.key.length === KEY_LENGTH_SINGLE && !event.ctrlKey && !event.metaKey) {
-      setState((prev: AppState) => ({
-        ...prev,
-        search: {
-          ...prev.search,
-          query: prev.search.query + event.key,
-        },
-      }));
-      event.preventDefault();
-    }
+  const onSearchKeydown = useCallback((event: KeyboardEvent): void => {
+    handleSearchKeydown(event, {
+      searchMatches,
+      setState,
+    });
   }, [searchMatches, setState]);
 
-  const handleSeriesPickerKeydown = useCallback((event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      setState((prev: AppState) => ({ ...prev, showSeriesPicker: false }));
-      event.preventDefault();
-    } else if (event.key === 'ArrowDown' || event.key === 'j') {
-      setState((prev: AppState) => ({
-        ...prev,
-        seriesPickerIndex: (prev.seriesPickerIndex + INDEX_INCREMENT) % ALL_SERIES.length,
-      }));
-      event.preventDefault();
-    } else if (event.key === 'ArrowUp' || event.key === 'k') {
-      setState((prev: AppState) => ({
-        ...prev,
-        seriesPickerIndex:
-          prev.seriesPickerIndex === DEFAULT_GROUP_PICKER_INDEX
-            ? ALL_SERIES.length + INDEX_DECREMENT
-            : prev.seriesPickerIndex + INDEX_DECREMENT,
-      }));
-      event.preventDefault();
-    } else if (event.key === 'Enter') {
-      void chooseSeries(ALL_SERIES[state.seriesPickerIndex]);
-      event.preventDefault();
-    }
+  const onSeriesPickerKeydown = useCallback((event: KeyboardEvent): void => {
+    handleSeriesPickerKeydown(event, {
+      chooseSeries,
+      seriesPickerIndex: state.seriesPickerIndex,
+      setState,
+    });
   }, [chooseSeries, setState, state.seriesPickerIndex]);
 
   // Initialize
@@ -533,23 +339,23 @@ export const App = (): JSX.Element => {
       }
 
       if (state.search.inputActive) {
-        handleSearchKeydown(event);
+        onSearchKeydown(event);
         return;
       }
 
       if (state.showSeriesPicker) {
-        handleSeriesPickerKeydown(event);
+        onSeriesPickerKeydown(event);
         return;
       }
 
       if (state.showGroupPicker) {
-        handleGroupPickerKeydown(event);
+        onGroupPickerKeydown(event);
         return;
       }
 
-      handleMainKeydown(event);
+      onMainKeydown(event);
     },
-    [authenticated, handleGroupPickerKeydown, handleMainKeydown, handleSearchKeydown, handleSeriesPickerKeydown, state.search.inputActive, state.showGroupPicker, state.showSeriesPicker],
+    [authenticated, onGroupPickerKeydown, onMainKeydown, onSearchKeydown, onSeriesPickerKeydown, state.search.inputActive, state.showGroupPicker, state.showSeriesPicker],
   );
 
   useKeyboard(handleKeydown);
@@ -630,7 +436,7 @@ export const App = (): JSX.Element => {
       />
 
       <TimingTable
-        classColors={(activeSnapshot?.header.class_colors ?? {}) as Record<string, TimingClassColor>}
+        classColors={activeSnapshot?.header.class_colors ?? {}}
         entries={activeEntries}
         selectedRow={state.selectedRow}
         series={state.activeSeries}

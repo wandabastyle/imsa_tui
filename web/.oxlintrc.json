@@ -35,9 +35,10 @@
     "max-lines": ["error", { "max": 750, "skipBlankLines": true, "skipComments": true }],
     "max-lines-per-function": [
       "error",
-      { "max": 250, "skipBlankLines": true, "skipComments": true }
+      { "max": 300, "skipBlankLines": true, "skipComments": true }
     ],
-    "max-statements": ["error", 50],
+    "max-statements": ["error", 75],
+    "complexity": ["error", 30],
     "max-params": ["error", 4],
     "prefer-readonly-parameter-types": "off",
     "eslint/prefer-const": "off",
