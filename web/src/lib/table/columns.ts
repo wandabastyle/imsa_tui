@@ -7,6 +7,25 @@ export interface ColumnWidthRule {
 }
 
 const columnsBySeries: Record<Series, string[]> = {
+  dhlm: [
+    'Pos',
+    '#',
+    'Class',
+    'PIC',
+    'Driver',
+    'Vehicle',
+    'Team',
+    'Laps',
+    'Gap',
+    'Last',
+    'Best',
+    'S1',
+    'S2',
+    'S3',
+    'S4',
+    'S5',
+  ],
+  f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC'],
   imsa: [
     'Pos',
     '#',
@@ -43,7 +62,6 @@ const columnsBySeries: Record<Series, string[]> = {
     'S4',
     'S5',
   ],
-  f1: ['Pos', '#', 'Driver', 'Team', 'Laps', 'Gap', 'Int', 'Last', 'Best', 'Pit', 'Stops', 'PIC'],
   wec: [
     'Pos',
     '#',
@@ -59,24 +77,6 @@ const columnsBySeries: Record<Series, string[]> = {
     'S1',
     'S2',
     'S3',
-  ],
-  dhlm: [
-    'Pos',
-    '#',
-    'Class',
-    'PIC',
-    'Driver',
-    'Vehicle',
-    'Team',
-    'Laps',
-    'Gap',
-    'Last',
-    'Best',
-    'S1',
-    'S2',
-    'S3',
-    'S4',
-    'S5',
   ],
 };
 
@@ -133,14 +133,14 @@ const widthRuleByColumn: Record<string, ColumnWidthRule> = {
 
 const defaultRule: ColumnWidthRule = { minCh: 8, maxCh: 16, paddingCh: 1 };
 
-export function getColumnsForSeries(series: Series): string[] {
+export const getColumnsForSeries = function getColumnsForSeries(series: Series): string[] {
   return columnsBySeries[series];
-}
+};
 
-export function isCompactColumn(column: string): boolean {
+export const isCompactColumn = function isCompactColumn(column: string): boolean {
   return compactColumns.has(column);
-}
+};
 
-export function getColumnWidthRule(column: string): ColumnWidthRule {
+export const getColumnWidthRule = function getColumnWidthRule(column: string): ColumnWidthRule {
   return widthRuleByColumn[column] ?? defaultRule;
-}
+};
