@@ -1,5 +1,5 @@
 // Main app content component (authenticated view)
-import { useMemo, type JSX } from 'react';
+import type { JSX } from 'react';
 
 import { HeaderBar } from './header-bar';
 import { HelpModal } from './help-modal';
@@ -9,8 +9,6 @@ import { SeriesModal } from './series-modal';
 import { TimingTable } from './timing-table';
 import type { AppState } from '../hooks';
 import type { Series, TimingEntry } from '../types';
-
-const INDEX_INCREMENT = 1;
 
 interface MainContentProps {
   state: AppState;
