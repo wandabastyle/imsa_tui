@@ -1,7 +1,7 @@
 // Messages-modal.tsx - Race messages modal
 import { useEffect, useCallback, type JSX } from 'react';
 
-import type { TimingNotice } from '$lib/generated/web-shared';
+import type { TimingNotice } from '../lib/generated/web-shared';
 
 const ZERO_LENGTH = 0;
 const SLICE_START_INDEX = 0;

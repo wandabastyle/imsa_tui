@@ -1,7 +1,7 @@
 // Nls-liveticker-modal.tsx - NLS liveticker modal
 import { useEffect, useCallback, type JSX } from 'react';
 
-import type { NlsLivetickerEntry } from '$lib/generated/web-shared';
+import type { NlsLivetickerEntry } from '../lib/generated/web-shared';
 
 const ZERO_LENGTH = 0;
 const SLICE_START_INDEX = 0;

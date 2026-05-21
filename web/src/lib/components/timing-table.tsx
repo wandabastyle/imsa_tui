@@ -1,9 +1,9 @@
 // Timing-table.tsx - Main timing data table
 import { useEffect, useMemo, useRef, type JSX } from 'react';
 
-import type { TimingEntry, Series, TimingClassColor } from '$lib/generated/web-shared';
-import { getColumnsForSeries, isCompactColumn } from '$lib/table/columns';
-import { computeStableColumnWidths, asChWidths } from '$lib/table/widths';
+import type { TimingEntry, Series, TimingClassColor } from '../lib/generated/web-shared';
+import { getColumnsForSeries, isCompactColumn } from '../lib/table/columns';
+import { computeStableColumnWidths, asChWidths } from '../lib/table/widths';
 
 const ROW_HEIGHT_PX = 28;
 const SCROLL_INTO_VIEW_BLOCK = 'nearest';

@@ -1,4 +1,4 @@
-import type { Series } from '$lib/types';
+import type { Series } from '../lib/types';
 
 export interface ColumnWidthRule {
   minCh: number;

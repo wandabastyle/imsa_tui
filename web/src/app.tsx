@@ -5,15 +5,15 @@ import {
   fetchSessionState,
   loginWithAccessCode,
   updateDemoState,
-} from '$lib/api';
-import { HeaderBar } from '$lib/components/header-bar';
-import { HelpModal } from '$lib/components/help-modal';
-import { MessagesModal } from '$lib/components/messages-modal';
-import { NlsLivetickerModal } from '$lib/components/nls-liveticker-modal';
-import { SeriesModal } from '$lib/components/series-modal';
-import { TimingTable } from '$lib/components/timing-table';
-import { useAppState, useKeyboard, type AppState, type UseAppStateReturn } from '$lib/hooks';
-import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from '$lib/types';
+} from './lib/api';
+import { HeaderBar } from './lib/components/header-bar';
+import { HelpModal } from './lib/components/help-modal';
+import { MessagesModal } from './lib/components/messages-modal';
+import { NlsLivetickerModal } from './lib/components/nls-liveticker-modal';
+import { SeriesModal } from './lib/components/series-modal';
+import { TimingTable } from './lib/components/timing-table';
+import { useAppState, useKeyboard, type AppState, type UseAppStateReturn } from './lib/hooks';
+import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from './lib/types';
 
 import './app.css';
 
