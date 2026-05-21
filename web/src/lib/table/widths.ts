@@ -7,6 +7,8 @@ export interface WidthComputationOptions {
   maxShrinkPerUpdate?: number;
 }
 
+const DEFAULT_MAX_SHRINK = 1;
+
 const textWidthCh = function textWidthCh(value: string): number {
   return value.length;
 };
@@ -21,7 +23,7 @@ export const computeColumnWidths = function computeColumnWidths(
   options: WidthComputationOptions = {},
 ): number[] {
   const previous = options.previousWidthsCh ?? [];
-  const maxShrink = options.maxShrinkPerUpdate ?? 1;
+  const maxShrink = options.maxShrinkPerUpdate ?? DEFAULT_MAX_SHRINK;
 
   return columns.map((column, colIndex) => {
     const rule = getColumnWidthRule(column);
@@ -50,7 +52,7 @@ export const computeStableColumnWidths = function computeStableColumnWidths(
   contextKey: string,
   columns: string[],
   rows: string[][],
-  maxShrinkPerUpdate = 1,
+  maxShrinkPerUpdate = DEFAULT_MAX_SHRINK,
 ): number[] {
   const previousWidthsCh = widthBaselinesByContext.get(contextKey);
   const nextWidthsCh = computeColumnWidths(columns, rows, {

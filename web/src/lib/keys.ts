@@ -24,7 +24,6 @@ export interface KeyActions {
 export const installKeyBindings = function installKeyBindings(actions: KeyActions): () => void {
   const handler = (event: KeyboardEvent): void => {
     const target = event.target as HTMLElement | null;
-    // eslint-disable-next-line unicorn/prefer-global-this -- window is the correct global for browser events
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
       return;
     }
@@ -112,10 +111,8 @@ export const installKeyBindings = function installKeyBindings(actions: KeyAction
     event.preventDefault();
   };
 
-  // eslint-disable-next-line unicorn/prefer-global-this -- window is the correct global for browser events
-  window.addEventListener('keydown', handler);
+  globalThis.addEventListener('keydown', handler);
   return (): void => {
-    // eslint-disable-next-line unicorn/prefer-global-this -- window is the correct global for browser events
-    window.removeEventListener('keydown', handler);
+    globalThis.removeEventListener('keydown', handler);
   };
 };

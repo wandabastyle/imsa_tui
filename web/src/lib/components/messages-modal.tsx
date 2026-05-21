@@ -49,8 +49,7 @@ export const MessagesModal = function MessagesModal(
     return null;
   }
 
-  // oxlint doesn't support ES2024's toSorted yet
-  // eslint-disable-next-line unicorn/no-array-sort
+  // Using sort on a spread copy is equivalent to toSorted() for ES2024
   const sortedNotices: TimingNotice[] = [...notices].sort(
     (left: TimingNotice, right: TimingNotice): number =>
       right.time.localeCompare(left.time),
