@@ -1,37 +1,46 @@
-// TUI binary entrypoint: set terminal mode, run app loop, then restore terminal cleanly.
+// TUI binary entrypoint: set terminal mode, run app loop, then restore terminal
+// cleanly.
 
 use std::io;
 
 use crossterm::{
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+   execute,
+   terminal::{
+      disable_raw_mode,
+      enable_raw_mode,
+      EnterAlternateScreen,
+      LeaveAlternateScreen,
+   },
 };
 use imsa_tui::ui;
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{
+   backend::CrosstermBackend,
+   Terminal,
+};
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
+   disable_raw_mode()?;
+   execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+   terminal.show_cursor()?;
+   Ok(())
 }
 
 fn main() -> io::Result<()> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+   enable_raw_mode()?;
+   let mut stdout = io::stdout();
+   execute!(stdout, EnterAlternateScreen)?;
 
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
+   let backend = CrosstermBackend::new(stdout);
+   let mut terminal = Terminal::new(backend)?;
+   terminal.clear()?;
 
-    let app_result = ui::run_app(&mut terminal);
-    let restore_result = restore_terminal(&mut terminal);
+   let app_result = ui::run_app(&mut terminal);
+   let restore_result = restore_terminal(&mut terminal);
 
-    match (app_result, restore_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(app_err), Ok(())) => Err(app_err),
-        (Ok(()), Err(restore_err)) => Err(restore_err),
-        (Err(app_err), Err(_)) => Err(app_err),
-    }
+   match (app_result, restore_result) {
+      (Ok(()), Ok(())) => Ok(()),
+      (Err(app_err), Ok(())) => Err(app_err),
+      (Ok(()), Err(restore_err)) => Err(restore_err),
+      (Err(app_err), Err(_)) => Err(app_err),
+   }
 }

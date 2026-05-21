@@ -1,313 +1,352 @@
 // REST handlers for snapshots, preferences, and health probes.
 
 use std::{
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
+   str::FromStr,
+   time::{
+      SystemTime,
+      UNIX_EPOCH,
+   },
 };
 
 use axum::{
-    extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
-    Json,
+   extract::{
+      Path,
+      State,
+   },
+   http::{
+      header,
+      HeaderMap,
+      HeaderValue,
+      StatusCode,
+   },
+   response::{
+      IntoResponse,
+      Response,
+   },
+   Json,
 };
-use rand::distr::{Alphanumeric, SampleString};
+use rand::distr::{
+   Alphanumeric,
+   SampleString,
+};
 use serde_json::json;
-use web_shared::{DemoStateResponse, NlsLivetickerResponse, Preferences, PutDemoRequest};
+use web_shared::{
+   DemoStateResponse,
+   NlsLivetickerResponse,
+   Preferences,
+   PutDemoRequest,
+};
 
+use super::{
+   prefs,
+   state::WebAppState,
+};
 use crate::timing::Series;
-
-use super::{prefs, state::WebAppState};
 
 const SESSION_COOKIE_NAME: &str = "imsa_session";
 
 #[derive(Debug, serde::Serialize)]
 struct ErrorResponse {
-    error: String,
+   error: String,
 }
 
 pub async fn get_snapshot(
-    State(state): State<WebAppState>,
-    headers: HeaderMap,
-    Path(series_raw): Path<String>,
+   State(state): State<WebAppState>,
+   headers: HeaderMap,
+   Path(series_raw): Path<String>,
 ) -> impl IntoResponse {
-    let series = match Series::from_str(&series_raw) {
-        Ok(series) => series,
-        Err(err) => {
-            return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: err })).into_response();
-        }
-    };
+   let series = match Series::from_str(&series_raw) {
+      Ok(series) => series,
+      Err(err) => {
+         return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: err })).into_response();
+      },
+   };
 
-    let session_token = session_token_from_headers(&headers);
-    if let Some(token) = session_token.as_deref() {
-        if let Some(snapshot) = state.demo_snapshot_response_for(series, token) {
-            return (StatusCode::OK, Json(snapshot)).into_response();
-        }
-    }
+   let session_token = session_token_from_headers(&headers);
+   if let Some(token) = session_token.as_deref() {
+      if let Some(snapshot) = state.demo_snapshot_response_for(series, token) {
+         return (StatusCode::OK, Json(snapshot)).into_response();
+      }
+   }
 
-    match state.snapshot_response_for(series) {
-        Some(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
-        None => (
+   match state.snapshot_response_for(series) {
+      Some(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
+      None => {
+         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: "series not found".to_string(),
+               error: "series not found".to_string(),
             }),
-        )
-            .into_response(),
-    }
+         )
+            .into_response()
+      },
+   }
 }
 
 pub async fn get_demo_state(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
-    let Some(session_token) = session_token_from_headers(&headers) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "authentication required".to_string(),
-            }),
-        )
-            .into_response();
-    };
+   let Some(session_token) = session_token_from_headers(&headers) else {
+      return (
+         StatusCode::UNAUTHORIZED,
+         Json(ErrorResponse {
+            error: "authentication required".to_string(),
+         }),
+      )
+         .into_response();
+   };
 
-    let response: DemoStateResponse = state.demo_state_for_session(&session_token);
-    (StatusCode::OK, Json(response)).into_response()
+   let response: DemoStateResponse = state.demo_state_for_session(&session_token);
+   (StatusCode::OK, Json(response)).into_response()
 }
 
 pub async fn put_demo_state(
-    State(state): State<WebAppState>,
-    headers: HeaderMap,
-    Json(payload): Json<PutDemoRequest>,
+   State(state): State<WebAppState>,
+   headers: HeaderMap,
+   Json(payload): Json<PutDemoRequest>,
 ) -> Response {
-    let Some(session_token) = session_token_from_headers(&headers) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "authentication required".to_string(),
-            }),
-        )
-            .into_response();
-    };
+   let Some(session_token) = session_token_from_headers(&headers) else {
+      return (
+         StatusCode::UNAUTHORIZED,
+         Json(ErrorResponse {
+            error: "authentication required".to_string(),
+         }),
+      )
+         .into_response();
+   };
 
-    let response: DemoStateResponse = state.set_demo_for_session(&session_token, payload.enabled);
-    (StatusCode::OK, Json(response)).into_response()
+   let response: DemoStateResponse = state.set_demo_for_session(&session_token, payload.enabled);
+   (StatusCode::OK, Json(response)).into_response()
 }
 
 pub async fn get_preferences(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
-    let (profile_id, set_cookie) = profile_context(&state, &headers);
+   let (profile_id, set_cookie) = profile_context(&state, &headers);
 
-    match state.current_preferences_for(&profile_id) {
-        Ok(preferences) => with_profile_cookie(
+   match state.current_preferences_for(&profile_id) {
+      Ok(preferences) => {
+         with_profile_cookie(
             set_cookie,
             (StatusCode::OK, Json(to_api_preferences(preferences))).into_response(),
-        ),
-        Err(err) => with_profile_cookie(
+         )
+      },
+      Err(err) => {
+         with_profile_cookie(
             set_cookie,
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: err }),
+               StatusCode::INTERNAL_SERVER_ERROR,
+               Json(ErrorResponse { error: err }),
             )
-                .into_response(),
-        ),
-    }
+               .into_response(),
+         )
+      },
+   }
 }
 
 pub async fn put_preferences(
-    State(state): State<WebAppState>,
-    headers: HeaderMap,
-    Json(next): Json<Preferences>,
+   State(state): State<WebAppState>,
+   headers: HeaderMap,
+   Json(next): Json<Preferences>,
 ) -> Response {
-    let (profile_id, set_cookie) = profile_context(&state, &headers);
-    let next = from_api_preferences(next);
+   let (profile_id, set_cookie) = profile_context(&state, &headers);
+   let next = from_api_preferences(next);
 
-    match state.update_preferences_for(&profile_id, next) {
-        Ok(updated) => with_profile_cookie(
+   match state.update_preferences_for(&profile_id, next) {
+      Ok(updated) => {
+         with_profile_cookie(
             set_cookie,
             (StatusCode::OK, Json(to_api_preferences(updated))).into_response(),
-        ),
-        Err(err) => with_profile_cookie(
+         )
+      },
+      Err(err) => {
+         with_profile_cookie(
             set_cookie,
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: err }),
+               StatusCode::INTERNAL_SERVER_ERROR,
+               Json(ErrorResponse { error: err }),
             )
-                .into_response(),
-        ),
-    }
+               .into_response(),
+         )
+      },
+   }
 }
 
 pub async fn reset_preferences(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
-    let (profile_id, set_cookie) = profile_context(&state, &headers);
+   let (profile_id, set_cookie) = profile_context(&state, &headers);
 
-    match state.reset_preferences_for(&profile_id) {
-        Ok(defaults) => with_profile_cookie(
+   match state.reset_preferences_for(&profile_id) {
+      Ok(defaults) => {
+         with_profile_cookie(
             set_cookie,
             (StatusCode::OK, Json(to_api_preferences(defaults))).into_response(),
-        ),
-        Err(err) => with_profile_cookie(
+         )
+      },
+      Err(err) => {
+         with_profile_cookie(
             set_cookie,
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: err }),
+               StatusCode::INTERNAL_SERVER_ERROR,
+               Json(ErrorResponse { error: err }),
             )
-                .into_response(),
-        ),
-    }
+               .into_response(),
+         )
+      },
+   }
 }
 
 pub async fn get_nls_liveticker(State(state): State<WebAppState>) -> Response {
-    let event_id = state.nls_event_id();
-    let response: NlsLivetickerResponse = state.nls_liveticker_response(event_id.as_deref());
-    (StatusCode::OK, Json(response)).into_response()
+   let event_id = state.nls_event_id();
+   let response: NlsLivetickerResponse = state.nls_liveticker_response(event_id.as_deref());
+   (StatusCode::OK, Json(response)).into_response()
 }
 
 fn to_api_preferences(value: prefs::Preferences) -> Preferences {
-    let mut favourites: Vec<String> = value.favourites.into_iter().collect();
-    favourites.sort();
-    Preferences {
-        favourites,
-        selected_series: to_api_series(value.selected_series),
-    }
+   let mut favourites: Vec<String> = value.favourites.into_iter().collect();
+   favourites.sort();
+   Preferences {
+      favourites,
+      selected_series: to_api_series(value.selected_series),
+   }
 }
 
 fn from_api_preferences(value: Preferences) -> prefs::Preferences {
-    prefs::Preferences {
-        favourites: value.favourites.into_iter().collect(),
-        selected_series: from_api_series(value.selected_series),
-    }
+   prefs::Preferences {
+      favourites:      value.favourites.into_iter().collect(),
+      selected_series: from_api_series(value.selected_series),
+   }
 }
 
 fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
-    match value {
-        crate::timing::Series::Imsa => web_shared::Series::Imsa,
-        crate::timing::Series::Nls => web_shared::Series::Nls,
-        crate::timing::Series::F1 => web_shared::Series::F1,
-        crate::timing::Series::Wec => web_shared::Series::Wec,
-        crate::timing::Series::Dhlm => web_shared::Series::Dhlm,
-    }
+   match value {
+      crate::timing::Series::Imsa => web_shared::Series::Imsa,
+      crate::timing::Series::Nls => web_shared::Series::Nls,
+      crate::timing::Series::F1 => web_shared::Series::F1,
+      crate::timing::Series::Wec => web_shared::Series::Wec,
+      crate::timing::Series::Dhlm => web_shared::Series::Dhlm,
+   }
 }
 
 fn from_api_series(value: web_shared::Series) -> crate::timing::Series {
-    match value {
-        web_shared::Series::Imsa => crate::timing::Series::Imsa,
-        web_shared::Series::Nls => crate::timing::Series::Nls,
-        web_shared::Series::F1 => crate::timing::Series::F1,
-        web_shared::Series::Wec => crate::timing::Series::Wec,
-        web_shared::Series::Dhlm => crate::timing::Series::Dhlm,
-    }
+   match value {
+      web_shared::Series::Imsa => crate::timing::Series::Imsa,
+      web_shared::Series::Nls => crate::timing::Series::Nls,
+      web_shared::Series::F1 => crate::timing::Series::F1,
+      web_shared::Series::Wec => crate::timing::Series::Wec,
+      web_shared::Series::Dhlm => crate::timing::Series::Dhlm,
+   }
 }
 
 pub async fn healthz() -> impl IntoResponse {
-    (StatusCode::OK, "ok\n")
+   (StatusCode::OK, "ok\n")
 }
 
 pub async fn readyz(State(state): State<WebAppState>) -> impl IntoResponse {
-    let ready = Series::all()
-        .iter()
-        .copied()
-        .all(|series| state.snapshot_for(series).is_some());
-    if ready {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    }
+   let ready = Series::all()
+      .iter()
+      .copied()
+      .all(|series| state.snapshot_for(series).is_some());
+   if ready {
+      StatusCode::OK
+   } else {
+      StatusCode::SERVICE_UNAVAILABLE
+   }
 }
 
 const PROFILE_COOKIE_NAME: &str = "imsa_profile";
 const PROFILE_COOKIE_MAX_AGE_SECS: u64 = 60 * 60 * 24 * 365;
 
 fn profile_context(
-    state: &WebAppState,
-    headers: &axum::http::HeaderMap,
+   state: &WebAppState,
+   headers: &axum::http::HeaderMap,
 ) -> (String, Option<String>) {
-    let mut create_reason = "missing_cookie";
+   let mut create_reason = "missing_cookie";
 
-    if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
-        if valid_profile_id(profile_id) {
-            return (profile_id.to_string(), None);
-        }
-        create_reason = "invalid_cookie";
-    }
+   if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
+      if valid_profile_id(profile_id) {
+         return (profile_id.to_string(), None);
+      }
+      create_reason = "invalid_cookie";
+   }
 
-    let generated = generate_profile_id();
-    let cookie = build_profile_cookie(state.profile_cookie_secure(), &generated);
-    log_profile_event("web_profile", "created", create_reason, &generated);
-    (generated, Some(cookie))
+   let generated = generate_profile_id();
+   let cookie = build_profile_cookie(state.profile_cookie_secure(), &generated);
+   log_profile_event("web_profile", "created", create_reason, &generated);
+   (generated, Some(cookie))
 }
 
 fn log_profile_event(event: &str, outcome: &str, reason: &str, profile_id: &str) {
-    eprintln!(
-        "{}",
-        json!({
-            "event": event,
-            "outcome": outcome,
-            "reason": reason,
-            "profile_hint": profile_hint(profile_id),
-            "ts_unix": now_unix_secs(),
-        })
-    );
+   eprintln!(
+      "{}",
+      json!({
+          "event": event,
+          "outcome": outcome,
+          "reason": reason,
+          "profile_hint": profile_hint(profile_id),
+          "ts_unix": now_unix_secs(),
+      })
+   );
 }
 
 fn profile_hint(profile_id: &str) -> String {
-    if profile_id == "-" {
-        return "-".to_string();
-    }
+   if profile_id == "-" {
+      return "-".to_string();
+   }
 
-    profile_id.chars().take(8).collect()
+   profile_id.chars().take(8).collect()
 }
 
 fn now_unix_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+   SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map(|d| d.as_secs())
+      .unwrap_or(0)
 }
 
 fn with_profile_cookie(cookie: Option<String>, mut response: Response) -> Response {
-    if let Some(cookie) = cookie {
-        if let Ok(value) = HeaderValue::from_str(&cookie) {
-            response.headers_mut().insert(header::SET_COOKIE, value);
-        }
-    }
-    response
+   if let Some(cookie) = cookie {
+      if let Ok(value) = HeaderValue::from_str(&cookie) {
+         response.headers_mut().insert(header::SET_COOKIE, value);
+      }
+   }
+   response
 }
 
 fn build_profile_cookie(secure: bool, profile_id: &str) -> String {
-    let mut cookie = format!(
-        "{PROFILE_COOKIE_NAME}={profile_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={PROFILE_COOKIE_MAX_AGE_SECS}"
-    );
-    if secure {
-        cookie.push_str("; Secure");
-    }
-    cookie
+   let mut cookie = format!(
+      "{PROFILE_COOKIE_NAME}={profile_id}; Path=/; HttpOnly; SameSite=Lax; \
+       Max-Age={PROFILE_COOKIE_MAX_AGE_SECS}"
+   );
+   if secure {
+      cookie.push_str("; Secure");
+   }
+   cookie
 }
 
 fn generate_profile_id() -> String {
-    let mut rng = rand::rng();
-    Alphanumeric.sample_string(&mut rng, 48)
+   let mut rng = rand::rng();
+   Alphanumeric.sample_string(&mut rng, 48)
 }
 
 fn cookie_value<'a>(headers: &'a axum::http::HeaderMap, cookie_name: &str) -> Option<&'a str> {
-    let raw_cookie = headers.get(header::COOKIE)?.to_str().ok()?;
-    raw_cookie.split(';').find_map(|part| {
-        let (name, value) = part.trim().split_once('=')?;
-        if name == cookie_name {
-            Some(value)
-        } else {
-            None
-        }
-    })
+   let raw_cookie = headers.get(header::COOKIE)?.to_str().ok()?;
+   raw_cookie.split(';').find_map(|part| {
+      let (name, value) = part.trim().split_once('=')?;
+      if name == cookie_name {
+         Some(value)
+      } else {
+         None
+      }
+   })
 }
 
 fn valid_profile_id(value: &str) -> bool {
-    let len = value.len();
-    if !(8..=128).contains(&len) {
-        return false;
-    }
+   let len = value.len();
+   if !(8..=128).contains(&len) {
+      return false;
+   }
 
-    value
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+   value
+      .chars()
+      .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
 fn session_token_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
-    cookie_value(headers, SESSION_COOKIE_NAME).map(ToString::to_string)
+   cookie_value(headers, SESSION_COOKIE_NAME).map(ToString::to_string)
 }
