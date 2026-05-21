@@ -245,10 +245,7 @@ export const App = (): JSX.Element => {
   }, [setState, state.demoEnabled]);
 
   const toggleFavourite = useCallback(async (): Promise<void> => {
-    const selected = activeEntries[state.selectedRow];
-    if (!selected) {
-      return;
-    }
+    const selected: TimingEntry = activeEntries[state.selectedRow];
     const key = favouriteKey(state.activeSeries, selected.stable_id);
     setState((prev: AppState) => {
       const next = new Set(prev.favourites);

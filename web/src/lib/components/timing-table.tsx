@@ -50,8 +50,8 @@ const formatCellValue = function formatCellValue(
   entry: TimingEntry,
   column: string,
 ): string {
-  const property: keyof TimingEntry | undefined = COLUMN_TO_PROPERTY[column];
-  if (property === undefined) {
+  const property = COLUMN_TO_PROPERTY[column];
+  if (property === null || property === undefined) {
     return '';
   }
   const value: string | number = entry[property];
@@ -62,8 +62,8 @@ const getClassColor = function getClassColor(
   className: string,
   classColors: Record<string, TimingClassColor>,
 ): string | null {
-  const colorConfig: TimingClassColor | undefined = classColors[className];
-  if (colorConfig === undefined) {
+  const colorConfig = classColors[className];
+  if (colorConfig === undefined || colorConfig === null) {
     return null;
   }
   const color: string = colorConfig.color;

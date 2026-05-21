@@ -49,7 +49,9 @@ export const HelpModal = function HelpModal(props: HelpModalProps): JSX.Element 
 
   useEffect(() => {
     if (!open) {
-      return (): void => {};
+      return function noop(): void {
+        // Intentionally empty
+      };
     }
     document.addEventListener('keydown', handleKeyDown);
     return (): void => {

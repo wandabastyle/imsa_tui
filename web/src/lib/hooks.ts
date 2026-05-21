@@ -193,7 +193,7 @@ export const useAppState = function useAppState(): UseAppStateReturn {
       const seriesItem = ALL_SERIES[index];
       if (result.status === 'fulfilled') {
         nextSnapshots[result.value.series] = result.value.snapshot;
-      } else if (result.status === 'rejected') {
+      } else {
         errors.push(`Failed to load ${seriesItem}: ${String(result.reason)}`);
       }
     }

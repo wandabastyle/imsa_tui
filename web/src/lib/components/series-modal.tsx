@@ -42,7 +42,9 @@ export const SeriesModal = function SeriesModal(
 
   useEffect(() => {
     if (!open) {
-      return (): void => {};
+      return function noop(): void {
+        // Intentionally empty
+      };
     }
     document.addEventListener('keydown', handleKeyDown);
     return (): void => {
