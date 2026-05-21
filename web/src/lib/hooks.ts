@@ -163,12 +163,20 @@ export const useAppState = function useAppState(): UseAppStateReturn {
   );
 
   const initializeAppState = useCallback(async (): Promise<void> => {
-    const snapshotPromises = ALL_SERIES.map(async (series: Series): Promise<SnapshotResponse | null> => fetchSnapshot(series));
-    const [prefsResult, demoResult, ...snapshotResults] = await Promise.allSettled([
+    const snapshotPromises: Promise<SnapshotResponse>[] = ALL_SERIES.map(
+      async (seriesItem: Series): Promise<SnapshotResponse> => {
+        const snapshot = await fetchSnapshot(seriesItem);
+        return snapshot;
+      },
+    );
+    const settledResults = await Promise.allSettled([
       fetchPreferences(),
       fetchDemoState(),
       ...snapshotPromises,
     ]);
+    const prefsResult: PromiseSettledResult<Preferences> = settledResults[0] as PromiseSettledResult<Preferences>;
+    const demoResult: PromiseSettledResult<{ enabled: boolean }> = settledResults[1] as PromiseSettledResult<{ enabled: boolean }>;
+    const snapshotResults: PromiseSettledResult<SnapshotResponse>[] = settledResults.slice(2) as PromiseSettledResult<SnapshotResponse>[];
 
     const prefs: { favourites: string[]; selected_series: Series } =
       prefsResult.status === 'fulfilled'
@@ -182,11 +190,12 @@ export const useAppState = function useAppState(): UseAppStateReturn {
 
     for (let index = SLICE_START; index < snapshotResults.length; index += CONNECT_STREAM_INDEX_INCREMENT) {
       const result = snapshotResults[index];
-      const series = ALL_SERIES[index];
-      if (result.status === 'fulfilled' && result.value !== null) {
+      const seriesItem = ALL_SERIES[index];
+      if (result?.status === 'fulfilled') {
         nextSnapshots[result.value.series] = result.value.snapshot;
-      } else if (result.status === 'rejected') {
-        errors.push(`Failed to load ${series}: ${String(result.reason)}`);
+      } else if (result?.status === 'rejected') {
+        const seriesName = seriesItem ?? 'unknown';
+        errors.push(`Failed to load ${seriesName}: ${String(result.reason)}`);
       }
     }
 
@@ -202,7 +211,7 @@ export const useAppState = function useAppState(): UseAppStateReturn {
     // Connect stream
     if (activeStream?.series !== prefs.selected_series) {
       activeStream?.handle.close();
-      const handle = openSeriesStream(prefs.selected_series, (payload: SnapshotResponse): void => {
+      const handle: EventSource = openSeriesStream(prefs.selected_series, (payload: SnapshotResponse): void => {
         setState((previous: AppState) => ({
           ...previous,
           snapshots: {
@@ -269,8 +278,10 @@ export const useAppState = function useAppState(): UseAppStateReturn {
   );
 
   const persistPreferences = useCallback(async (): Promise<void> => {
+    const favouritesArray: string[] = [...state.favourites];
+    favouritesArray.sort();
     const payload: Preferences = {
-      favourites: [...state.favourites].sort(),
+      favourites: favouritesArray,
       selected_series: state.activeSeries,
     };
     const persisted = await updatePreferences(payload);

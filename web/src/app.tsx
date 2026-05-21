@@ -34,7 +34,7 @@ const ZERO_LENGTH = 0;
 
 // Helper functions (hoisted before App component for no-use-before-define rule)
 const classDisplayName = (value: string): string => {
-  const normalized = value.replaceAll(' ', '').replaceAll('_', '').toUpperCase();
+  const normalized: string = value.replaceAll(' ', '').replaceAll('_', '').toUpperCase();
   if (normalized === 'GTDPRO') {
     return 'GTD PRO';
   }
@@ -44,11 +44,14 @@ const classDisplayName = (value: string): string => {
 const getGroups = (entries: TimingEntry[]): string[] => {
   const grouped = new Map<string, TimingEntry[]>();
   for (const entry of entries) {
-    const group = classDisplayName(entry.class_name);
+    const group: string = classDisplayName(entry.class_name);
     if (!grouped.has(group)) {
       grouped.set(group, []);
     }
-    grouped.get(group)?.push(entry);
+    const groupEntries: TimingEntry[] | undefined = grouped.get(group);
+    if (groupEntries !== undefined) {
+      groupEntries.push(entry);
+    }
   }
   return [...grouped.keys()].toSorted();
 };
@@ -90,25 +93,25 @@ export const App = (): JSX.Element => {
     switchSeriesStream,
   }: UseAppStateReturn = useAppState();
 
-  const [authChecking, setAuthChecking] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [loginCode, setLoginCode] = useState('');
-  const [loginError, setLoginError] = useState('');
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [authenticated, setAuthenticated] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string>('');
+  const [loginCode, setLoginCode] = useState<string>('');
+  const [loginError, setLoginError] = useState<string>('');
 
   // Derived values
-  const activeEntries = useMemo(() => {
-    const entries = activeSnapshot?.entries ?? [];
+  const activeEntries: TimingEntry[] = useMemo((): TimingEntry[] => {
+    const entries: TimingEntry[] = activeSnapshot?.entries ?? [];
     if (state.viewMode.kind === 'favourites') {
-      return entries.filter((entry) => {
-        const key = favouriteKey(state.activeSeries, entry.stable_id);
+      return entries.filter((entry: TimingEntry): boolean => {
+        const key: string = favouriteKey(state.activeSeries, entry.stable_id);
         return state.favourites.has(key);
       });
     }
     if (state.viewMode.kind === 'class' && state.groups.length > MINIMUM_LENGTH) {
-      const group = state.groups[state.viewMode.index];
-      return group ? entries.filter((entry) => classDisplayName(entry.class_name) === group) : entries;
+      const group: string | undefined = state.groups[state.viewMode.index];
+      return group !== undefined ? entries.filter((entry: TimingEntry): boolean => classDisplayName(entry.class_name) === group) : entries;
     }
     return entries;
   }, [
@@ -120,19 +123,20 @@ export const App = (): JSX.Element => {
     state.viewMode,
   ]);
 
-  const searchMatches = useMemo(() => {
-    if (!state.search.query) {
+  const searchMatches: number[] = useMemo((): number[] => {
+    if (state.search.query === '') {
       return [];
     }
     const matches: number[] = [];
-    const query = state.search.query.toLowerCase();
+    const query: string = state.search.query.toLowerCase();
     for (let index = FIRST_MATCH_INDEX; index < activeEntries.length; index += INDEX_INCREMENT) {
-      const entry = activeEntries[index];
+      const entry: TimingEntry | undefined = activeEntries[index];
       if (
-        entry.car_number.toLowerCase().includes(query) ||
-        entry.driver.toLowerCase().includes(query) ||
-        entry.vehicle.toLowerCase().includes(query) ||
-        entry.team.toLowerCase().includes(query)
+        entry !== undefined &&
+        (entry.car_number.toLowerCase().includes(query) ||
+         entry.driver.toLowerCase().includes(query) ||
+         entry.vehicle.toLowerCase().includes(query) ||
+         entry.team.toLowerCase().includes(query))
       ) {
         matches.push(index);
       }
@@ -169,17 +173,20 @@ export const App = (): JSX.Element => {
     if (activeEntries.length === MINIMUM_LENGTH) {
       return;
     }
-    const start = state.selectedRow;
+    const start: number = state.selectedRow;
     for (let offset = INDEX_INCREMENT; offset <= activeEntries.length; offset += INDEX_INCREMENT) {
-      const idx = (start + offset) % activeEntries.length;
-      const key = favouriteKey(state.activeSeries, activeEntries[idx].stable_id);
-      if (state.favourites.has(key)) {
-        setState((prev: AppState) => ({
-          ...prev,
-          gapAnchorStableId: activeEntries[idx].stable_id,
-          selectedRow: idx,
-        }));
-        return;
+      const idx: number = (start + offset) % activeEntries.length;
+      const entry: TimingEntry | undefined = activeEntries[idx];
+      if (entry !== undefined) {
+        const key: string = favouriteKey(state.activeSeries, entry.stable_id);
+        if (state.favourites.has(key)) {
+          setState((prev: AppState) => ({
+            ...prev,
+            gapAnchorStableId: entry.stable_id,
+            selectedRow: idx,
+          }));
+          return;
+        }
       }
     }
   }, [activeEntries, favouriteKey, setState, state.activeSeries, state.favourites, state.selectedRow]);

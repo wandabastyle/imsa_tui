@@ -50,8 +50,11 @@ const formatCellValue = function formatCellValue(
   entry: TimingEntry,
   column: string,
 ): string {
-  const property = COLUMN_TO_PROPERTY[column];
-  const value = property === undefined ? undefined : entry[property];
+  const property: keyof TimingEntry | undefined = COLUMN_TO_PROPERTY[column];
+  if (property === undefined) {
+    return '';
+  }
+  const value: string | number = entry[property];
   return typeof value === 'number' ? String(value) : (value ?? '');
 };
 
@@ -59,12 +62,15 @@ const getClassColor = function getClassColor(
   className: string,
   classColors: Record<string, TimingClassColor>,
 ): string | null {
-  const colorConfig = classColors[className];
-  const hasColor = colorConfig !== undefined && colorConfig.color !== undefined && colorConfig.color !== '';
-  if (hasColor) {
-    return colorConfig.color;
+  const colorConfig: TimingClassColor | undefined = classColors[className];
+  if (colorConfig === undefined) {
+    return null;
   }
-  return null;
+  const color: string | undefined = colorConfig.color;
+  if (color === undefined || color === '') {
+    return null;
+  }
+  return color;
 };
 
 const getPitColor = function getPitColor(pitValue: string): string | null {
@@ -86,22 +92,22 @@ export const TimingTable = function TimingTable(
 ): JSX.Element {
   const { classColors, entries, selectedRow, series } = props;
 
-  const columns = useMemo(() => getColumnsForSeries(series), [series]);
+  const columns: string[] = useMemo((): string[] => getColumnsForSeries(series), [series]);
 
-  const rowsData = useMemo(
-    () =>
-      entries.map((entry) =>
-        columns.map((column) => formatCellValue(entry, column)),
+  const rowsData: string[][] = useMemo(
+    (): string[][] =>
+      entries.map((entry: TimingEntry): string[] =>
+        columns.map((column: string): string => formatCellValue(entry, column)),
       ),
     [entries, columns],
   );
 
-  const widths = useMemo(() => {
-    const contextKey = `${series}-table`;
+  const widths: number[] = useMemo((): number[] => {
+    const contextKey: string = `${series}-table`;
     return computeStableColumnWidths(contextKey, columns, rowsData);
   }, [columns, rowsData, series]);
 
-  const widthStyles = useMemo(() => asChWidths(widths), [widths]);
+  const widthStyles: string[] = useMemo((): string[] => asChWidths(widths), [widths]);
 
   const tableRef = useRef<HTMLDivElement>(null);
   const selectedRowRef = useRef<HTMLTableRowElement>(null);
@@ -185,11 +191,11 @@ export const TimingTable = function TimingTable(
               </td>
             </tr>
           ) : (
-            entries.map((entry, rowIndex) => {
-              const isSelected = rowIndex === selectedRow;
-              const rowRef = isSelected ? selectedRowRef : undefined;
-              const classColor = getClassColor(entry.class_name, classColors);
-              const pitColor = getPitColor(entry.pit);
+            entries.map((entry: TimingEntry, rowIndex: number) => {
+              const isSelected: boolean = rowIndex === selectedRow;
+              const rowRef: React.RefObject<HTMLTableRowElement> | undefined = isSelected ? selectedRowRef : undefined;
+              const classColor: string | null = getClassColor(entry.class_name, classColors);
+              const pitColor: string | null = getPitColor(entry.pit);
 
               return (
                 <tr
@@ -202,10 +208,10 @@ export const TimingTable = function TimingTable(
                     height: `${ROW_HEIGHT_PX}px`,
                   }}
                 >
-                  {columns.map((column, colIndex) => {
-                    const isCompact = isCompactColumn(column);
-                    const value = formatCellValue(entry, column);
-                    const isPitColumn = column === 'Pit';
+                  {columns.map((column: string, colIndex: number) => {
+                    const isCompact: boolean = isCompactColumn(column);
+                    const value: string = formatCellValue(entry, column);
+                    const isPitColumn: boolean = column === 'Pit';
 
                     const cellColor: string | undefined = ((): string | undefined => {
                       if (isPitColumn && pitColor !== null) {
@@ -214,7 +220,7 @@ export const TimingTable = function TimingTable(
                       if (column === 'Class' && classColor !== null) {
                         return classColor;
                       }
-                      return;
+                      return undefined;
                     })();
 
                     return (
