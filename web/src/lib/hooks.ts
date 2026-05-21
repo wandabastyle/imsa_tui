@@ -174,9 +174,9 @@ export const useAppState = function useAppState(): UseAppStateReturn {
       fetchDemoState(),
       ...snapshotPromises,
     ]);
-    const prefsResult: PromiseSettledResult<Preferences> = settledResults[0] as PromiseSettledResult<Preferences>;
-    const demoResult: PromiseSettledResult<{ enabled: boolean }> = settledResults[1] as PromiseSettledResult<{ enabled: boolean }>;
-    const snapshotResults: PromiseSettledResult<SnapshotResponse>[] = settledResults.slice(2) as PromiseSettledResult<SnapshotResponse>[];
+    const prefsResult = settledResults[0] as PromiseSettledResult<Preferences>;
+    const demoResult = settledResults[1] as PromiseSettledResult<{ enabled: boolean }>;
+    const snapshotResults = settledResults.slice(2) as PromiseSettledResult<SnapshotResponse>[];
 
     const prefs: { favourites: string[]; selected_series: Series } =
       prefsResult.status === 'fulfilled'

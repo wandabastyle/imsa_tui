@@ -53,7 +53,7 @@ const getGroups = (entries: TimingEntry[]): string[] => {
       groupEntries.push(entry);
     }
   }
-  return [...grouped.keys()].toSorted();
+  return [...grouped.keys()].sort();
 };
 
 const nextViewMode = (current: ViewMode, groupCount: number): ViewMode => {

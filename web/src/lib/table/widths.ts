@@ -8,7 +8,7 @@ export interface WidthComputationOptions {
 }
 
 const textWidthCh = function textWidthCh(value: string): number {
-  return Array.from(value).length;
+  return value.length;
 };
 
 const clamp = function clamp(value: number, min: number, max: number): number {

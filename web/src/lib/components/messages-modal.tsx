@@ -49,7 +49,7 @@ export const MessagesModal = function MessagesModal(
     return null;
   }
 
-  const sortedNotices: TimingNotice[] = [...notices].toSorted(
+  const sortedNotices: TimingNotice[] = [...notices].sort(
     (left: TimingNotice, right: TimingNotice): number =>
       right.time.localeCompare(left.time),
   );
