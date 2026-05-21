@@ -19,5 +19,5 @@
       "$lib/*": ["./src/lib/*"]
     }
   },
-  "include": ["global.d.ts", "src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "src/**/*.d.ts", "vite.config.ts"]
+  "include": ["global.d.ts", "src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.d.ts", "vite.config.ts"]
 }
