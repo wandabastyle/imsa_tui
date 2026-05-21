@@ -19,9 +19,7 @@ const MODAL_CONTENT_Z_INDEX = 101;
 const NOTICE_TIME_MAX_LENGTH = 12;
 const NOTICE_TEXT_MAX_LENGTH = 500;
 
-export const MessagesModal = function MessagesModal(
-  props: MessagesModalProps,
-): JSX.Element | null {
+export const MessagesModal = function MessagesModal(props: MessagesModalProps): JSX.Element | null {
   const { notices, onClose, open } = props;
 
   const handleKeyDown = useCallback(
@@ -51,8 +49,7 @@ export const MessagesModal = function MessagesModal(
 
   // Using sort on a spread copy is equivalent to toSorted() for ES2024
   const sortedNotices: TimingNotice[] = [...notices].sort(
-    (left: TimingNotice, right: TimingNotice): number =>
-      right.time.localeCompare(left.time),
+    (left: TimingNotice, right: TimingNotice): number => right.time.localeCompare(left.time),
   );
 
   return (
@@ -146,9 +143,10 @@ export const MessagesModal = function MessagesModal(
           >
             {sortedNotices.map((notice) => {
               const truncatedTime = notice.time.slice(SLICE_START_INDEX, NOTICE_TIME_MAX_LENGTH);
-              const truncatedText = notice.text.length > NOTICE_TEXT_MAX_LENGTH
-                ? `${notice.text.slice(SLICE_START_INDEX, NOTICE_TEXT_MAX_LENGTH)}…`
-                : notice.text;
+              const truncatedText =
+                notice.text.length > NOTICE_TEXT_MAX_LENGTH
+                  ? `${notice.text.slice(SLICE_START_INDEX, NOTICE_TEXT_MAX_LENGTH)}…`
+                  : notice.text;
 
               return (
                 <div

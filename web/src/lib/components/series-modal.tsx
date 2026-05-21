@@ -26,19 +26,14 @@ const SERIES_OPTIONS: SeriesOption[] = ALL_SERIES.map((series) => ({
   series,
 }));
 
-export const SeriesModal = function SeriesModal(
-  props: SeriesModalProps,
-): JSX.Element | null {
+export const SeriesModal = function SeriesModal(props: SeriesModalProps): JSX.Element | null {
   const { onPick, open, selectedIndex, selectedSeries } = props;
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        // Let App.tsx handle the escape
-      }
-    },
-    [],
-  );
+  const handleKeyDown = useCallback((event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      // Let App.tsx handle the escape
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -127,12 +122,8 @@ export const SeriesModal = function SeriesModal(
                 }}
                 style={{
                   alignItems: 'center',
-                  backgroundColor: isSelected
-                    ? 'var(--bg-selected)'
-                    : 'var(--bg-panel)',
-                  border: isSelected
-                    ? '1px solid var(--accent)'
-                    : '1px solid var(--border)',
+                  backgroundColor: isSelected ? 'var(--bg-selected)' : 'var(--bg-panel)',
+                  border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
                   borderRadius: '3px',
                   color: isCurrent ? 'var(--accent)' : 'var(--text)',
                   cursor: 'pointer',

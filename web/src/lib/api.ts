@@ -38,11 +38,15 @@ const isSnapshotResponse = function isSnapshotResponse(value: unknown): value is
   return isSeries(value.series) && isRecord(value.snapshot);
 };
 
-const isSessionStateResponse = function isSessionStateResponse(value: unknown): value is SessionStateResponse {
+const isSessionStateResponse = function isSessionStateResponse(
+  value: unknown,
+): value is SessionStateResponse {
   return isRecord(value) && typeof value.authenticated === 'boolean';
 };
 
-const isDemoStateResponse = function isDemoStateResponse(value: unknown): value is DemoStateResponse {
+const isDemoStateResponse = function isDemoStateResponse(
+  value: unknown,
+): value is DemoStateResponse {
   return isRecord(value) && typeof value.enabled === 'boolean';
 };
 
@@ -81,7 +85,9 @@ const safeReadJson = async function safeReadJson(response: Response): Promise<un
   }
 };
 
-export const fetchSnapshot = async function fetchSnapshot(series: Series): Promise<SnapshotResponse> {
+export const fetchSnapshot = async function fetchSnapshot(
+  series: Series,
+): Promise<SnapshotResponse> {
   const response = await fetch(`/api/snapshot/${series}`);
   if (!response.ok) {
     throw new Error(`snapshot request failed (${String(response.status)})`);
@@ -105,7 +111,9 @@ export const fetchSessionState = async function fetchSessionState(): Promise<boo
   return payload.authenticated;
 };
 
-export const loginWithAccessCode = async function loginWithAccessCode(accessCode: string): Promise<LoginResult> {
+export const loginWithAccessCode = async function loginWithAccessCode(
+  accessCode: string,
+): Promise<LoginResult> {
   const response = await fetch('/auth/login', {
     body: JSON.stringify({ access_code: accessCode }),
     headers: {
@@ -142,7 +150,9 @@ export const fetchPreferences = async function fetchPreferences(): Promise<Prefe
   return payload;
 };
 
-export const updatePreferences = async function updatePreferences(preferences: Preferences): Promise<Preferences> {
+export const updatePreferences = async function updatePreferences(
+  preferences: Preferences,
+): Promise<Preferences> {
   const response = await fetch('/api/preferences', {
     body: JSON.stringify(preferences),
     headers: {
@@ -174,7 +184,9 @@ export const fetchDemoState = async function fetchDemoState(): Promise<DemoState
   return payload;
 };
 
-export const updateDemoState = async function updateDemoState(enabled: boolean): Promise<DemoStateResponse> {
+export const updateDemoState = async function updateDemoState(
+  enabled: boolean,
+): Promise<DemoStateResponse> {
   const response = await fetch('/api/demo', {
     body: JSON.stringify({ enabled }),
     headers: {
@@ -206,7 +218,9 @@ export const resetPreferences = async function resetPreferences(): Promise<Prefe
   return payload;
 };
 
-const isNlsLivetickerResponse = function isNlsLivetickerResponse(value: unknown): value is NlsLivetickerResponse {
+const isNlsLivetickerResponse = function isNlsLivetickerResponse(
+  value: unknown,
+): value is NlsLivetickerResponse {
   if (!isRecord(value)) {
     return false;
   }
@@ -223,17 +237,18 @@ const isNlsLivetickerResponse = function isNlsLivetickerResponse(value: unknown)
   return true;
 };
 
-export const fetchNlsLiveticker = async function fetchNlsLiveticker(): Promise<NlsLivetickerResponse> {
-  const response = await fetch('/api/nls/liveticker');
-  if (!response.ok) {
-    throw new Error(`liveticker request failed (${String(response.status)})`);
-  }
-  const payload = await safeReadJson(response);
-  if (!isNlsLivetickerResponse(payload)) {
-    throw new Error('liveticker response payload is invalid');
-  }
-  return payload;
-};
+export const fetchNlsLiveticker =
+  async function fetchNlsLiveticker(): Promise<NlsLivetickerResponse> {
+    const response = await fetch('/api/nls/liveticker');
+    if (!response.ok) {
+      throw new Error(`liveticker request failed (${String(response.status)})`);
+    }
+    const payload = await safeReadJson(response);
+    if (!isNlsLivetickerResponse(payload)) {
+      throw new Error('liveticker response payload is invalid');
+    }
+    return payload;
+  };
 
 export const openSeriesStream = function openSeriesStream(
   series: Series,

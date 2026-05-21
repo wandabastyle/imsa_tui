@@ -1,18 +1,18 @@
 // Main app content component (authenticated view)
 import type { JSX } from 'react';
 
+import type { AppState } from '../hooks';
+import type { Series, SeriesSnapshot, TimingEntry } from '../types';
 import { HeaderBar } from './header-bar';
 import { HelpModal } from './help-modal';
 import { MessagesModal } from './messages-modal';
 import { NlsLivetickerModal } from './nls-liveticker-modal';
 import { SeriesModal } from './series-modal';
 import { TimingTable } from './timing-table';
-import type { AppState } from '../hooks';
-import type { Series, TimingEntry } from '../types';
 
 interface MainContentProps {
   state: AppState;
-  activeSnapshot: { entries: TimingEntry[]; header: { class_colors?: Record<string, unknown> }; notices?: unknown[] } | null;
+  activeSnapshot: SeriesSnapshot | null;
   activeEntries: TimingEntry[];
   activeSeries: Series;
   viewModeLabel: string;

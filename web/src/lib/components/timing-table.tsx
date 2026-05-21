@@ -21,35 +21,32 @@ interface TimingTableProps {
 const COLUMN_TO_PROPERTY: Record<string, keyof TimingEntry> = {
   '#': 'car_number',
   'BL#': 'best_lap_no',
-  'Best': 'best_lap',
-  'Class': 'class_name',
-  'Driver': 'driver',
+  Best: 'best_lap',
+  Class: 'class_name',
+  Driver: 'driver',
   'Fastest Driver': 'fastest_driver',
-  'Gap': 'gap_overall',
+  Gap: 'gap_overall',
   'Gap C': 'gap_class',
   'Gap O': 'gap_overall',
-  'Int': 'gap_next_in_class',
-  'Laps': 'laps',
-  'Last': 'last_lap',
+  Int: 'gap_next_in_class',
+  Laps: 'laps',
+  Last: 'last_lap',
   'Next C': 'gap_next_in_class',
-  'PIC': 'class_rank',
-  'Pit': 'pit',
-  'Pos': 'position',
-  'S1': 'sector_1',
-  'S2': 'sector_2',
-  'S3': 'sector_3',
-  'S4': 'sector_4',
-  'S5': 'sector_5',
-  'Stop': 'pit_stops',
-  'Stops': 'pit_stops',
-  'Team': 'team',
-  'Vehicle': 'vehicle',
+  PIC: 'class_rank',
+  Pit: 'pit',
+  Pos: 'position',
+  S1: 'sector_1',
+  S2: 'sector_2',
+  S3: 'sector_3',
+  S4: 'sector_4',
+  S5: 'sector_5',
+  Stop: 'pit_stops',
+  Stops: 'pit_stops',
+  Team: 'team',
+  Vehicle: 'vehicle',
 };
 
-const formatCellValue = function formatCellValue(
-  entry: TimingEntry,
-  column: string,
-): string {
+const formatCellValue = function formatCellValue(entry: TimingEntry, column: string): string {
   if (!Object.hasOwn(COLUMN_TO_PROPERTY, column)) {
     return '';
   }
@@ -90,9 +87,7 @@ const getPitColor = function getPitColor(pitValue: string): string | null {
   return null;
 };
 
-export const TimingTable = function TimingTable(
-  props: TimingTableProps,
-): JSX.Element {
+export const TimingTable = function TimingTable(props: TimingTableProps): JSX.Element {
   const { classColors, entries, selectedRow, series } = props;
 
   const columns: string[] = useMemo((): string[] => getColumnsForSeries(series), [series]);
@@ -159,10 +154,7 @@ export const TimingTable = function TimingTable(
                 <th
                   key={column}
                   style={{
-                    borderRight:
-                      colIndex < lastColumnIndex
-                        ? '1px solid var(--grid)'
-                        : 'none',
+                    borderRight: colIndex < lastColumnIndex ? '1px solid var(--grid)' : 'none',
                     color: 'var(--text-dim)',
                     fontWeight: 600,
                     overflow: 'hidden',
@@ -196,7 +188,9 @@ export const TimingTable = function TimingTable(
           ) : (
             entries.map((entry: TimingEntry, rowIndex: number) => {
               const isSelected: boolean = rowIndex === selectedRow;
-              const rowRef: React.RefObject<HTMLTableRowElement | null> | undefined = isSelected ? selectedRowRef : undefined;
+              const rowRef: React.RefObject<HTMLTableRowElement | null> | undefined = isSelected
+                ? selectedRowRef
+                : undefined;
               const classColor: string | null = getClassColor(entry.class_name, classColors);
               const pitColor: string | null = getPitColor(entry.pit);
 
@@ -205,9 +199,7 @@ export const TimingTable = function TimingTable(
                   key={entry.stable_id}
                   ref={rowRef}
                   style={{
-                    backgroundColor: isSelected
-                      ? 'var(--bg-selected)'
-                      : undefined,
+                    backgroundColor: isSelected ? 'var(--bg-selected)' : undefined,
                     height: `${ROW_HEIGHT_PX}px`,
                   }}
                 >
@@ -231,9 +223,7 @@ export const TimingTable = function TimingTable(
                         key={`${entry.stable_id}-${column}`}
                         style={{
                           borderRight:
-                            colIndex < lastColumnIndex
-                              ? '1px solid var(--grid)'
-                              : 'none',
+                            colIndex < lastColumnIndex ? '1px solid var(--grid)' : 'none',
                           color: cellColor,
                           fontFamily: isCompact ? 'monospace' : undefined,
                           overflow: 'hidden',

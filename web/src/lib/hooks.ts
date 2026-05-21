@@ -2,14 +2,6 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 
 import {
-  ALL_SERIES,
-  type NlsLivetickerEntry,
-  type Preferences,
-  type Series,
-  type SnapshotResponse,
-  type TimingEntry,
-} from './types';
-import {
   fetchDemoState,
   fetchNlsLiveticker,
   fetchPreferences,
@@ -17,6 +9,14 @@ import {
   openSeriesStream,
   updatePreferences,
 } from './api';
+import {
+  ALL_SERIES,
+  type NlsLivetickerEntry,
+  type Preferences,
+  type Series,
+  type SnapshotResponse,
+  type TimingEntry,
+} from './types';
 
 interface SearchState {
   currentMatch: number;
@@ -150,9 +150,9 @@ export type { JSX };
 
 export const useAppState = function useAppState(): UseAppStateReturn {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
-  const [activeStream, setActiveStream] = useState<
-    { series: Series; handle: EventSource } | null
-  >(null);
+  const [activeStream, setActiveStream] = useState<{ series: Series; handle: EventSource } | null>(
+    null,
+  );
 
   const updateState = useCallback(
     <Key extends keyof AppState>(key: Key, value: AppState[Key]): void => {
@@ -184,7 +184,11 @@ export const useAppState = function useAppState(): UseAppStateReturn {
     const nextSnapshots: AppState['snapshots'] = { ...state.snapshots };
     const errors: string[] = [...state.connectionErrors];
 
-    for (let index = SLICE_START; index < snapshotResults.length; index += CONNECT_STREAM_INDEX_INCREMENT) {
+    for (
+      let index = SLICE_START;
+      index < snapshotResults.length;
+      index += CONNECT_STREAM_INDEX_INCREMENT
+    ) {
       const result = snapshotResults[index];
       const seriesItem = ALL_SERIES[index];
       if (result.status === 'fulfilled') {
@@ -206,16 +210,19 @@ export const useAppState = function useAppState(): UseAppStateReturn {
     // Connect stream
     if (activeStream?.series !== prefs.selected_series) {
       activeStream?.handle.close();
-      const handle: EventSource = openSeriesStream(prefs.selected_series, (payload: SnapshotResponse): void => {
-        setState((previous: AppState) => ({
-          ...previous,
-          snapshots: {
-            ...previous.snapshots,
-            [payload.series]: payload.snapshot,
-          },
-        }));
-      });
-      
+      const handle: EventSource = openSeriesStream(
+        prefs.selected_series,
+        (payload: SnapshotResponse): void => {
+          setState((previous: AppState) => ({
+            ...previous,
+            snapshots: {
+              ...previous.snapshots,
+              [payload.series]: payload.snapshot,
+            },
+          }));
+        },
+      );
+
       // Use addEventListener instead of onerror
       const handleError = (): void => {
         setState((previous: AppState) => ({
@@ -227,7 +234,7 @@ export const useAppState = function useAppState(): UseAppStateReturn {
         }));
       };
       handle.addEventListener('error', handleError);
-      
+
       setActiveStream({ handle, series: prefs.selected_series });
     }
   }, [activeStream, state.connectionErrors, state.snapshots]);
@@ -254,7 +261,7 @@ export const useAppState = function useAppState(): UseAppStateReturn {
           },
         }));
       });
-      
+
       // Use addEventListener instead of onerror
       const handleError = (): void => {
         setState((previous: AppState) => ({
@@ -266,7 +273,7 @@ export const useAppState = function useAppState(): UseAppStateReturn {
         }));
       };
       handle.addEventListener('error', handleError);
-      
+
       setActiveStream({ handle, series });
     },
     [activeStream],
@@ -303,20 +310,16 @@ export const useAppState = function useAppState(): UseAppStateReturn {
         ...previous,
         nlsLiveticker: {
           ...previous.nlsLiveticker,
-          lastError:
-            error instanceof Error ? error.message : 'Failed to fetch liveticker',
+          lastError: error instanceof Error ? error.message : 'Failed to fetch liveticker',
         },
       }));
     }
   }, []);
 
-  const favouriteKey = useCallback(
-    (series: Series, stableId: string): string => {
-      const normalized = normalizeStableId(series, stableId);
-      return `${series}|${normalized}`;
-    },
-    [],
-  );
+  const favouriteKey = useCallback((series: Series, stableId: string): string => {
+    const normalized = normalizeStableId(series, stableId);
+    return `${series}|${normalized}`;
+  }, []);
 
   const resolveSelectedRow = useCallback(
     (
@@ -334,7 +337,10 @@ export const useAppState = function useAppState(): UseAppStateReturn {
       if (newIndex !== INDEX_NOT_FOUND) {
         return { row: newIndex, stableId: previousStableId };
       }
-      const clampedRow = Math.min(previousRow, Math.max(INITIAL_ROW, currentEntries.length - CONNECT_STREAM_INDEX_INCREMENT));
+      const clampedRow = Math.min(
+        previousRow,
+        Math.max(INITIAL_ROW, currentEntries.length - CONNECT_STREAM_INDEX_INCREMENT),
+      );
       return {
         row: clampedRow,
         stableId: currentEntries[clampedRow]?.stable_id ?? null,

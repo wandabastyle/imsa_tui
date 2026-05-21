@@ -15,12 +15,19 @@ export const LoginScreen = (props: LoginScreenProps): JSX.Element => {
     <div className="login-container">
       <h1>IMSA Live Timing</h1>
       <input
-        onChange={(event): void => { setLoginCode(event.target.value); }}
+        onChange={(event): void => {
+          setLoginCode(event.target.value);
+        }}
         placeholder="Enter access code"
         type="text"
         value={loginCode}
       />
-      <button onClick={(): void => { onSubmit(); }} type="button">
+      <button
+        onClick={(): void => {
+          onSubmit();
+        }}
+        type="button"
+      >
         Login
       </button>
       {loginError && <div className="error">{loginError}</div>}

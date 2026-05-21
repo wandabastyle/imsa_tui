@@ -25,9 +25,7 @@ const STANDARD_STATIC_COLORS: Record<string, string> = {
 
 const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/u;
 
-const looksLikeHexColor = function looksLikeHexColor(
-  value: string | undefined,
-): boolean {
+const looksLikeHexColor = function looksLikeHexColor(value: string | undefined): boolean {
   if (value === undefined || value === '') {
     return false;
   }
@@ -38,9 +36,7 @@ const resolveLiveClassColor = function resolveLiveClassColor(
   classColors: Record<string, TimingClassColor>,
   classKey: string,
 ): string | null {
-  const direct = Object.hasOwn(classColors, classKey)
-    ? classColors[classKey]
-    : undefined;
+  const direct = Object.hasOwn(classColors, classKey) ? classColors[classKey] : undefined;
   if (direct !== undefined && looksLikeHexColor(direct.color)) {
     return direct.color.trim();
   }

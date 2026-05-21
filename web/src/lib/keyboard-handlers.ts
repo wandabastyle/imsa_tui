@@ -59,7 +59,10 @@ interface SearchHandlers {
   setState: UseAppStateReturn['setState'];
 }
 
-export const handleSearchKeydown = (event: globalThis.KeyboardEvent, handlers: SearchHandlers): void => {
+export const handleSearchKeydown = (
+  event: globalThis.KeyboardEvent,
+  handlers: SearchHandlers,
+): void => {
   const { searchMatches, setState } = handlers;
 
   if (event.key === 'Escape') {
@@ -104,7 +107,10 @@ interface SeriesPickerHandlers {
   setState: UseAppStateReturn['setState'];
 }
 
-export const handleSeriesPickerKeydown = (event: globalThis.KeyboardEvent, handlers: SeriesPickerHandlers): void => {
+export const handleSeriesPickerKeydown = (
+  event: globalThis.KeyboardEvent,
+  handlers: SeriesPickerHandlers,
+): void => {
   const { chooseSeries, seriesPickerIndex, setState } = handlers;
 
   if (event.key === 'Escape') {
@@ -145,7 +151,10 @@ interface MainKeydownHandlers {
   toggleFavourite: () => Promise<void>;
 }
 
-export const handleMainKeydown = (event: globalThis.KeyboardEvent, handlers: MainKeydownHandlers): void => {
+export const handleMainKeydown = (
+  event: globalThis.KeyboardEvent,
+  handlers: MainKeydownHandlers,
+): void => {
   const {
     activeEntriesLength,
     cycleView,

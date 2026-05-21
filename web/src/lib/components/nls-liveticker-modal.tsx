@@ -64,8 +64,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
   }
 
   const now = Date.now();
-  const lastUpdateMs =
-    lastUpdateUnixMs === null ? null : Number(lastUpdateUnixMs);
+  const lastUpdateMs = lastUpdateUnixMs === null ? null : Number(lastUpdateUnixMs);
   const updateAge = lastUpdateMs === null ? null : now - lastUpdateMs;
 
   return (
@@ -161,9 +160,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
               textAlign: 'center',
             }}
           >
-            {lastUpdateMs === null
-              ? 'Waiting for NLS liveticker data…'
-              : 'No entries available'}
+            {lastUpdateMs === null ? 'Waiting for NLS liveticker data…' : 'No entries available'}
           </div>
         ) : (
           <>
@@ -174,9 +171,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
                 marginBottom: '0.75rem',
               }}
             >
-              {updateAge === null
-                ? 'Last update: unknown'
-                : `Last update: ${formatAge(updateAge)}`}
+              {updateAge === null ? 'Last update: unknown' : `Last update: ${formatAge(updateAge)}`}
             </div>
 
             <div
@@ -187,11 +182,18 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
               }}
             >
               {entries.map((entry) => {
-                const truncatedDay = entry.day_label.slice(SLICE_START_INDEX, ENTRY_TIME_MAX_LENGTH);
-                const truncatedTime = entry.time_text.slice(SLICE_START_INDEX, ENTRY_TIME_MAX_LENGTH);
-                const truncatedMessage = entry.message.length > ENTRY_MESSAGE_MAX_LENGTH
-                  ? `${entry.message.slice(SLICE_START_INDEX, ENTRY_MESSAGE_MAX_LENGTH)}…`
-                  : entry.message;
+                const truncatedDay = entry.day_label.slice(
+                  SLICE_START_INDEX,
+                  ENTRY_TIME_MAX_LENGTH,
+                );
+                const truncatedTime = entry.time_text.slice(
+                  SLICE_START_INDEX,
+                  ENTRY_TIME_MAX_LENGTH,
+                );
+                const truncatedMessage =
+                  entry.message.length > ENTRY_MESSAGE_MAX_LENGTH
+                    ? `${entry.message.slice(SLICE_START_INDEX, ENTRY_MESSAGE_MAX_LENGTH)}…`
+                    : entry.message;
 
                 return (
                   <div

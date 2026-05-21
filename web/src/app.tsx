@@ -1,13 +1,9 @@
 // Main App component
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 
-import {
-  fetchSessionState,
-  loginWithAccessCode,
-  updateDemoState,
-} from './lib/api';
-import { LoginScreen } from './lib/components/login-screen';
+import { fetchSessionState, loginWithAccessCode, updateDemoState } from './lib/api';
 import { LoadingScreen, ErrorScreen } from './lib/components/app-screens';
+import { LoginScreen } from './lib/components/login-screen';
 import { MainContent } from './lib/components/main-content';
 import { useAppState, useKeyboard, type AppState, type UseAppStateReturn } from './lib/hooks';
 import {
@@ -16,8 +12,8 @@ import {
   handleSearchKeydown,
   handleSeriesPickerKeydown,
 } from './lib/keyboard-handlers';
-import { classDisplayName, getGroups, nextViewMode } from './lib/view-utils';
 import type { Series, TimingEntry } from './lib/types';
+import { classDisplayName, getGroups, nextViewMode } from './lib/view-utils';
 
 const DEFAULT_SELECTED_ROW = 0;
 const INDEX_DECREMENT = -1;
@@ -49,7 +45,8 @@ interface UseAppLogicParams {
 }
 
 const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
-  const { activeSnapshot, favouriteKey, persistPreferences, setState, state, switchSeriesStream } = params;
+  const { activeSnapshot, favouriteKey, persistPreferences, setState, state, switchSeriesStream } =
+    params;
   const activeEntries = useMemo((): TimingEntry[] => {
     const entries: TimingEntry[] = activeSnapshot?.entries ?? [];
     if (state.viewMode.kind === 'favourites') {
@@ -60,10 +57,19 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
     }
     if (state.viewMode.kind === 'class' && state.groups.length > MINIMUM_LENGTH) {
       const group: string = state.groups[state.viewMode.index];
-      return entries.filter((entry: TimingEntry): boolean => classDisplayName(entry.class_name) === group);
+      return entries.filter(
+        (entry: TimingEntry): boolean => classDisplayName(entry.class_name) === group,
+      );
     }
     return entries;
-  }, [activeSnapshot?.entries, favouriteKey, state.activeSeries, state.favourites, state.groups, state.viewMode]);
+  }, [
+    activeSnapshot?.entries,
+    favouriteKey,
+    state.activeSeries,
+    state.favourites,
+    state.groups,
+    state.viewMode,
+  ]);
 
   const searchMatches = ((): number[] => {
     if (state.search.query === '') {
@@ -73,27 +79,34 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
     const matches: number[] = [];
     for (let index = ZERO_LENGTH; index < activeEntries.length; index += INCREMENT_BY_ONE) {
       const entry: TimingEntry = activeEntries[index];
-      if (entry.car_number.toLowerCase().includes(query) || entry.driver.toLowerCase().includes(query) ||
-          entry.vehicle.toLowerCase().includes(query) || entry.team.toLowerCase().includes(query)) {
+      if (
+        entry.car_number.toLowerCase().includes(query) ||
+        entry.driver.toLowerCase().includes(query) ||
+        entry.vehicle.toLowerCase().includes(query) ||
+        entry.team.toLowerCase().includes(query)
+      ) {
         matches.push(index);
       }
     }
     return matches;
   })();
 
-  const chooseSeries = useCallback(async (series: Series): Promise<void> => {
-    setState((prev: AppState) => ({
-      ...prev,
-      activeSeries: series,
-      gapAnchorStableId: null,
-      selectedRow: DEFAULT_SELECTED_ROW,
-      showGroupPicker: false,
-      showSeriesPicker: false,
-      viewMode: { kind: 'overall' },
-    }));
-    switchSeriesStream(series);
-    await persistPreferences();
-  }, [persistPreferences, setState, switchSeriesStream]);
+  const chooseSeries = useCallback(
+    async (series: Series): Promise<void> => {
+      setState((prev: AppState) => ({
+        ...prev,
+        activeSeries: series,
+        gapAnchorStableId: null,
+        selectedRow: DEFAULT_SELECTED_ROW,
+        showGroupPicker: false,
+        showSeriesPicker: false,
+        viewMode: { kind: 'overall' },
+      }));
+      switchSeriesStream(series);
+      await persistPreferences();
+    },
+    [persistPreferences, setState, switchSeriesStream],
+  );
 
   const cycleView = useCallback((): void => {
     const groups = getGroups(activeSnapshot?.entries ?? []);
@@ -115,45 +128,65 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
       const entry: TimingEntry = activeEntries[idx];
       const key: string = favouriteKey(state.activeSeries, entry.stable_id);
       if (state.favourites.has(key)) {
-        setState((prev: AppState) => ({ ...prev, gapAnchorStableId: entry.stable_id, selectedRow: idx }));
+        setState((prev: AppState) => ({
+          ...prev,
+          gapAnchorStableId: entry.stable_id,
+          selectedRow: idx,
+        }));
         return;
       }
     }
-  }, [activeEntries, favouriteKey, setState, state.activeSeries, state.favourites, state.selectedRow]);
+  }, [
+    activeEntries,
+    favouriteKey,
+    setState,
+    state.activeSeries,
+    state.favourites,
+    state.selectedRow,
+  ]);
 
-  const jumpSearch = useCallback((delta: number): void => {
-    if (searchMatches.length === MINIMUM_LENGTH) {
-      return;
-    }
-    setState((prev: AppState) => {
-      const start = Math.min(prev.search.currentMatch, searchMatches.length + INDEX_DECREMENT);
-      const next = (start + delta + searchMatches.length) % searchMatches.length;
-      return {
+  const jumpSearch = useCallback(
+    (delta: number): void => {
+      if (searchMatches.length === MINIMUM_LENGTH) {
+        return;
+      }
+      setState((prev: AppState) => {
+        const start = Math.min(prev.search.currentMatch, searchMatches.length + INDEX_DECREMENT);
+        const next = (start + delta + searchMatches.length) % searchMatches.length;
+        return {
+          ...prev,
+          search: { ...prev.search, currentMatch: next },
+          selectedRow: searchMatches[next],
+        };
+      });
+    },
+    [searchMatches, setState],
+  );
+
+  const selectGroup = useCallback(
+    (index: number): void => {
+      setState((prev: AppState) => ({
         ...prev,
-        search: { ...prev.search, currentMatch: next },
-        selectedRow: searchMatches[next],
-      };
-    });
-  }, [searchMatches, setState]);
+        gapAnchorStableId: null,
+        groupPickerIndex: index,
+        selectedRow: DEFAULT_SELECTED_ROW,
+        showGroupPicker: false,
+        viewMode: { index, kind: 'class' },
+      }));
+    },
+    [setState],
+  );
 
-  const selectGroup = useCallback((index: number): void => {
-    setState((prev: AppState) => ({
-      ...prev,
-      gapAnchorStableId: null,
-      groupPickerIndex: index,
-      selectedRow: DEFAULT_SELECTED_ROW,
-      showGroupPicker: false,
-      viewMode: { index, kind: 'class' },
-    }));
-  }, [setState]);
-
-  const shiftSelection = useCallback((delta: number): void => {
-    setState((prev: AppState) => {
-      const max = Math.max(activeEntries.length + INDEX_DECREMENT, DEFAULT_SELECTED_ROW);
-      const next = Math.max(DEFAULT_SELECTED_ROW, Math.min(max, prev.selectedRow + delta));
-      return { ...prev, selectedRow: next };
-    });
-  }, [activeEntries.length, setState]);
+  const shiftSelection = useCallback(
+    (delta: number): void => {
+      setState((prev: AppState) => {
+        const max = Math.max(activeEntries.length + INDEX_DECREMENT, DEFAULT_SELECTED_ROW);
+        const next = Math.max(DEFAULT_SELECTED_ROW, Math.min(max, prev.selectedRow + delta));
+        return { ...prev, selectedRow: next };
+      });
+    },
+    [activeEntries.length, setState],
+  );
 
   const toggleDemoMode = useCallback(async (): Promise<void> => {
     const nextEnabled = !state.demoEnabled;
@@ -174,7 +207,14 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
       return { ...prev, favourites: next };
     });
     await persistPreferences();
-  }, [activeEntries, favouriteKey, persistPreferences, setState, state.activeSeries, state.selectedRow]);
+  }, [
+    activeEntries,
+    favouriteKey,
+    persistPreferences,
+    setState,
+    state.activeSeries,
+    state.selectedRow,
+  ]);
 
   return {
     activeEntries,
@@ -210,15 +250,24 @@ export const App = (): JSX.Element => {
   const [loginCode, setLoginCode] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
 
-  const logic = useAppLogic({ activeSnapshot, favouriteKey, persistPreferences, setState, state, switchSeriesStream });
+  const logic = useAppLogic({
+    activeSnapshot,
+    favouriteKey,
+    persistPreferences,
+    setState,
+    state,
+    switchSeriesStream,
+  });
 
   const submitLogin = useCallback(async (): Promise<void> => {
     setLoginError('');
     const result = await loginWithAccessCode(loginCode.trim());
     if (!result.ok) {
-      setLoginError(result.retryAfterSecs !== undefined && result.retryAfterSecs > ZERO_LENGTH
-        ? `${result.error ?? 'login blocked'} (retry in ${String(result.retryAfterSecs)}s)`
-        : (result.error ?? 'Invalid access code'));
+      setLoginError(
+        result.retryAfterSecs !== undefined && result.retryAfterSecs > ZERO_LENGTH
+          ? `${result.error ?? 'login blocked'} (retry in ${String(result.retryAfterSecs)}s)`
+          : (result.error ?? 'Invalid access code'),
+      );
       return;
     }
     setAuthenticated(true);
@@ -227,52 +276,85 @@ export const App = (): JSX.Element => {
     await initResult;
   }, [initializeAppState, loginCode]);
 
-  const onGroupPickerKeydown = useCallback((event: KeyboardEvent): void => {
-    handleGroupPickerKeydown(event, { groupPickerIndex: state.groupPickerIndex, groupsLength: state.groups.length, selectGroup: logic.selectGroup, setState });
-  }, [logic.selectGroup, setState, state.groupPickerIndex, state.groups.length]);
+  const onGroupPickerKeydown = useCallback(
+    (event: KeyboardEvent): void => {
+      handleGroupPickerKeydown(event, {
+        groupPickerIndex: state.groupPickerIndex,
+        groupsLength: state.groups.length,
+        selectGroup: logic.selectGroup,
+        setState,
+      });
+    },
+    [logic.selectGroup, setState, state.groupPickerIndex, state.groups.length],
+  );
 
-  const onMainKeydown = useCallback((event: KeyboardEvent): void => {
-    handleMainKeydown(event, {
-      activeEntriesLength: logic.activeEntries.length,
-      cycleView: logic.cycleView,
-      jumpFavourite: logic.jumpFavourite,
-      jumpSearch: logic.jumpSearch,
-      refreshNlsLiveticker,
-      setState,
-      shiftSelection: logic.shiftSelection,
-      showHelp: state.showHelp,
-      showNlsLiveticker: state.showNlsLiveticker,
-      toggleDemoMode: logic.toggleDemoMode,
-      toggleFavourite: logic.toggleFavourite,
-    });
-  }, [logic, refreshNlsLiveticker, setState, state.showHelp, state.showNlsLiveticker]);
+  const onMainKeydown = useCallback(
+    (event: KeyboardEvent): void => {
+      handleMainKeydown(event, {
+        activeEntriesLength: logic.activeEntries.length,
+        cycleView: logic.cycleView,
+        jumpFavourite: logic.jumpFavourite,
+        jumpSearch: logic.jumpSearch,
+        refreshNlsLiveticker,
+        setState,
+        shiftSelection: logic.shiftSelection,
+        showHelp: state.showHelp,
+        showNlsLiveticker: state.showNlsLiveticker,
+        toggleDemoMode: logic.toggleDemoMode,
+        toggleFavourite: logic.toggleFavourite,
+      });
+    },
+    [logic, refreshNlsLiveticker, setState, state.showHelp, state.showNlsLiveticker],
+  );
 
-  const onSearchKeydown = useCallback((event: KeyboardEvent): void => {
-    handleSearchKeydown(event, { searchMatches: logic.searchMatches, setState });
-  }, [logic.searchMatches, setState]);
+  const onSearchKeydown = useCallback(
+    (event: KeyboardEvent): void => {
+      handleSearchKeydown(event, { searchMatches: logic.searchMatches, setState });
+    },
+    [logic.searchMatches, setState],
+  );
 
-  const onSeriesPickerKeydown = useCallback((event: KeyboardEvent): void => {
-    handleSeriesPickerKeydown(event, { chooseSeries: logic.chooseSeries, seriesPickerIndex: state.seriesPickerIndex, setState });
-  }, [logic.chooseSeries, setState, state.seriesPickerIndex]);
+  const onSeriesPickerKeydown = useCallback(
+    (event: KeyboardEvent): void => {
+      handleSeriesPickerKeydown(event, {
+        chooseSeries: logic.chooseSeries,
+        seriesPickerIndex: state.seriesPickerIndex,
+        setState,
+      });
+    },
+    [logic.chooseSeries, setState, state.seriesPickerIndex],
+  );
 
-  const handleKeydown = useCallback((event: KeyboardEvent): void => {
-    if (!authenticated) {
-      return;
-    }
-    if (state.search.inputActive) {
-      onSearchKeydown(event);
-      return;
-    }
-    if (state.showSeriesPicker) {
-      onSeriesPickerKeydown(event);
-      return;
-    }
-    if (state.showGroupPicker) {
-      onGroupPickerKeydown(event);
-      return;
-    }
-    onMainKeydown(event);
-  }, [authenticated, onGroupPickerKeydown, onMainKeydown, onSearchKeydown, onSeriesPickerKeydown, state.search.inputActive, state.showGroupPicker, state.showSeriesPicker]);
+  const handleKeydown = useCallback(
+    (event: KeyboardEvent): void => {
+      if (!authenticated) {
+        return;
+      }
+      if (state.search.inputActive) {
+        onSearchKeydown(event);
+        return;
+      }
+      if (state.showSeriesPicker) {
+        onSeriesPickerKeydown(event);
+        return;
+      }
+      if (state.showGroupPicker) {
+        onGroupPickerKeydown(event);
+        return;
+      }
+      onMainKeydown(event);
+    },
+    [
+      authenticated,
+      onGroupPickerKeydown,
+      onMainKeydown,
+      onSearchKeydown,
+      onSeriesPickerKeydown,
+      state.search.inputActive,
+      state.showGroupPicker,
+      state.showSeriesPicker,
+    ],
+  );
 
   useKeyboard(handleKeydown);
 
@@ -310,7 +392,9 @@ export const App = (): JSX.Element => {
         loginCode={loginCode}
         loginError={loginError}
         setLoginCode={setLoginCode}
-        onSubmit={() => { void submitLogin(); }}
+        onSubmit={() => {
+          void submitLogin();
+        }}
       />
     );
   }
@@ -322,8 +406,9 @@ export const App = (): JSX.Element => {
     return <ErrorScreen error={loadError} />;
   }
 
-  const favCount =
-    [...state.favourites].filter((favourite) => favourite.startsWith(`${state.activeSeries}|`)).length;
+  const favCount = [...state.favourites].filter((favourite) =>
+    favourite.startsWith(`${state.activeSeries}|`),
+  ).length;
 
   const viewModeLabel = ((): string => {
     if (state.viewMode.kind === 'overall') {
@@ -345,7 +430,7 @@ export const App = (): JSX.Element => {
   return (
     <MainContent
       state={state}
-      activeSnapshot={activeSnapshot}
+      activeSnapshot={activeSnapshot ?? null}
       activeEntries={logic.activeEntries}
       activeSeries={state.activeSeries}
       viewModeLabel={viewModeLabel}
@@ -353,10 +438,18 @@ export const App = (): JSX.Element => {
       demoLabel={state.demoEnabled ? '| DEMO' : ''}
       favCount={favCount}
       searchMatches={logic.searchMatches}
-      onCloseHelp={() => { setState((prev: AppState) => ({ ...prev, showHelp: false })); }}
-      onCloseMessages={() => { setState((prev: AppState) => ({ ...prev, showMessages: false })); }}
-      onCloseNlsLiveticker={() => { setState((prev: AppState) => ({ ...prev, showNlsLiveticker: false })); }}
-      onPickSeries={(series: Series) => { void logic.chooseSeries(series); }}
+      onCloseHelp={() => {
+        setState((prev: AppState) => ({ ...prev, showHelp: false }));
+      }}
+      onCloseMessages={() => {
+        setState((prev: AppState) => ({ ...prev, showMessages: false }));
+      }}
+      onCloseNlsLiveticker={() => {
+        setState((prev: AppState) => ({ ...prev, showNlsLiveticker: false }));
+      }}
+      onPickSeries={(series: Series) => {
+        void logic.chooseSeries(series);
+      }}
     />
   );
 };

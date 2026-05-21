@@ -12,10 +12,4 @@ export type ViewMode =
   | { kind: 'overall' };
 
 // Series list for iteration
-export const ALL_SERIES: Series[] = [
-  'dhlm',
-  'f1',
-  'imsa',
-  'nls',
-  'wec',
-];
+export const ALL_SERIES: Series[] = ['dhlm', 'f1', 'imsa', 'nls', 'wec'];
