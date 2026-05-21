@@ -1,4 +1,4 @@
-import { getColumnWidthRule } from '../lib/table/columns';
+import { getColumnWidthRule } from './columns';
 
 const widthBaselinesByContext = new Map<string, number[]>();
 

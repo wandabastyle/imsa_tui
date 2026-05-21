@@ -1,8 +1,8 @@
 // Series-modal.tsx - Series picker modal
 import { useEffect, useCallback, type JSX } from 'react';
 
-import type { Series } from '../lib/generated/web-shared';
-import { ALL_SERIES } from '../lib/types';
+import type { Series } from '../generated/web-shared';
+import { ALL_SERIES } from '../types';
 
 interface SeriesModalProps {
   onPick: (series: Series) => void;

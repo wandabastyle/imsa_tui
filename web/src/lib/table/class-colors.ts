@@ -1,4 +1,4 @@
-import type { Series, TimingClassColor } from '../lib/types';
+import type { Series, TimingClassColor } from '../types';
 
 const WEC_STATIC_COLORS: Record<string, string> = {
   HYPER: '#e21e19',

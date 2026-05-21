@@ -1,7 +1,7 @@
 // Header-bar.tsx - Status header with series info, timing, flag, search
 import type { JSX } from 'react';
 
-import type { SeriesSnapshot, Series } from '../lib/generated/web-shared';
+import type { SeriesSnapshot, Series } from '../generated/web-shared';
 
 const DEMO_LABEL_MAX_LENGTH = 20;
 const HEADER_UPDATE_AGE_THRESHOLD_MS = 10_000;
