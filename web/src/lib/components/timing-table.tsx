@@ -11,7 +11,7 @@ const SLICE_START_INDEX = 0;
 const FIRST_COLUMN_OFFSET = 1;
 
 interface TimingTableProps {
-  classColors: Record<string, TimingClassColor>;
+  classColors: Record<string, TimingClassColor | undefined>;
   entries: TimingEntry[];
   selectedRow: number;
   series: Series;
@@ -60,12 +60,15 @@ const formatCellValue = function formatCellValue(
 
 const getClassColor = function getClassColor(
   className: string,
-  classColors: Record<string, TimingClassColor>,
+  classColors: Record<string, TimingClassColor | undefined>,
 ): string | null {
   if (!Object.hasOwn(classColors, className)) {
     return null;
   }
-  const colorConfig: TimingClassColor = classColors[className];
+  const colorConfig = classColors[className];
+  if (colorConfig === undefined) {
+    return null;
+  }
   const { color } = colorConfig;
   if (color === '') {
     return null;
