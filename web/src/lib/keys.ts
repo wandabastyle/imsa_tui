@@ -23,7 +23,7 @@ export interface KeyActions {
 
 export const installKeyBindings = function installKeyBindings(actions: KeyActions): () => void {
   const handler = (event: KeyboardEvent): void => {
-    const target = event.target;
+    const { target } = event;
     if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
       return;
     }
