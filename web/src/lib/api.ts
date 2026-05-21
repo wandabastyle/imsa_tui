@@ -32,7 +32,9 @@ const isSeries = function isSeries(value: unknown): value is Series {
 };
 
 const isSnapshotResponse = function isSnapshotResponse(value: unknown): value is SnapshotResponse {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   return isSeries(value.series) && isRecord(value.snapshot);
 };
 
@@ -45,7 +47,9 @@ const isDemoStateResponse = function isDemoStateResponse(value: unknown): value 
 };
 
 const isPreferences = function isPreferences(value: unknown): value is Preferences {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   if (
     !Array.isArray(value.favourites) ||
     !value.favourites.every((item) => typeof item === 'string')
@@ -56,7 +60,9 @@ const isPreferences = function isPreferences(value: unknown): value is Preferenc
 };
 
 const readErrorPayload = function readErrorPayload(value: unknown): ErrorPayload | null {
-  if (!isRecord(value)) return null;
+  if (!isRecord(value)) {
+    return null;
+  }
   const payload: ErrorPayload = {};
   if (typeof value.error === 'string') {
     payload.error = value.error;
@@ -201,12 +207,19 @@ export const resetPreferences = async function resetPreferences(): Promise<Prefe
 };
 
 const isNlsLivetickerResponse = function isNlsLivetickerResponse(value: unknown): value is NlsLivetickerResponse {
-  if (!isRecord(value)) return false;
-  if (!Array.isArray(value.entries)) return false;
-  if (value.last_error !== null && typeof value.last_error !== 'string') return false;
-  // Note: bigint comes as number from JSON
-  if (value.last_update_unix_ms !== null && typeof value.last_update_unix_ms !== 'number')
+  if (!isRecord(value)) {
     return false;
+  }
+  if (!Array.isArray(value.entries)) {
+    return false;
+  }
+  if (value.last_error !== null && typeof value.last_error !== 'string') {
+    return false;
+  }
+  // Note: bigint comes as number from JSON
+  if (value.last_update_unix_ms !== null && typeof value.last_update_unix_ms !== 'number') {
+    return false;
+  }
   return true;
 };
 

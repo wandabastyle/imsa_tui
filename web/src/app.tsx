@@ -110,8 +110,8 @@ export const App = (): JSX.Element => {
       });
     }
     if (state.viewMode.kind === 'class' && state.groups.length > MINIMUM_LENGTH) {
-      const group: string | undefined = state.groups[state.viewMode.index];
-      return group !== undefined ? entries.filter((entry: TimingEntry): boolean => classDisplayName(entry.class_name) === group) : entries;
+      const group: string = state.groups[state.viewMode.index];
+      return entries.filter((entry: TimingEntry): boolean => classDisplayName(entry.class_name) === group);
     }
     return entries;
   }, [
@@ -130,13 +130,12 @@ export const App = (): JSX.Element => {
     const matches: number[] = [];
     const query: string = state.search.query.toLowerCase();
     for (let index = FIRST_MATCH_INDEX; index < activeEntries.length; index += INDEX_INCREMENT) {
-      const entry: TimingEntry | undefined = activeEntries[index];
+      const entry: TimingEntry = activeEntries[index];
       if (
-        entry !== undefined &&
-        (entry.car_number.toLowerCase().includes(query) ||
-         entry.driver.toLowerCase().includes(query) ||
-         entry.vehicle.toLowerCase().includes(query) ||
-         entry.team.toLowerCase().includes(query))
+        entry.car_number.toLowerCase().includes(query) ||
+        entry.driver.toLowerCase().includes(query) ||
+        entry.vehicle.toLowerCase().includes(query) ||
+        entry.team.toLowerCase().includes(query)
       ) {
         matches.push(index);
       }
@@ -176,17 +175,15 @@ export const App = (): JSX.Element => {
     const start: number = state.selectedRow;
     for (let offset = INDEX_INCREMENT; offset <= activeEntries.length; offset += INDEX_INCREMENT) {
       const idx: number = (start + offset) % activeEntries.length;
-      const entry: TimingEntry | undefined = activeEntries[idx];
-      if (entry !== undefined) {
-        const key: string = favouriteKey(state.activeSeries, entry.stable_id);
-        if (state.favourites.has(key)) {
-          setState((prev: AppState) => ({
-            ...prev,
-            gapAnchorStableId: entry.stable_id,
-            selectedRow: idx,
-          }));
-          return;
-        }
+      const entry: TimingEntry = activeEntries[idx];
+      const key: string = favouriteKey(state.activeSeries, entry.stable_id);
+      if (state.favourites.has(key)) {
+        setState((prev: AppState) => ({
+          ...prev,
+          gapAnchorStableId: entry.stable_id,
+          selectedRow: idx,
+        }));
+        return;
       }
     }
   }, [activeEntries, favouriteKey, setState, state.activeSeries, state.favourites, state.selectedRow]);

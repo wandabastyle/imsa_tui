@@ -191,11 +191,10 @@ export const useAppState = function useAppState(): UseAppStateReturn {
     for (let index = SLICE_START; index < snapshotResults.length; index += CONNECT_STREAM_INDEX_INCREMENT) {
       const result = snapshotResults[index];
       const seriesItem = ALL_SERIES[index];
-      if (result?.status === 'fulfilled') {
+      if (result.status === 'fulfilled') {
         nextSnapshots[result.value.series] = result.value.snapshot;
-      } else if (result?.status === 'rejected') {
-        const seriesName = seriesItem ?? 'unknown';
-        errors.push(`Failed to load ${seriesName}: ${String(result.reason)}`);
+      } else if (result.status === 'rejected') {
+        errors.push(`Failed to load ${seriesItem}: ${String(result.reason)}`);
       }
     }
 

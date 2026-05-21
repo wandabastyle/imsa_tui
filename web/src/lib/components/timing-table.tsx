@@ -55,7 +55,7 @@ const formatCellValue = function formatCellValue(
     return '';
   }
   const value: string | number = entry[property];
-  return typeof value === 'number' ? String(value) : (value ?? '');
+  return typeof value === 'number' ? String(value) : value;
 };
 
 const getClassColor = function getClassColor(
@@ -66,8 +66,8 @@ const getClassColor = function getClassColor(
   if (colorConfig === undefined) {
     return null;
   }
-  const color: string | undefined = colorConfig.color;
-  if (color === undefined || color === '') {
+  const color: string = colorConfig.color;
+  if (color === '') {
     return null;
   }
   return color;
