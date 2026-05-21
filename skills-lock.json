@@ -13,6 +13,18 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67"
     },
+    "react": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/react/SKILL.md",
+      "computedHash": "67d6daabd85c23cc58eeabea56f25b899723932dfb69c55ddae4990b43c918d2"
+    },
+    "rust": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "rust/SKILL.md",
+      "computedHash": "d66647042598d8c308892dabfefbab38c14c6bcba3b55c8055be6eb22bf0b017"
+    },
     "svelte-code-writer": {
       "source": "sveltejs/ai-tools",
       "sourceType": "github",
