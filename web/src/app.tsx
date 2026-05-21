@@ -19,23 +19,16 @@ import {
   handleSearchKeydown,
   handleSeriesPickerKeydown,
 } from './lib/keyboard-handlers';
-import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from './lib/types';
+import { type Series, type TimingEntry, type ViewMode } from './lib/types';
 
 import './app.css';
 
-const SLICE_START_INDEX = 0;
-const DEFAULT_GROUP_PICKER_INDEX = 0;
 const DEFAULT_SELECTED_ROW = 0;
 const FIRST_MATCH_INDEX = 0;
 const INDEX_DECREMENT = -1;
 const INDEX_INCREMENT = 1;
-const JUMP_BACKWARD = -1;
-const JUMP_FORWARD = 1;
-const KEY_LENGTH_SINGLE = 1;
 const MINIMUM_GROUP_COUNT = 0;
 const MINIMUM_LENGTH = 0;
-const PAGE_JUMP_SIZE = 10;
-const SLICE_REMOVE_LAST = 1;
 const ZERO_LENGTH = 0;
 
 // Helper functions (hoisted before App component for no-use-before-define rule)

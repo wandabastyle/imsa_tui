@@ -1,5 +1,4 @@
 // Keyboard handlers for the App component
-import type { KeyboardEvent } from 'react';
 
 import type { AppState, UseAppStateReturn } from './hooks';
 import { ALL_SERIES } from './types';
@@ -26,7 +25,7 @@ interface GroupPickerHandlers {
 }
 
 export const handleGroupPickerKeydown = (
-  event: KeyboardEvent,
+  event: globalThis.KeyboardEvent,
   handlers: GroupPickerHandlers,
 ): void => {
   const { groupPickerIndex, groupsLength, selectGroup, setState } = handlers;
@@ -60,7 +59,7 @@ interface SearchHandlers {
   setState: UseAppStateReturn['setState'];
 }
 
-export const handleSearchKeydown = (event: KeyboardEvent, handlers: SearchHandlers): void => {
+export const handleSearchKeydown = (event: globalThis.KeyboardEvent, handlers: SearchHandlers): void => {
   const { searchMatches, setState } = handlers;
 
   if (event.key === 'Escape') {
@@ -105,7 +104,7 @@ interface SeriesPickerHandlers {
   setState: UseAppStateReturn['setState'];
 }
 
-export const handleSeriesPickerKeydown = (event: KeyboardEvent, handlers: SeriesPickerHandlers): void => {
+export const handleSeriesPickerKeydown = (event: globalThis.KeyboardEvent, handlers: SeriesPickerHandlers): void => {
   const { chooseSeries, seriesPickerIndex, setState } = handlers;
 
   if (event.key === 'Escape') {
@@ -146,7 +145,7 @@ interface MainKeydownHandlers {
   toggleFavourite: () => Promise<void>;
 }
 
-export const handleMainKeydown = (event: KeyboardEvent, handlers: MainKeydownHandlers): void => {
+export const handleMainKeydown = (event: globalThis.KeyboardEvent, handlers: MainKeydownHandlers): void => {
   const {
     activeEntriesLength,
     cycleView,

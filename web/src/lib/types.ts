@@ -1,6 +1,7 @@
 // Re-export all generated types from Rust backend
 export type * from './generated/web-shared';
 
+// Import Series for runtime value
 import type { Series } from './generated/web-shared';
 
 // Additional frontend-only types
