@@ -169,14 +169,11 @@ export const useAppState = function useAppState(): UseAppStateReturn {
         return snapshot;
       },
     );
-    const settledResults = await Promise.allSettled([
+    const [prefsResult, demoResult, ...snapshotResults] = await Promise.allSettled([
       fetchPreferences(),
       fetchDemoState(),
       ...snapshotPromises,
     ]);
-    const prefsResult = settledResults[0] as PromiseSettledResult<Preferences>;
-    const demoResult = settledResults[1] as PromiseSettledResult<{ enabled: boolean }>;
-    const snapshotResults = settledResults.slice(2) as PromiseSettledResult<SnapshotResponse>[];
 
     const prefs: { favourites: string[]; selected_series: Series } =
       prefsResult.status === 'fulfilled'

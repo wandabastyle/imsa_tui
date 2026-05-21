@@ -53,6 +53,8 @@ const getGroups = (entries: TimingEntry[]): string[] => {
       groupEntries.push(entry);
     }
   }
+  // oxlint doesn't support ES2024's toSorted yet
+  // eslint-disable-next-line unicorn/no-array-sort
   return [...grouped.keys()].sort();
 };
 
