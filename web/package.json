@@ -7,12 +7,12 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
-    "check": "pnpm run lint && vp check && pnpm run typecheck",
+    "check": "pnpm run lint && pnpm run typecheck && vp check",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm run fmt:check && pnpm run lint && pnpm run check && pnpm run build",
+    "verify": "pnpm run fmt:check && pnpm run lint && pnpm run typecheck && vp check && pnpm run build",
     "fmt:check": "vp fmt --check",
     "fmt": "vp fmt",
-    "lint": "oxlint -c .oxlintrc.json --deny-warnings --type-aware --type-check src/"
+    "lint": "oxlint -c .oxlintrc.json --deny-warnings --type-aware src/"
   },
   "dependencies": {
     "react": "^19.0.0",
