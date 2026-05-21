@@ -1,17 +1,35 @@
-import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { defineConfig } from 'vite-plus';
 import { fileURLToPath, URL } from 'node:url';
 
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite-plus';
+
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [react()],
   resolve: {
     alias: {
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
     },
   },
   build: {
-    outDir: 'build',
     emptyOutDir: true,
+    outDir: 'build',
+  },
+  fmt: {
+    ignorePatterns: ['build/**', 'src/lib/generated/**'],
+    semi: true,
+    singleQuote: true,
+    sortImports: {
+      enabled: true,
+      newlinesBetween: false,
+      partitionByNewline: true,
+    },
+  },
+  lint: {
+    ignorePatterns: ['build/**', 'src/lib/generated/**'],
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
   },
   server: {
     proxy: {
@@ -20,17 +38,5 @@ export default defineConfig({
       '/healthz': 'http://127.0.0.1:8080',
       '/readyz': 'http://127.0.0.1:8080',
     },
-  },
-  lint: {
-    ignorePatterns: ['build/**', 'src/lib/generated/**'],
-    options: {
-      typeAware: true,
-      typeCheck: false,
-    },
-  },
-  fmt: {
-    ignorePatterns: ['build/**', 'src/lib/generated/**'],
-    singleQuote: true,
-    semi: true,
   },
 });
