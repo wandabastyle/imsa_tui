@@ -1,7 +1,7 @@
 // Keyboard handlers for the App component
 
 import type { AppState, UseAppStateReturn } from './hooks';
-import { ALL_SERIES } from './types';
+import { ALL_SERIES, type Series } from './types';
 
 const DEFAULT_GROUP_PICKER_INDEX = 0;
 const DEFAULT_SELECTED_ROW = 0;
@@ -99,7 +99,7 @@ export const handleSearchKeydown = (event: globalThis.KeyboardEvent, handlers: S
 };
 
 interface SeriesPickerHandlers {
-  chooseSeries: (series: string) => void;
+  chooseSeries: (series: Series) => Promise<void>;
   seriesPickerIndex: number;
   setState: UseAppStateReturn['setState'];
 }
@@ -126,7 +126,7 @@ export const handleSeriesPickerKeydown = (event: globalThis.KeyboardEvent, handl
     }));
     event.preventDefault();
   } else if (event.key === 'Enter') {
-    chooseSeries(ALL_SERIES[seriesPickerIndex]);
+    void chooseSeries(ALL_SERIES[seriesPickerIndex]);
     event.preventDefault();
   }
 };

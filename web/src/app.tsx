@@ -19,7 +19,7 @@ import {
   handleSearchKeydown,
   handleSeriesPickerKeydown,
 } from './lib/keyboard-handlers';
-import { type Series, type TimingEntry, type ViewMode } from './lib/types';
+import type { Series, TimingEntry, ViewMode } from './lib/types';
 
 import './app.css';
 
