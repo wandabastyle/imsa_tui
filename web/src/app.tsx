@@ -13,7 +13,7 @@ import { NlsLivetickerModal } from './lib/components/nls-liveticker-modal';
 import { SeriesModal } from './lib/components/series-modal';
 import { TimingTable } from './lib/components/timing-table';
 import { useAppState, useKeyboard, type AppState, type UseAppStateReturn } from './lib/hooks';
-import { ALL_SERIES, type Series, type TimingEntry, type ViewMode } from './lib/types';
+import { ALL_SERIES, type Series, type TimingEntry, type TimingClassColor, type ViewMode } from './lib/types';
 
 import './app.css';
 

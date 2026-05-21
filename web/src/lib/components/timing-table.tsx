@@ -193,7 +193,7 @@ export const TimingTable = function TimingTable(
           ) : (
             entries.map((entry: TimingEntry, rowIndex: number) => {
               const isSelected: boolean = rowIndex === selectedRow;
-              const rowRef: React.RefObject<HTMLTableRowElement> | undefined = isSelected ? selectedRowRef : undefined;
+              const rowRef: React.RefObject<HTMLTableRowElement | null> | undefined = isSelected ? selectedRowRef : undefined;
               const classColor: string | null = getClassColor(entry.class_name, classColors);
               const pitColor: string | null = getPitColor(entry.pit);
 
