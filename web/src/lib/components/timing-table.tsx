@@ -66,7 +66,7 @@ const getClassColor = function getClassColor(
     return null;
   }
   const colorConfig: TimingClassColor = classColors[className];
-  const color: string = colorConfig.color;
+  const { color } = colorConfig;
   if (color === '') {
     return null;
   }
@@ -102,8 +102,8 @@ export const TimingTable = function TimingTable(
     [entries, columns],
   );
 
-  const widths: number[] = useMemo((): number[] => {
-    const contextKey: string = `${series}-table`;
+  const widths = useMemo((): number[] => {
+    const contextKey = `${series}-table`;
     return computeStableColumnWidths(contextKey, columns, rowsData);
   }, [columns, rowsData, series]);
 

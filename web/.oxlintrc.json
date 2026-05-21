@@ -30,6 +30,8 @@
 
     "sort-imports": "off",
 
+    "unicorn/no-array-sort": "off",
+
     "max-lines": ["error", { "max": 750, "skipBlankLines": true, "skipComments": true }],
     "max-lines-per-function": [
       "error",

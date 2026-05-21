@@ -6,7 +6,6 @@ import {
   type NlsLivetickerEntry,
   type Preferences,
   type Series,
-  type SeriesSnapshot,
   type SnapshotResponse,
   type TimingEntry,
 } from './types';

@@ -1,5 +1,5 @@
 // Re-export all generated types from Rust backend
-export * from './generated/web-shared';
+export type * from './generated/web-shared';
 
 import type { Series } from './generated/web-shared';
 
