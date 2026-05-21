@@ -41,19 +41,19 @@ const formatAge = function formatAge(ms: number): string {
 const getFlagTheme = function getFlagTheme(flag: string): { bg: string; fg: string } {
   const upperFlag = flag.toUpperCase();
   switch (upperFlag) {
+    case 'CHECKERED': {
+      return { bg: '#eee', fg: '#000' };
+    }
     case 'GREEN': {
       return { bg: 'var(--ok)', fg: '#000' };
-    }
-    case 'YELLOW':
-    case 'SC':
-    case 'VSC': {
-      return { bg: 'var(--warn)', fg: '#000' };
     }
     case 'RED': {
       return { bg: 'var(--danger)', fg: '#fff' };
     }
-    case 'CHECKERED': {
-      return { bg: '#eee', fg: '#000' };
+    case 'SC':
+    case 'VSC':
+    case 'YELLOW': {
+      return { bg: 'var(--warn)', fg: '#000' };
     }
     default: {
       return { bg: 'var(--bg-panel)', fg: 'var(--text)' };

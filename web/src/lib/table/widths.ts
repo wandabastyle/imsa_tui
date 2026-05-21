@@ -7,15 +7,15 @@ export interface WidthComputationOptions {
   maxShrinkPerUpdate?: number;
 }
 
-function textWidthCh(value: string): number {
+const textWidthCh = function textWidthCh(value: string): number {
   return Array.from(value).length;
-}
+};
 
-function clamp(value: number, min: number, max: number): number {
+const clamp = function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
+};
 
-export function computeColumnWidths(
+export const computeColumnWidths = function computeColumnWidths(
   columns: string[],
   rows: string[][],
   options: WidthComputationOptions = {},
@@ -40,13 +40,13 @@ export function computeColumnWidths(
 
     return Math.max(target, baseline - maxShrink);
   });
-}
+};
 
-export function asChWidths(widths: number[]): string[] {
+export const asChWidths = function asChWidths(widths: number[]): string[] {
   return widths.map((width) => `${String(width)}ch`);
-}
+};
 
-export function computeStableColumnWidths(
+export const computeStableColumnWidths = function computeStableColumnWidths(
   contextKey: string,
   columns: string[],
   rows: string[][],
@@ -54,9 +54,9 @@ export function computeStableColumnWidths(
 ): number[] {
   const previousWidthsCh = widthBaselinesByContext.get(contextKey);
   const nextWidthsCh = computeColumnWidths(columns, rows, {
-    previousWidthsCh,
     maxShrinkPerUpdate,
+    previousWidthsCh,
   });
   widthBaselinesByContext.set(contextKey, nextWidthsCh);
   return nextWidthsCh;
-}
+};

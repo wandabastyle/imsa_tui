@@ -25,7 +25,9 @@ const STANDARD_STATIC_COLORS: Record<string, string> = {
 
 const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/u;
 
-const looksLikeHexColor = function looksLikeHexColor(value: string | undefined): boolean {
+const looksLikeHexColor = function looksLikeHexColor(
+  value: string | undefined,
+): boolean {
   if (value === undefined || value === '') {
     return false;
   }
@@ -51,7 +53,7 @@ export const resolveClassTextColor = function resolveClassTextColor(
   className: string,
   classColors: Record<string, TimingClassColor>,
 ): string | null {
-  if (series === 'nls' || series === 'dhlm') {
+  if (series === 'dhlm' || series === 'nls') {
     return null;
   }
 

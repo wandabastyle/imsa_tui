@@ -21,30 +21,30 @@ export interface LoginResult {
   retryAfterSecs?: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+const isRecord = function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
+};
 
-function isSeries(value: unknown): value is Series {
+const isSeries = function isSeries(value: unknown): value is Series {
   return (
     value === 'imsa' || value === 'nls' || value === 'f1' || value === 'wec' || value === 'dhlm'
   );
-}
+};
 
-function isSnapshotResponse(value: unknown): value is SnapshotResponse {
+const isSnapshotResponse = function isSnapshotResponse(value: unknown): value is SnapshotResponse {
   if (!isRecord(value)) return false;
   return isSeries(value.series) && isRecord(value.snapshot);
-}
+};
 
-function isSessionStateResponse(value: unknown): value is SessionStateResponse {
+const isSessionStateResponse = function isSessionStateResponse(value: unknown): value is SessionStateResponse {
   return isRecord(value) && typeof value.authenticated === 'boolean';
-}
+};
 
-function isDemoStateResponse(value: unknown): value is DemoStateResponse {
+const isDemoStateResponse = function isDemoStateResponse(value: unknown): value is DemoStateResponse {
   return isRecord(value) && typeof value.enabled === 'boolean';
-}
+};
 
-function isPreferences(value: unknown): value is Preferences {
+const isPreferences = function isPreferences(value: unknown): value is Preferences {
   if (!isRecord(value)) return false;
   if (
     !Array.isArray(value.favourites) ||
@@ -53,9 +53,9 @@ function isPreferences(value: unknown): value is Preferences {
     return false;
   }
   return isSeries(value.selected_series);
-}
+};
 
-function readErrorPayload(value: unknown): ErrorPayload | null {
+const readErrorPayload = function readErrorPayload(value: unknown): ErrorPayload | null {
   if (!isRecord(value)) return null;
   const payload: ErrorPayload = {};
   if (typeof value.error === 'string') {
@@ -65,9 +65,17 @@ function readErrorPayload(value: unknown): ErrorPayload | null {
     payload.retry_after_secs = value.retry_after_secs;
   }
   return payload;
-}
+};
 
-export async function fetchSnapshot(series: Series): Promise<SnapshotResponse> {
+const safeReadJson = async function safeReadJson(response: Response): Promise<unknown> {
+  try {
+    return (await response.json()) as unknown;
+  } catch {
+    return null;
+  }
+};
+
+export const fetchSnapshot = async function fetchSnapshot(series: Series): Promise<SnapshotResponse> {
   const response = await fetch(`/api/snapshot/${series}`);
   if (!response.ok) {
     throw new Error(`snapshot request failed (${String(response.status)})`);
@@ -77,9 +85,9 @@ export async function fetchSnapshot(series: Series): Promise<SnapshotResponse> {
     throw new Error('snapshot response payload is invalid');
   }
   return payload;
-}
+};
 
-export async function fetchSessionState(): Promise<boolean> {
+export const fetchSessionState = async function fetchSessionState(): Promise<boolean> {
   const response = await fetch('/auth/session');
   if (!response.ok) {
     throw new Error(`session request failed (${String(response.status)})`);
@@ -89,15 +97,15 @@ export async function fetchSessionState(): Promise<boolean> {
     throw new Error('session response payload is invalid');
   }
   return payload.authenticated;
-}
+};
 
-export async function loginWithAccessCode(accessCode: string): Promise<LoginResult> {
+export const loginWithAccessCode = async function loginWithAccessCode(accessCode: string): Promise<LoginResult> {
   const response = await fetch('/auth/login', {
-    method: 'POST',
+    body: JSON.stringify({ access_code: accessCode }),
     headers: {
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ access_code: accessCode }),
+    method: 'POST',
   });
 
   if (response.ok) {
@@ -106,17 +114,17 @@ export async function loginWithAccessCode(accessCode: string): Promise<LoginResu
 
   const payload = readErrorPayload(await safeReadJson(response));
   return {
-    ok: false,
     error: payload?.error ?? 'login failed',
+    ok: false,
     retryAfterSecs: payload?.retry_after_secs,
   };
-}
+};
 
-export async function logoutSession(): Promise<void> {
+export const logoutSession = async function logoutSession(): Promise<void> {
   await fetch('/auth/logout', { method: 'POST' });
-}
+};
 
-export async function fetchPreferences(): Promise<Preferences> {
+export const fetchPreferences = async function fetchPreferences(): Promise<Preferences> {
   const response = await fetch('/api/preferences');
   if (!response.ok) {
     throw new Error(`preferences request failed (${String(response.status)})`);
@@ -126,15 +134,15 @@ export async function fetchPreferences(): Promise<Preferences> {
     throw new Error('preferences response payload is invalid');
   }
   return payload;
-}
+};
 
-export async function updatePreferences(preferences: Preferences): Promise<Preferences> {
+export const updatePreferences = async function updatePreferences(preferences: Preferences): Promise<Preferences> {
   const response = await fetch('/api/preferences', {
-    method: 'PUT',
+    body: JSON.stringify(preferences),
     headers: {
       'content-type': 'application/json',
     },
-    body: JSON.stringify(preferences),
+    method: 'PUT',
   });
 
   if (!response.ok) {
@@ -146,9 +154,9 @@ export async function updatePreferences(preferences: Preferences): Promise<Prefe
     throw new Error('preferences update payload is invalid');
   }
   return payload;
-}
+};
 
-export async function fetchDemoState(): Promise<DemoStateResponse> {
+export const fetchDemoState = async function fetchDemoState(): Promise<DemoStateResponse> {
   const response = await fetch('/api/demo');
   if (!response.ok) {
     throw new Error(`demo state request failed (${String(response.status)})`);
@@ -158,15 +166,15 @@ export async function fetchDemoState(): Promise<DemoStateResponse> {
     throw new Error('demo state payload is invalid');
   }
   return payload;
-}
+};
 
-export async function updateDemoState(enabled: boolean): Promise<DemoStateResponse> {
+export const updateDemoState = async function updateDemoState(enabled: boolean): Promise<DemoStateResponse> {
   const response = await fetch('/api/demo', {
-    method: 'PUT',
+    body: JSON.stringify({ enabled }),
     headers: {
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ enabled }),
+    method: 'PUT',
   });
   if (!response.ok) {
     throw new Error(`demo state update failed (${String(response.status)})`);
@@ -176,9 +184,9 @@ export async function updateDemoState(enabled: boolean): Promise<DemoStateRespon
     throw new Error('demo state update payload is invalid');
   }
   return payload;
-}
+};
 
-export async function resetPreferences(): Promise<Preferences> {
+export const resetPreferences = async function resetPreferences(): Promise<Preferences> {
   const response = await fetch('/api/preferences/reset', {
     method: 'POST',
   });
@@ -190,9 +198,9 @@ export async function resetPreferences(): Promise<Preferences> {
     throw new Error('preferences reset payload is invalid');
   }
   return payload;
-}
+};
 
-function isNlsLivetickerResponse(value: unknown): value is NlsLivetickerResponse {
+const isNlsLivetickerResponse = function isNlsLivetickerResponse(value: unknown): value is NlsLivetickerResponse {
   if (!isRecord(value)) return false;
   if (!Array.isArray(value.entries)) return false;
   if (value.last_error !== null && typeof value.last_error !== 'string') return false;
@@ -200,9 +208,9 @@ function isNlsLivetickerResponse(value: unknown): value is NlsLivetickerResponse
   if (value.last_update_unix_ms !== null && typeof value.last_update_unix_ms !== 'number')
     return false;
   return true;
-}
+};
 
-export async function fetchNlsLiveticker(): Promise<NlsLivetickerResponse> {
+export const fetchNlsLiveticker = async function fetchNlsLiveticker(): Promise<NlsLivetickerResponse> {
   const response = await fetch('/api/nls/liveticker');
   if (!response.ok) {
     throw new Error(`liveticker request failed (${String(response.status)})`);
@@ -212,9 +220,9 @@ export async function fetchNlsLiveticker(): Promise<NlsLivetickerResponse> {
     throw new Error('liveticker response payload is invalid');
   }
   return payload;
-}
+};
 
-export function openSeriesStream(
+export const openSeriesStream = function openSeriesStream(
   series: Series,
   onSnapshot: (payload: SnapshotResponse) => void,
 ): EventSource {
@@ -234,12 +242,4 @@ export function openSeriesStream(
   });
 
   return eventSource;
-}
-
-async function safeReadJson(response: Response): Promise<unknown> {
-  try {
-    return (await response.json()) as unknown;
-  } catch {
-    return null;
-  }
-}
+};
