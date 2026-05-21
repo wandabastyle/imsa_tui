@@ -21,8 +21,6 @@ import {
 } from './lib/keyboard-handlers';
 import type { Series, TimingEntry, ViewMode } from './lib/types';
 
-import './app.css';
-
 const DEFAULT_SELECTED_ROW = 0;
 const FIRST_MATCH_INDEX = 0;
 const INDEX_DECREMENT = -1;
