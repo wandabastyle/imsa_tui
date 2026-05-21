@@ -110,7 +110,7 @@ export const TimingTable = function TimingTable(
   const widthStyles: string[] = useMemo((): string[] => asChWidths(widths), [widths]);
 
   const tableRef = useRef<HTMLDivElement>(null);
-  const selectedRowRef = useRef<HTMLTableRowElement>(null);
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
 
   // Scroll selected row into view
   useEffect(() => {

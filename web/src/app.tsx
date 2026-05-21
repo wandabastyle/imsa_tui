@@ -630,7 +630,7 @@ export const App = (): JSX.Element => {
       />
 
       <TimingTable
-        classColors={activeSnapshot?.header.class_colors ?? {}}
+        classColors={(activeSnapshot?.header.class_colors ?? {}) as Record<string, TimingClassColor>}
         entries={activeEntries}
         selectedRow={state.selectedRow}
         series={state.activeSeries}
