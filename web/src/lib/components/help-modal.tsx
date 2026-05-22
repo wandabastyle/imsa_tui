@@ -76,12 +76,19 @@ export const HelpModal = function HelpModal(props: HelpModalProps): JSX.Element 
         }}
       >
         <h2 id="help-title">Keyboard Help</h2>
-        <pre>
-          h toggle help (? also works) g cycle views G open group picker o overall view t series
-          picker arrows/j/k move PgUp/PgDn fast scroll space toggle favourite f jump favourite s
-          search mode (type, Enter apply, Esc cancel) n/p next/prev match d toggle demo/live data
-          source Esc close popup
-        </pre>
+        <pre>{`h toggle help (? also works)
+g cycle views
+G open group picker
+o overall view
+t series picker
+arrows/j/k move
+PgUp/PgDn fast scroll
+space toggle favourite
+f jump favourite
+s search mode (type, Enter apply, Esc cancel)
+n/p next/prev match
+d toggle demo/live data source
+Esc close popup`}</pre>
         <button className="close-hint" data-close-hint onClick={closeModal}>
           Close (Esc)
         </button>

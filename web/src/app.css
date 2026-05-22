@@ -287,6 +287,7 @@ p {
 .modal h2 {
   margin: 0 0 0.55rem 0;
   font-size: 1rem;
+  color: #eaf3ff;
 }
 
 .modal .list {
@@ -304,6 +305,12 @@ p {
   cursor: pointer;
   text-align: left;
   font-family: inherit;
+}
+
+.modal button:focus,
+.modal button:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .modal button.selected {
@@ -347,10 +354,6 @@ p {
 .series-modal .list {
   gap: 0.5rem;
   padding-bottom: 0.15rem;
-}
-
-.series-modal h2 {
-  color: #eaf3ff;
 }
 
 .series-modal button {
