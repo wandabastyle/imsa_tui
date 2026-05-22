@@ -346,11 +346,18 @@ p {
 
 .series-modal .list {
   gap: 0.5rem;
+  padding-bottom: 0.15rem;
 }
 
 .series-modal button {
   border-radius: 8px;
   padding: 0.5rem;
+}
+
+.series-modal button:focus,
+.series-modal button:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 /* HelpModal specific */
@@ -554,6 +561,12 @@ p {
 .table-wrap tr.selected {
   background: #244f82;
   font-weight: 700;
+}
+
+.table-wrap tr.selected:focus,
+.table-wrap tr.selected:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .table-wrap tr.search-mark:not(.selected) {

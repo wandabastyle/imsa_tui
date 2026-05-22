@@ -243,6 +243,7 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
       if (state.favourites.has(key)) {
         setState((prev: AppState) => ({
           ...prev,
+          gapAnchorStableId: entry.stable_id,
           selectedRow: idx,
         }));
         return;

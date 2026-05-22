@@ -1,4 +1,4 @@
-import { useMemo, type JSX } from 'react';
+import { useMemo, useRef, type JSX } from 'react';
 
 import { getColumnsForSeries } from '../../table/columns';
 import { GroupedTable } from './grouped-table';
@@ -30,6 +30,7 @@ export const TimingTable = (props: TimingTableProps): JSX.Element => {
 
   const columns = useMemo(() => getColumnsForSeries(series), [series]);
   const pitTrackers = usePitTrackers(entries, series);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const gapAnchor = useMemo<GapAnchorInfo | null>(() => {
     if (gapAnchorStableId === null || gapAnchorStableId === '') {
@@ -49,9 +50,10 @@ export const TimingTable = (props: TimingTableProps): JSX.Element => {
   return (
     <section className="table-wrap">
       {title && <div className="table-title">{title}</div>}
-      <div className="table-scroll">
+      <div className="table-scroll" ref={scrollContainerRef}>
         {isGroupedMode ? (
           <GroupedTable
+            scrollContainerRef={scrollContainerRef}
             groupedSections={groupedSections}
             columns={columns}
             selectedRow={selectedRow}
@@ -66,6 +68,7 @@ export const TimingTable = (props: TimingTableProps): JSX.Element => {
           />
         ) : (
           <SingleTable
+            scrollContainerRef={scrollContainerRef}
             entries={entries}
             columns={columns}
             selectedRow={selectedRow}

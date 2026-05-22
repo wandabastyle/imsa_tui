@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type JSX } from 'react';
+import { useLayoutEffect, useMemo, useRef, type JSX } from 'react';
 
 import type { Series, TimingClassColor } from '../../generated/web-shared';
 import { asChWidths, computeStableColumnWidths } from '../../table/widths';
@@ -25,6 +25,7 @@ import {
 } from './utils';
 
 interface GroupedTableProps {
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   groupedSections: GroupSection[];
   columns: string[];
   selectedRow: number;
@@ -40,9 +41,11 @@ interface GroupedTableProps {
 
 const EMPTY_LENGTH = 0;
 const UNFOCUSED_TAB_INDEX = -1;
+const FOCUSED_TAB_INDEX = 0;
 
 export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
   const {
+    scrollContainerRef,
     groupedSections,
     columns,
     selectedRow,
@@ -55,7 +58,6 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
     title,
     loading,
   } = props;
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
   const marqueeTick = useMarqueeTick();
   const lastSelectedRowRef = useRef<number>(INITIAL_INDEX);
@@ -88,7 +90,7 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
 
   const widthStyles = useMemo(() => asChWidths(widths), [widths]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) {
       return;
@@ -98,7 +100,7 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
     if (!selectionChanged && !contextChanged) {
       return;
     }
-    const selected = rowRefs.current.get(selectedRow) ?? container.querySelector('tr.selected');
+    const selected = container.querySelector('tr.selected') ?? rowRefs.current.get(selectedRow);
     if (!selected) {
       lastSelectedRowRef.current = selectedRow;
       lastSeriesRef.current = series;
@@ -110,7 +112,11 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
     } else {
       selected.scrollIntoView({ block: 'center', inline: 'nearest' });
     }
-    selected.focus({ preventScroll: true });
+
+    if (selected instanceof HTMLElement) {
+      selected.focus({ preventScroll: true });
+    }
+
     lastSelectedRowRef.current = selectedRow;
     lastSeriesRef.current = series;
     lastTitleRef.current = title;
@@ -174,11 +180,15 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
                     ref={(el) => {
                       if (el) {
                         rowRefs.current.set(absoluteIndex, el);
+                      } else {
+                        rowRefs.current.delete(absoluteIndex);
                       }
                     }}
+                    data-index={absoluteIndex}
+                    data-stable-id={entry.stable_id}
                     className={rowClassName(rowClasses)}
                     style={style}
-                    tabIndex={isSelected ? INITIAL_INDEX : UNFOCUSED_TAB_INDEX}
+                    tabIndex={isSelected ? FOCUSED_TAB_INDEX : UNFOCUSED_TAB_INDEX}
                   >
                     {cells.map((cell, colIndex) => {
                       const column = columns[colIndex];
