@@ -349,6 +349,10 @@ p {
   padding-bottom: 0.15rem;
 }
 
+.series-modal h2 {
+  color: #eaf3ff;
+}
+
 .series-modal button {
   border-radius: 8px;
   padding: 0.5rem;
