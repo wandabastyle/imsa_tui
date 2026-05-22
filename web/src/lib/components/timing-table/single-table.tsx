@@ -39,6 +39,7 @@ interface SingleTableProps {
 }
 
 const EMPTY_LENGTH = 0;
+const UNFOCUSED_TAB_INDEX = -1;
 
 export const SingleTable = (props: SingleTableProps): JSX.Element => {
   const {
@@ -107,6 +108,7 @@ export const SingleTable = (props: SingleTableProps): JSX.Element => {
     } else {
       selected.scrollIntoView({ block: 'center', inline: 'nearest' });
     }
+    selected.focus({ preventScroll: true });
 
     lastSelectedRowRef.current = selectedRow;
     lastSeriesRef.current = series;
@@ -190,6 +192,7 @@ export const SingleTable = (props: SingleTableProps): JSX.Element => {
               data-stable-id={entry.stable_id}
               className={rowClassName(rowClasses)}
               style={style}
+              tabIndex={isSelected ? INITIAL_INDEX : UNFOCUSED_TAB_INDEX}
             >
               {cells.map((cell, colIndex) => {
                 const column = columns[colIndex];

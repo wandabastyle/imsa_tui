@@ -11,6 +11,8 @@ interface ErrorPayload {
   retry_after_secs?: number;
 }
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export interface DemoStateResponse {
   enabled: boolean;
 }
@@ -85,10 +87,33 @@ const safeReadJson = async function safeReadJson(response: Response): Promise<un
   }
 };
 
+const fetchWithTimeout = async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`request timeout after ${String(REQUEST_TIMEOUT_MS)}ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+};
+
 export const fetchSnapshot = async function fetchSnapshot(
   series: Series,
 ): Promise<SnapshotResponse> {
-  const response = await fetch(`/api/snapshot/${series}`);
+  const response = await fetchWithTimeout(`/api/snapshot/${series}`);
   if (!response.ok) {
     throw new Error(`snapshot request failed (${String(response.status)})`);
   }
@@ -100,7 +125,7 @@ export const fetchSnapshot = async function fetchSnapshot(
 };
 
 export const fetchSessionState = async function fetchSessionState(): Promise<boolean> {
-  const response = await fetch('/auth/session');
+  const response = await fetchWithTimeout('/auth/session');
   if (!response.ok) {
     throw new Error(`session request failed (${String(response.status)})`);
   }
@@ -114,7 +139,7 @@ export const fetchSessionState = async function fetchSessionState(): Promise<boo
 export const loginWithAccessCode = async function loginWithAccessCode(
   accessCode: string,
 ): Promise<LoginResult> {
-  const response = await fetch('/auth/login', {
+  const response = await fetchWithTimeout('/auth/login', {
     body: JSON.stringify({ access_code: accessCode }),
     headers: {
       'content-type': 'application/json',
@@ -135,11 +160,11 @@ export const loginWithAccessCode = async function loginWithAccessCode(
 };
 
 export const logoutSession = async function logoutSession(): Promise<void> {
-  await fetch('/auth/logout', { method: 'POST' });
+  await fetchWithTimeout('/auth/logout', { method: 'POST' });
 };
 
 export const fetchPreferences = async function fetchPreferences(): Promise<Preferences> {
-  const response = await fetch('/api/preferences');
+  const response = await fetchWithTimeout('/api/preferences');
   if (!response.ok) {
     throw new Error(`preferences request failed (${String(response.status)})`);
   }
@@ -153,7 +178,7 @@ export const fetchPreferences = async function fetchPreferences(): Promise<Prefe
 export const updatePreferences = async function updatePreferences(
   preferences: Preferences,
 ): Promise<Preferences> {
-  const response = await fetch('/api/preferences', {
+  const response = await fetchWithTimeout('/api/preferences', {
     body: JSON.stringify(preferences),
     headers: {
       'content-type': 'application/json',
@@ -173,7 +198,7 @@ export const updatePreferences = async function updatePreferences(
 };
 
 export const fetchDemoState = async function fetchDemoState(): Promise<DemoStateResponse> {
-  const response = await fetch('/api/demo');
+  const response = await fetchWithTimeout('/api/demo');
   if (!response.ok) {
     throw new Error(`demo state request failed (${String(response.status)})`);
   }
@@ -187,7 +212,7 @@ export const fetchDemoState = async function fetchDemoState(): Promise<DemoState
 export const updateDemoState = async function updateDemoState(
   enabled: boolean,
 ): Promise<DemoStateResponse> {
-  const response = await fetch('/api/demo', {
+  const response = await fetchWithTimeout('/api/demo', {
     body: JSON.stringify({ enabled }),
     headers: {
       'content-type': 'application/json',
@@ -205,7 +230,7 @@ export const updateDemoState = async function updateDemoState(
 };
 
 export const resetPreferences = async function resetPreferences(): Promise<Preferences> {
-  const response = await fetch('/api/preferences/reset', {
+  const response = await fetchWithTimeout('/api/preferences/reset', {
     method: 'POST',
   });
   if (!response.ok) {
@@ -239,7 +264,7 @@ const isNlsLivetickerResponse = function isNlsLivetickerResponse(
 
 export const fetchNlsLiveticker =
   async function fetchNlsLiveticker(): Promise<NlsLivetickerResponse> {
-    const response = await fetch('/api/nls/liveticker');
+    const response = await fetchWithTimeout('/api/nls/liveticker');
     if (!response.ok) {
       throw new Error(`liveticker request failed (${String(response.status)})`);
     }

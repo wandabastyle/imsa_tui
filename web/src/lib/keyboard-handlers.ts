@@ -103,7 +103,7 @@ export const handleSearchKeydown = (
 
 interface SeriesPickerHandlers {
   chooseSeries: (series: Series) => Promise<void>;
-  seriesPickerIndex: number;
+  getSeriesPickerIndex: () => number;
   setState: UseAppStateReturn['setState'];
 }
 
@@ -111,7 +111,7 @@ export const handleSeriesPickerKeydown = (
   event: globalThis.KeyboardEvent,
   handlers: SeriesPickerHandlers,
 ): void => {
-  const { chooseSeries, seriesPickerIndex, setState } = handlers;
+  const { chooseSeries, getSeriesPickerIndex, setState } = handlers;
 
   if (event.key === 'Escape') {
     setState((prev: AppState) => ({ ...prev, showSeriesPicker: false }));
@@ -132,6 +132,7 @@ export const handleSeriesPickerKeydown = (
     }));
     event.preventDefault();
   } else if (event.key === 'Enter') {
+    const seriesPickerIndex = getSeriesPickerIndex();
     void chooseSeries(ALL_SERIES[seriesPickerIndex]);
     event.preventDefault();
   }

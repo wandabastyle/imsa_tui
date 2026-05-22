@@ -39,6 +39,7 @@ interface GroupedTableProps {
 }
 
 const EMPTY_LENGTH = 0;
+const UNFOCUSED_TAB_INDEX = -1;
 
 export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
   const {
@@ -109,6 +110,7 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
     } else {
       selected.scrollIntoView({ block: 'center', inline: 'nearest' });
     }
+    selected.focus({ preventScroll: true });
     lastSelectedRowRef.current = selectedRow;
     lastSeriesRef.current = series;
     lastTitleRef.current = title;
@@ -176,6 +178,7 @@ export const GroupedTable = (props: GroupedTableProps): JSX.Element => {
                     }}
                     className={rowClassName(rowClasses)}
                     style={style}
+                    tabIndex={isSelected ? INITIAL_INDEX : UNFOCUSED_TAB_INDEX}
                   >
                     {cells.map((cell, colIndex) => {
                       const column = columns[colIndex];

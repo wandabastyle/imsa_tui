@@ -1,5 +1,5 @@
 // Main App component
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import { fetchSessionState, loginWithAccessCode, logoutSession, updateDemoState } from './lib/api';
 import { LoadingScreen, ErrorScreen } from './lib/components/app-screens';
@@ -217,7 +217,7 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
         viewMode: { kind: 'overall' },
       }));
       switchSeriesStream(series);
-      await persistPreferences();
+      await persistPreferences(series);
     },
     [persistPreferences, setState, switchSeriesStream],
   );
@@ -243,7 +243,6 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
       if (state.favourites.has(key)) {
         setState((prev: AppState) => ({
           ...prev,
-          gapAnchorStableId: entry.stable_id,
           selectedRow: idx,
         }));
         return;
@@ -370,6 +369,11 @@ export const App = (): JSX.Element => {
   const [loadError, setLoadError] = useState<string>('');
   const [loginCode, setLoginCode] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
+  const seriesPickerIndexRef = useRef(state.seriesPickerIndex);
+
+  useEffect(() => {
+    seriesPickerIndexRef.current = state.seriesPickerIndex;
+  }, [state.seriesPickerIndex]);
 
   const logic = useAppLogic({
     activeSnapshot,
@@ -441,11 +445,11 @@ export const App = (): JSX.Element => {
     (event: KeyboardEvent): void => {
       handleSeriesPickerKeydown(event, {
         chooseSeries: logic.chooseSeries,
-        seriesPickerIndex: state.seriesPickerIndex,
+        getSeriesPickerIndex: (): number => seriesPickerIndexRef.current,
         setState,
       });
     },
-    [logic.chooseSeries, setState, state.seriesPickerIndex],
+    [logic.chooseSeries, setState],
   );
 
   const handleKeydown = useCallback(
@@ -501,7 +505,7 @@ export const App = (): JSX.Element => {
     return (): void => {
       destroyStreams();
     };
-  }, [destroyStreams, initializeAppState]);
+  }, []);
 
   if (authChecking) {
     return <LoadingScreen message="Checking session..." />;

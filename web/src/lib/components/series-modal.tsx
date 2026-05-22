@@ -2,6 +2,7 @@
 import { useEffect, useRef, useCallback, type JSX } from 'react';
 
 import type { Series } from '../generated/web-shared';
+import { ALL_SERIES } from '../types';
 
 interface SeriesModalProps {
   open: boolean;
@@ -10,7 +11,6 @@ interface SeriesModalProps {
   onClose: () => void;
 }
 
-const SERIES_LIST: Series[] = ['imsa', 'nls', 'f1', 'wec', 'dhlm'];
 const FOCUS_DELAY_MS = 0;
 
 const handleDialogClick = (event: React.MouseEvent<HTMLDialogElement>): void => {
@@ -89,17 +89,7 @@ export const SeriesModal = function SeriesModal(props: SeriesModalProps): JSX.El
   }
 
   return (
-    <div
-      className="backdrop"
-      role="presentation"
-      onClick={handleBackdropClick}
-      onKeyDown={(event): void => {
-        if (event.key === 'Enter') {
-          handleBackdropClick();
-        }
-      }}
-      tabIndex={-1}
-    >
+    <div className="backdrop" role="presentation" onClick={handleBackdropClick} tabIndex={-1}>
       <dialog
         ref={modalElRef}
         className="modal series-modal"
@@ -108,7 +98,7 @@ export const SeriesModal = function SeriesModal(props: SeriesModalProps): JSX.El
       >
         <h2 id="series-title">Select Series</h2>
         <div className="list">
-          {SERIES_LIST.map((series) => (
+          {ALL_SERIES.map((series) => (
             <button
               key={series}
               type="button"

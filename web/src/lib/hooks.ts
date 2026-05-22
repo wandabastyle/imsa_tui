@@ -106,7 +106,7 @@ export interface UseAppStateReturn {
   destroyStreams: () => void;
   favouriteKey: (series: Series, stableId: string) => string;
   initializeAppState: () => Promise<void>;
-  persistPreferences: () => Promise<void>;
+  persistPreferences: (selectedSeriesOverride?: Series) => Promise<void>;
   refreshNlsLiveticker: () => Promise<void>;
   resolveSelectedRow: (
     currentEntries: TimingEntry[],
@@ -279,20 +279,24 @@ export const useAppState = function useAppState(): UseAppStateReturn {
     [activeStream],
   );
 
-  const persistPreferences = useCallback(async (): Promise<void> => {
-    const favouritesArray: string[] = [...state.favourites];
-    favouritesArray.sort();
-    const payload: Preferences = {
-      favourites: favouritesArray,
-      selected_series: state.activeSeries,
-    };
-    const persisted = await updatePreferences(payload);
-    setState((previous: AppState) => ({
-      ...previous,
-      activeSeries: persisted.selected_series,
-      favourites: new Set(persisted.favourites),
-    }));
-  }, [state.activeSeries, state.favourites]);
+  const persistPreferences = useCallback(
+    async (selectedSeriesOverride?: Series): Promise<void> => {
+      const favouritesArray: string[] = [...state.favourites];
+      favouritesArray.sort();
+      const selectedSeries = selectedSeriesOverride ?? state.activeSeries;
+      const payload: Preferences = {
+        favourites: favouritesArray,
+        selected_series: selectedSeries,
+      };
+      const persisted = await updatePreferences(payload);
+      setState((previous: AppState) => ({
+        ...previous,
+        activeSeries: persisted.selected_series,
+        favourites: new Set(persisted.favourites),
+      }));
+    },
+    [state.activeSeries, state.favourites],
+  );
 
   const refreshNlsLiveticker = useCallback(async (): Promise<void> => {
     try {
