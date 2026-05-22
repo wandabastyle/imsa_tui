@@ -19,7 +19,6 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_ASSET: imsa-web-linux-amd64.tar.gz
       VP_HOME: /root/.vite-plus
-      PATH: /root/.vite-plus/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -44,6 +43,9 @@ jobs:
 
       - name: Install Vite+
         run: curl -fsSL https://vite.plus | bash
+
+      - name: Add Vite+ to PATH
+        run: echo "$VP_HOME/bin" >> "$GITHUB_PATH"
 
       - name: Install web dependencies
         run: cd web && vp install --frozen-lockfile
