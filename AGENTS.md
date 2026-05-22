@@ -27,6 +27,12 @@
 - Never assume your changes simply work, always test!
 - If the project does not have any testing tools, scripts, MCP tools, skills, etc. available for testing, ask the user whether testing should be skipped.
 
+## VERSION BUMPING
+
+- When making bug fixes or small improvements that could reasonably constitute a patch release, bump the project version in **both** `Cargo.toml` and `web/package.json` together. If dependency versions changed, run `cargo update -p <changed-crate>` to keep `Cargo.lock` in sync.
+- Only bump the minor/major version when the changeset is large enough or includes breaking changes. When in doubt, patch bump.
+- Do not leave `Cargo.toml` and `web/package.json` out of sync.
+
 ## UI DESIGN
 
 - Always follow the UI design system when creating or reviewing components or pages.
