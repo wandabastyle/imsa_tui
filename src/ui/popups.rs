@@ -319,7 +319,7 @@ pub(crate) fn nls_liveticker_popup(
    if entries.is_empty() {
       lines.push(Line::from("No liveticker entries yet."));
    } else {
-      for entry in entries {
+      for entry in entries.iter().rev() {
          lines.push(Line::from(vec![Span::styled(
             format!("{} {} Uhr", entry.day_label, entry.time_text),
             Style::default()
