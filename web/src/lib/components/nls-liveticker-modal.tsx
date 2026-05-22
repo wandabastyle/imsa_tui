@@ -40,6 +40,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
 ): JSX.Element | null {
   const { entries, lastError, lastUpdateUnixMs, onClose, open } = props;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const orderedEntries = entries.toReversed();
 
   const scrollUp = useCallback((): void => {
     if (scrollContainerRef.current) {
@@ -165,10 +166,10 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
           ) : null}
         </div>
         <div className="entries" ref={scrollContainerRef}>
-          {entries.length === ZERO ? (
+          {orderedEntries.length === ZERO ? (
             <p className="empty">No liveticker entries yet.</p>
           ) : (
-            entries.map((entry) => (
+            orderedEntries.map((entry) => (
               <div className="entry" key={entry.id}>
                 <div className="time">
                   {entry.day_label} {entry.time_text} Uhr
