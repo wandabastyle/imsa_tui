@@ -218,7 +218,8 @@ p {
 
 /* Login */
 .login-wrap {
-  flex: 1;
+  min-height: 100dvh;
+  width: 100%;
   display: grid;
   place-items: center;
 }
