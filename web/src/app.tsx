@@ -613,16 +613,9 @@ export const App = (): JSX.Element => {
       onSignOut={() => {
         void logoutSession().then(() => {
           destroyStreams();
-          setState((prev: AppState) => ({
-            ...prev,
-            gapAnchorStableId: null,
-            search: { currentMatch: 0, inputActive: false, matches: [], query: '' },
-            selectedRow: 0,
-            showGroupPicker: false,
-            showHelp: false,
-            showSeriesPicker: false,
-            snapshots: {},
-          }));
+          setAuthenticated(false);
+          setLoginCode('');
+          setLoginError('');
         });
       }}
     />
