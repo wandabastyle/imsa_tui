@@ -2,13 +2,21 @@
 import type { JSX } from 'react';
 
 import type { AppState } from '../hooks';
-import type { Series, SeriesSnapshot, TimingEntry } from '../types';
+import { ALL_SERIES, type Series, type SeriesSnapshot, type TimingEntry } from '../types';
+
+import { GroupModal } from './group-modal';
 import { HeaderBar } from './header-bar';
 import { HelpModal } from './help-modal';
 import { MessagesModal } from './messages-modal';
 import { NlsLivetickerModal } from './nls-liveticker-modal';
 import { SeriesModal } from './series-modal';
 import { TimingTable } from './timing-table';
+
+interface GroupedSection {
+  name: string;
+  entries: TimingEntry[];
+  start: number;
+}
 
 interface MainContentProps {
   state: AppState;
@@ -19,12 +27,26 @@ interface MainContentProps {
   searchLabel: string;
   demoLabel: string;
   favCount: number;
+  groups: [string, TimingEntry[]][];
+  groupedSections: GroupedSection[];
+  groupPickerIndex: number;
+  gapAnchorStableId: string | null;
+  markedStableId: string | null;
   searchMatches: number[];
+  searchCurrentMatch: number;
+  onCloseGroupPicker: () => void;
   onCloseHelp: () => void;
   onCloseMessages: () => void;
   onCloseNlsLiveticker: () => void;
+  onCloseSeriesPicker: () => void;
+  onPickGroup: (index: number) => void;
   onPickSeries: (series: Series) => void;
+  onSignOut: () => void;
 }
+
+// Convert groups to string array for GroupModal
+const extractGroupNames = (groups: [string, TimingEntry[]][]): string[] =>
+  groups.map(([name]) => name);
 
 export const MainContent = (props: MainContentProps): JSX.Element => {
   const {
@@ -36,45 +58,74 @@ export const MainContent = (props: MainContentProps): JSX.Element => {
     searchLabel,
     demoLabel,
     favCount,
+    groups,
+    groupedSections,
+    groupPickerIndex,
+    gapAnchorStableId,
+    markedStableId,
     searchMatches,
+    onCloseGroupPicker,
     onCloseHelp,
     onCloseMessages,
     onCloseNlsLiveticker,
+    onCloseSeriesPicker,
+    onPickGroup,
     onPickSeries,
+    onSignOut,
   } = props;
 
-  const firstMatchIndex = 0;
+  // Convert groups for GroupModal which expects string[]
+  const groupNames = extractGroupNames(groups);
 
   return (
-    <div className="app">
-      <HeaderBar
-        demoLabel={demoLabel}
-        errorText={state.connectionErrors[firstMatchIndex] ?? ''}
-        favCount={favCount}
-        searchCurrentMatch={state.search.currentMatch}
-        searchInputActive={state.search.inputActive}
-        searchLabel={searchLabel}
-        searchMatches={searchMatches.length}
-        searchQuery={state.search.query}
-        series={activeSeries}
-        snapshot={activeSnapshot}
-        viewModeLabel={viewModeLabel}
-      />
+    <main>
+      <div className="header-row">
+        <HeaderBar
+          demoLabel={demoLabel}
+          favCount={favCount}
+          searchCurrentMatch={state.search.currentMatch}
+          searchInputActive={state.search.inputActive}
+          searchLabel={searchLabel}
+          searchMatches={searchMatches.length}
+          searchQuery={state.search.query}
+          snapshot={activeSnapshot}
+          viewModeLabel={viewModeLabel}
+        />
+        <button className="logout-btn" onClick={onSignOut} type="button">
+          Logout
+        </button>
+      </div>
 
       <TimingTable
         classColors={activeSnapshot?.header.class_colors ?? {}}
         entries={activeEntries}
         selectedRow={state.selectedRow}
         series={activeSeries}
+        title={viewModeLabel}
+        groupedSections={groupedSections}
+        isGroupedMode={state.viewMode.kind === 'grouped'}
+        markedStableId={markedStableId}
+        favourites={state.favourites}
+        gapAnchorStableId={gapAnchorStableId}
+        searchMatches={searchMatches}
+        currentSearchMatch={state.search.currentMatch}
       />
 
       <HelpModal onClose={onCloseHelp} open={state.showHelp} />
 
       <SeriesModal
+        onClose={onCloseSeriesPicker}
         onPick={onPickSeries}
         open={state.showSeriesPicker}
-        selectedIndex={state.seriesPickerIndex}
-        selectedSeries={activeSeries}
+        selectedSeries={ALL_SERIES[state.seriesPickerIndex]}
+      />
+
+      <GroupModal
+        open={state.showGroupPicker}
+        groups={groupNames}
+        selectedIndex={groupPickerIndex}
+        onPick={onPickGroup}
+        onClose={onCloseGroupPicker}
       />
 
       <MessagesModal
@@ -90,6 +141,6 @@ export const MainContent = (props: MainContentProps): JSX.Element => {
         onClose={onCloseNlsLiveticker}
         open={state.showNlsLiveticker}
       />
-    </div>
+    </main>
   );
 };

@@ -4,12 +4,6 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
-    },
-  },
   build: {
     emptyOutDir: true,
     outDir: 'build',
@@ -29,6 +23,12 @@ export default defineConfig({
     options: {
       typeAware: true,
       typeCheck: true,
+    },
+  },
+  plugins: [react()],
+  resolve: {
+    alias: {
+      $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
     },
   },
   server: {

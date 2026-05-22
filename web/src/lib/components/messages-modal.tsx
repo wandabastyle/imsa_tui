@@ -1,10 +1,7 @@
 // Messages-modal.tsx - Race messages modal
-import { useEffect, useCallback, type JSX } from 'react';
+import { useEffect, useRef, useCallback, useState, type JSX } from 'react';
 
 import type { TimingNotice } from '../generated/web-shared';
-
-const ZERO_LENGTH = 0;
-const SLICE_START_INDEX = 0;
 
 interface MessagesModalProps {
   notices: TimingNotice[];
@@ -12,192 +9,178 @@ interface MessagesModalProps {
   open: boolean;
 }
 
-const MODAL_MAX_WIDTH = 640;
-const MODAL_PADDING_REM = 1.5;
-const MODAL_BACKDROP_Z_INDEX = 100;
-const MODAL_CONTENT_Z_INDEX = 101;
-const NOTICE_TIME_MAX_LENGTH = 12;
-const NOTICE_TEXT_MAX_LENGTH = 500;
+const ZERO = 0;
+const ONE = 1;
+const NEGATIVE_ONE = -1;
+const INITIAL_INDEX = 0;
+const TIMEOUT_DELAY = 0;
+const NO_NOTICES = 0;
 
 export const MessagesModal = function MessagesModal(props: MessagesModalProps): JSX.Element | null {
   const { notices, onClose, open } = props;
+  const [selectedIdx, setSelectedIdx] = useState(INITIAL_INDEX);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const modalElRef = useRef<HTMLDialogElement>(null);
+  const previouslyFocusedRef = useRef<Element | null>(null);
+  const wasOpenRef = useRef(false);
+
+  const scrollToSelected = useCallback((): void => {
+    if (scrollContainerRef.current && notices.length > NO_NOTICES) {
+      const element = scrollContainerRef.current.children[selectedIdx];
+      if (element instanceof HTMLElement) {
+        element.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [selectedIdx, notices.length]);
+
+  const moveSelection = useCallback(
+    (delta: number): void => {
+      if (notices.length === NO_NOTICES) {
+        return;
+      }
+      setSelectedIdx((prev) => {
+        const newIdx = (prev + delta + notices.length) % notices.length;
+        return newIdx;
+      });
+    },
+    [notices.length],
+  );
+
+  const closeModal = useCallback((): void => {
+    onClose();
+    // Restore focus after modal closes
+    setTimeout((): void => {
+      if (previouslyFocusedRef.current && 'focus' in previouslyFocusedRef.current) {
+        const prevElement = previouslyFocusedRef.current;
+        if (prevElement instanceof HTMLElement) {
+          prevElement.focus();
+        }
+      }
+    }, TIMEOUT_DELAY);
+  }, [onClose]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        onClose();
+      if (!open) {
+        return;
+      }
+
+      switch (event.key) {
+        case 'ArrowUp':
+        case 'k': {
+          event.preventDefault();
+          moveSelection(NEGATIVE_ONE);
+          break;
+        }
+        case 'ArrowDown':
+        case 'j': {
+          event.preventDefault();
+          moveSelection(ONE);
+          break;
+        }
+        case 'Home': {
+          event.preventDefault();
+          setSelectedIdx(ZERO);
+          break;
+        }
+        case 'End': {
+          event.preventDefault();
+          setSelectedIdx(notices.length > NO_NOTICES ? notices.length - ONE : ZERO);
+          break;
+        }
+        case 'Escape': {
+          closeModal();
+          break;
+        }
+        default: {
+          // No action for other keys
+          break;
+        }
       }
     },
-    [onClose],
+    [open, moveSelection, notices.length, closeModal],
   );
 
-  useEffect(() => {
-    if (!open) {
-      return function noop(): void {
-        // Intentionally empty
-      };
-    }
+  useEffect((): (() => void) => {
     document.addEventListener('keydown', handleKeyDown);
     return (): void => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, handleKeyDown]);
+  }, [handleKeyDown]);
+
+  useEffect((): void => {
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      // Store the trigger element when opening
+      previouslyFocusedRef.current = document.activeElement;
+      // Focus the first item
+      setTimeout((): void => {
+        const firstItem = modalElRef.current?.querySelector('.entry');
+        if (firstItem instanceof HTMLElement) {
+          firstItem.focus();
+        }
+      }, TIMEOUT_DELAY);
+    }
+  }, [open]);
+
+  // Scroll to selected when selectedIdx changes
+  useEffect((): void => {
+    if (open) {
+      scrollToSelected();
+    }
+  }, [selectedIdx, open, scrollToSelected]);
+
+  const onBackdropClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>): void => {
+      if (event.target === event.currentTarget) {
+        closeModal();
+      }
+    },
+    [closeModal],
+  );
+
+  const stopPropagation = useCallback((event: React.MouseEvent): void => {
+    event.stopPropagation();
+  }, []);
 
   if (!open) {
     return null;
   }
 
-  // Using sort on a spread copy is equivalent to toSorted() for ES2024
-  const sortedNotices: TimingNotice[] = [...notices].sort(
-    (left: TimingNotice, right: TimingNotice): number => right.time.localeCompare(left.time),
-  );
-
   return (
-    <div
-      className="messages-modal-backdrop"
-      onClick={onClose}
-      style={{
-        alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        bottom: 0,
-        display: 'flex',
-        justifyContent: 'center',
-        left: 0,
-        position: 'fixed',
-        right: 0,
-        top: 0,
-        zIndex: MODAL_BACKDROP_Z_INDEX,
-      }}
-    >
-      <div
-        className="messages-modal-content"
-        onClick={(event: React.MouseEvent<HTMLDivElement>): void => {
-          event.stopPropagation();
-        }}
-        style={{
-          backgroundColor: 'var(--bg-modal)',
-          border: '1px solid var(--border)',
-          borderRadius: '4px',
-          maxHeight: '80vh',
-          maxWidth: MODAL_MAX_WIDTH,
-          overflow: 'auto',
-          padding: `${MODAL_PADDING_REM}rem`,
-          width: '90vw',
-          zIndex: MODAL_CONTENT_Z_INDEX,
-        }}
+    <div className="backdrop" role="presentation" onClick={onBackdropClick}>
+      <dialog
+        ref={modalElRef}
+        className="modal"
+        aria-labelledby="messages-title"
+        onClick={stopPropagation}
       >
-        <div
-          style={{
-            alignItems: 'center',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: '1rem',
-            paddingBottom: '0.5rem',
-          }}
-        >
-          <h2
-            style={{
-              color: 'var(--text)',
-              fontSize: '1rem',
-              fontWeight: 600,
-              margin: 0,
-            }}
-          >
-            Race Messages
-          </h2>
-          <button
-            onClick={onClose}
-            style={{
-              backgroundColor: 'transparent',
-              border: 'none',
-              color: 'var(--text-dim)',
-              cursor: 'pointer',
-              fontSize: '1.25rem',
-              lineHeight: 1,
-              padding: '0.25rem',
-            }}
-            type="button"
-          >
-            ×
-          </button>
+        <h2 id="messages-title">Race Messages</h2>
+        <div className="entries" ref={scrollContainerRef}>
+          {notices.length === NO_NOTICES ? (
+            <p className="empty">No active race messages.</p>
+          ) : (
+            notices.map((notice, idx) => (
+              <div
+                key={notice.id}
+                className={`entry ${idx === selectedIdx ? 'selected' : ''}`}
+                role="button"
+                tabIndex={ZERO}
+              >
+                <span className="marker">{idx === selectedIdx ? '>' : ' '}</span>
+                <span className="time">{notice.time.trim() || '--:--:--'}</span>
+                <span className="text">{notice.text.trim()}</span>
+              </div>
+            ))
+          )}
         </div>
-
-        {sortedNotices.length === ZERO_LENGTH ? (
-          <div
-            style={{
-              color: 'var(--text-dim)',
-              padding: '2rem',
-              textAlign: 'center',
-            }}
-          >
-            No messages available
-          </div>
-        ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.5rem',
-            }}
-          >
-            {sortedNotices.map((notice) => {
-              const truncatedTime = notice.time.slice(SLICE_START_INDEX, NOTICE_TIME_MAX_LENGTH);
-              const truncatedText =
-                notice.text.length > NOTICE_TEXT_MAX_LENGTH
-                  ? `${notice.text.slice(SLICE_START_INDEX, NOTICE_TEXT_MAX_LENGTH)}…`
-                  : notice.text;
-
-              return (
-                <div
-                  key={notice.id}
-                  style={{
-                    backgroundColor: 'var(--bg-panel)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '3px',
-                    display: 'flex',
-                    gap: '0.75rem',
-                    padding: '0.5rem 0.75rem',
-                  }}
-                >
-                  <span
-                    style={{
-                      color: 'var(--accent)',
-                      fontFamily: 'monospace',
-                      fontSize: '0.8rem',
-                      minWidth: '5ch',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {truncatedTime}
-                  </span>
-                  <span
-                    style={{
-                      color: 'var(--text)',
-                      fontSize: '0.85rem',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {truncatedText}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div
-          style={{
-            borderTop: '1px solid var(--border)',
-            color: 'var(--text-dim)',
-            fontSize: '0.75rem',
-            marginTop: '1rem',
-            paddingTop: '0.5rem',
-          }}
-        >
-          Press Esc to close
-        </div>
-      </div>
+        <div className="footer">↑/↓ select | Esc or m close</div>
+      </dialog>
     </div>
   );
 };

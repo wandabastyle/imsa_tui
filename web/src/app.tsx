@@ -1,7 +1,7 @@
 // Main App component
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 
-import { fetchSessionState, loginWithAccessCode, updateDemoState } from './lib/api';
+import { fetchSessionState, loginWithAccessCode, logoutSession, updateDemoState } from './lib/api';
 import { LoadingScreen, ErrorScreen } from './lib/components/app-screens';
 import { LoginScreen } from './lib/components/login-screen';
 import { MainContent } from './lib/components/main-content';
@@ -13,22 +13,39 @@ import {
   handleSeriesPickerKeydown,
 } from './lib/keyboard-handlers';
 import type { Series, TimingEntry } from './lib/types';
-import { classDisplayName, getGroups, nextViewMode } from './lib/view-utils';
+import { classDisplayName, nextViewMode } from './lib/view-utils';
 
 const DEFAULT_SELECTED_ROW = 0;
 const INDEX_DECREMENT = -1;
 const INDEX_INCREMENT = 1;
-const INCREMENT_BY_ONE = 1;
+
 const MINIMUM_LENGTH = 0;
 const ZERO_LENGTH = 0;
+const NO_MATCH = -1;
+const MIN_GROUP_COUNT = 1;
+const LARGE_FALLBACK_RANK = 9999;
+const GROUP_NAME_INDEX = 0;
+const GROUP_ENTRIES_INDEX = 1;
+
+interface GroupedSection {
+  name: string;
+  entries: TimingEntry[];
+  start: number;
+}
 
 interface UseAppLogicReturn {
   activeEntries: TimingEntry[];
   searchMatches: number[];
   chooseSeries: (series: Series) => Promise<void>;
   cycleView: () => void;
+  gapAnchorStableId: string | null;
+  groups: [string, TimingEntry[]][];
+  groupedSections: GroupedSection[];
   jumpFavourite: () => void;
   jumpSearch: (delta: number) => void;
+  markedStableId: string | null;
+  pickGroup: (index: number) => void;
+  searchCurrentMatch: number;
   selectGroup: (index: number) => void;
   shiftSelection: (delta: number) => void;
   toggleDemoMode: () => Promise<void>;
@@ -37,7 +54,9 @@ interface UseAppLogicReturn {
 
 interface UseAppLogicParams {
   activeSnapshot: UseAppStateReturn['activeSnapshot'];
+  destroyStreams: UseAppStateReturn['destroyStreams'];
   favouriteKey: UseAppStateReturn['favouriteKey'];
+  initializeAppState: UseAppStateReturn['initializeAppState'];
   persistPreferences: UseAppStateReturn['persistPreferences'];
   setState: UseAppStateReturn['setState'];
   state: AppState;
@@ -45,51 +64,146 @@ interface UseAppLogicParams {
 }
 
 const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
-  const { activeSnapshot, favouriteKey, persistPreferences, setState, state, switchSeriesStream } =
-    params;
-  const activeEntries = useMemo((): TimingEntry[] => {
-    const entries: TimingEntry[] = activeSnapshot?.entries ?? [];
-    if (state.viewMode.kind === 'favourites') {
-      return entries.filter((entry: TimingEntry): boolean => {
-        const key: string = favouriteKey(state.activeSeries, entry.stable_id);
-        return state.favourites.has(key);
+  const {
+    activeSnapshot,
+    destroyStreams,
+    favouriteKey,
+    initializeAppState,
+    persistPreferences,
+    setState,
+    state,
+    switchSeriesStream,
+  } = params;
+
+  // Grouped entries logic - ported from Svelte
+  const groupedEntries = useCallback((entries: TimingEntry[]): [string, TimingEntry[]][] => {
+    const grouped = new Map<string, TimingEntry[]>();
+    for (const entry of entries) {
+      const group = classDisplayName(entry.class_name);
+      if (!grouped.has(group)) {
+        grouped.set(group, []);
+      }
+      grouped.get(group)?.push(entry);
+    }
+
+    const groups = [...grouped.entries()];
+
+    // Sort entries within each group by class_rank
+    for (const group of groups) {
+      group[GROUP_ENTRIES_INDEX].sort((firstEntry, secondEntry) => {
+        const firstRank = Number(firstEntry.class_rank || LARGE_FALLBACK_RANK);
+        const secondRank = Number(secondEntry.class_rank || LARGE_FALLBACK_RANK);
+        return firstRank - secondRank;
       });
     }
-    if (state.viewMode.kind === 'class' && state.groups.length > MINIMUM_LENGTH) {
-      const group: string = state.groups[state.viewMode.index];
-      return entries.filter(
-        (entry: TimingEntry): boolean => classDisplayName(entry.class_name) === group,
-      );
+
+    // Match TUI behavior: order groups by best overall position in class
+    groups.sort((groupA, groupB) => {
+      let aBest = Number.MAX_SAFE_INTEGER;
+      for (const entry of groupA[GROUP_ENTRIES_INDEX]) {
+        if (entry.position < aBest) {
+          aBest = entry.position;
+        }
+      }
+      let bBest = Number.MAX_SAFE_INTEGER;
+      for (const entry of groupB[GROUP_ENTRIES_INDEX]) {
+        if (entry.position < bBest) {
+          bBest = entry.position;
+        }
+      }
+      if (aBest !== bBest) {
+        return aBest - bBest;
+      }
+      return groupA[GROUP_NAME_INDEX].localeCompare(groupB[GROUP_NAME_INDEX]);
+    });
+
+    return groups;
+  }, []);
+
+  const groups = useMemo((): [string, TimingEntry[]][] => {
+    const entries: TimingEntry[] = activeSnapshot?.entries ?? [];
+    return groupedEntries(entries);
+  }, [activeSnapshot?.entries, groupedEntries]);
+
+  // Calculate grouped sections with start index
+  const groupedSections = useMemo((): GroupedSection[] => {
+    let start = 0;
+    return groups.map(([name, groupEntries]) => {
+      const section = { entries: groupEntries, name, start };
+      start += groupEntries.length;
+      return section;
+    });
+  }, [groups]);
+
+  // ViewEntries for different view modes
+  const viewEntries = useMemo((): TimingEntry[] => {
+    const entries: TimingEntry[] = activeSnapshot?.entries ?? [];
+    if (state.viewMode.kind === 'overall') {
+      return entries;
     }
-    return entries;
+    if (state.viewMode.kind === 'grouped') {
+      return groups.flatMap(([, groupEntries]) => groupEntries);
+    }
+    if (state.viewMode.kind === 'class') {
+      return groups[state.viewMode.index]?.[MIN_GROUP_COUNT] ?? [];
+    }
+    // Favourites
+    return entries.filter((entry: TimingEntry): boolean => {
+      const key: string = favouriteKey(state.activeSeries, entry.stable_id);
+      return state.favourites.has(key);
+    });
   }, [
     activeSnapshot?.entries,
     favouriteKey,
     state.activeSeries,
     state.favourites,
-    state.groups,
     state.viewMode,
+    groups,
   ]);
+
+  // Use viewEntries as activeEntries for backwards compatibility
+  const activeEntries = viewEntries;
 
   const searchMatches = ((): number[] => {
     if (state.search.query === '') {
       return [];
     }
-    const query: string = state.search.query.toLowerCase();
-    const matches: number[] = [];
-    for (let index = ZERO_LENGTH; index < activeEntries.length; index += INCREMENT_BY_ONE) {
-      const entry: TimingEntry = activeEntries[index];
-      if (
-        entry.car_number.toLowerCase().includes(query) ||
-        entry.driver.toLowerCase().includes(query) ||
-        entry.vehicle.toLowerCase().includes(query) ||
-        entry.team.toLowerCase().includes(query)
-      ) {
-        matches.push(index);
-      }
+    const query = state.search.query.toLowerCase().trim();
+    if (!query) {
+      return [];
     }
-    return matches;
+    return viewEntries
+      .map((entry: TimingEntry, index: number): number => {
+        if (
+          entry.car_number.toLowerCase().includes(query) ||
+          entry.driver.toLowerCase().includes(query) ||
+          entry.vehicle.toLowerCase().includes(query) ||
+          entry.team.toLowerCase().includes(query)
+        ) {
+          return index;
+        }
+        return NO_MATCH;
+      })
+      .filter((idx: number): boolean => idx >= MINIMUM_LENGTH);
   })();
+
+  // MarkedStableId for search highlight
+  const searchCurrentMatch =
+    searchMatches.length === MINIMUM_LENGTH
+      ? MINIMUM_LENGTH
+      : Math.min(state.search.currentMatch, searchMatches.length - INDEX_INCREMENT);
+  const markedStableId =
+    searchMatches.length === MINIMUM_LENGTH
+      ? null
+      : (viewEntries[searchMatches[searchCurrentMatch]]?.stable_id ?? null);
+
+  // Gap anchor cleanup: clear when anchor leaves current view
+  useEffect(() => {
+    const anchorId = state.gapAnchorStableId;
+    if (anchorId !== null && !viewEntries.some((entry) => entry.stable_id === anchorId)) {
+      setState((prev: AppState) => ({ ...prev, gapAnchorStableId: null }));
+    }
+  }, [viewEntries, state.gapAnchorStableId, setState]);
 
   const chooseSeries = useCallback(
     async (series: Series): Promise<void> => {
@@ -109,14 +223,13 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
   );
 
   const cycleView = useCallback((): void => {
-    const groups = getGroups(activeSnapshot?.entries ?? []);
     setState((prev: AppState) => ({
       ...prev,
       gapAnchorStableId: null,
       selectedRow: DEFAULT_SELECTED_ROW,
       viewMode: nextViewMode(prev.viewMode, groups.length),
     }));
-  }, [activeSnapshot?.entries, setState]);
+  }, [groups.length, setState]);
 
   const jumpFavourite = useCallback((): void => {
     if (activeEntries.length === MINIMUM_LENGTH) {
@@ -163,12 +276,11 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
     [searchMatches, setState],
   );
 
-  const selectGroup = useCallback(
+  const pickGroup = useCallback(
     (index: number): void => {
       setState((prev: AppState) => ({
         ...prev,
         gapAnchorStableId: null,
-        groupPickerIndex: index,
         selectedRow: DEFAULT_SELECTED_ROW,
         showGroupPicker: false,
         viewMode: { index, kind: 'class' },
@@ -190,9 +302,11 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
 
   const toggleDemoMode = useCallback(async (): Promise<void> => {
     const nextEnabled = !state.demoEnabled;
-    await updateDemoState(nextEnabled);
-    setState((prev: AppState) => ({ ...prev, demoEnabled: nextEnabled }));
-  }, [setState, state.demoEnabled]);
+    const result = await updateDemoState(nextEnabled);
+    setState((prev: AppState) => ({ ...prev, demoEnabled: result.enabled }));
+    destroyStreams();
+    await initializeAppState();
+  }, [destroyStreams, initializeAppState, setState, state.demoEnabled]);
 
   const toggleFavourite = useCallback(async (): Promise<void> => {
     const selected: TimingEntry = activeEntries[state.selectedRow];
@@ -206,6 +320,7 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
       }
       return { ...prev, favourites: next };
     });
+    // Persist after state update
     await persistPreferences();
   }, [
     activeEntries,
@@ -220,10 +335,16 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
     activeEntries,
     chooseSeries,
     cycleView,
+    gapAnchorStableId: state.gapAnchorStableId,
+    groupedSections,
+    groups,
     jumpFavourite,
     jumpSearch,
+    markedStableId,
+    pickGroup,
+    searchCurrentMatch,
     searchMatches,
-    selectGroup,
+    selectGroup: pickGroup,
     shiftSelection,
     toggleDemoMode,
     toggleFavourite,
@@ -252,7 +373,9 @@ export const App = (): JSX.Element => {
 
   const logic = useAppLogic({
     activeSnapshot,
+    destroyStreams,
     favouriteKey,
+    initializeAppState,
     persistPreferences,
     setState,
     state,
@@ -280,12 +403,12 @@ export const App = (): JSX.Element => {
     (event: KeyboardEvent): void => {
       handleGroupPickerKeydown(event, {
         groupPickerIndex: state.groupPickerIndex,
-        groupsLength: state.groups.length,
-        selectGroup: logic.selectGroup,
+        groupsLength: logic.groups.length,
+        selectGroup: logic.pickGroup,
         setState,
       });
     },
-    [logic.selectGroup, setState, state.groupPickerIndex, state.groups.length],
+    [logic.pickGroup, logic.groups.length, setState, state.groupPickerIndex],
   );
 
   const onMainKeydown = useCallback(
@@ -380,8 +503,6 @@ export const App = (): JSX.Element => {
     };
   }, [destroyStreams, initializeAppState]);
 
-  getGroups(activeSnapshot?.entries ?? []);
-
   if (authChecking) {
     return <LoadingScreen message="Checking session..." />;
   }
@@ -424,7 +545,7 @@ export const App = (): JSX.Element => {
   })();
 
   const searchLabel = state.search.query
-    ? `${state.search.query} (${state.search.currentMatch + INDEX_INCREMENT}/${logic.searchMatches.length})`
+    ? `Search: ${state.search.query}${state.search.inputActive ? '_' : ''} (${logic.searchMatches.length === MINIMUM_LENGTH ? MINIMUM_LENGTH : logic.searchCurrentMatch + INDEX_INCREMENT}/${logic.searchMatches.length})`
     : '';
 
   return (
@@ -437,7 +558,16 @@ export const App = (): JSX.Element => {
       searchLabel={searchLabel}
       demoLabel={state.demoEnabled ? '| DEMO' : ''}
       favCount={favCount}
+      groups={logic.groups}
+      groupedSections={logic.groupedSections}
+      groupPickerIndex={state.groupPickerIndex}
+      gapAnchorStableId={logic.gapAnchorStableId}
+      markedStableId={logic.markedStableId}
       searchMatches={logic.searchMatches}
+      searchCurrentMatch={logic.searchCurrentMatch}
+      onCloseGroupPicker={() => {
+        setState((prev: AppState) => ({ ...prev, showGroupPicker: false }));
+      }}
       onCloseHelp={() => {
         setState((prev: AppState) => ({ ...prev, showHelp: false }));
       }}
@@ -447,8 +577,27 @@ export const App = (): JSX.Element => {
       onCloseNlsLiveticker={() => {
         setState((prev: AppState) => ({ ...prev, showNlsLiveticker: false }));
       }}
+      onCloseSeriesPicker={() => {
+        setState((prev: AppState) => ({ ...prev, showSeriesPicker: false }));
+      }}
+      onPickGroup={logic.pickGroup}
       onPickSeries={(series: Series) => {
         void logic.chooseSeries(series);
+      }}
+      onSignOut={() => {
+        void logoutSession().then(() => {
+          destroyStreams();
+          setState((prev: AppState) => ({
+            ...prev,
+            gapAnchorStableId: null,
+            search: { currentMatch: 0, inputActive: false, matches: [], query: '' },
+            selectedRow: 0,
+            showGroupPicker: false,
+            showHelp: false,
+            showSeriesPicker: false,
+            snapshots: {},
+          }));
+        });
       }}
     />
   );

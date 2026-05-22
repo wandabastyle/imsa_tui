@@ -12,25 +12,30 @@ export const LoginScreen = (props: LoginScreenProps): JSX.Element => {
   const { loginCode, loginError, setLoginCode, onSubmit } = props;
 
   return (
-    <div className="login-container">
-      <h1>IMSA Live Timing</h1>
-      <input
-        onChange={(event): void => {
-          setLoginCode(event.target.value);
-        }}
-        placeholder="Enter access code"
-        type="text"
-        value={loginCode}
-      />
-      <button
-        onClick={(): void => {
-          onSubmit();
-        }}
-        type="button"
-      >
-        Login
-      </button>
-      {loginError && <div className="error">{loginError}</div>}
-    </div>
+    <section className="login-wrap">
+      <div className="login-card">
+        <h1>Live Timing Access</h1>
+        <p>Enter the shared access code to open the timing dashboard.</p>
+        <form
+          className="login-form"
+          onSubmit={(event): void => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <input
+            autoComplete="current-password"
+            onChange={(event): void => {
+              setLoginCode(event.target.value);
+            }}
+            placeholder="Access code"
+            type="password"
+            value={loginCode}
+          />
+          <button type="submit">Enter</button>
+        </form>
+        {loginError && <p className="login-error">{loginError}</p>}
+      </div>
+    </section>
   );
 };
