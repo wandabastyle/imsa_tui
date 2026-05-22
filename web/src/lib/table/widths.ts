@@ -1,4 +1,4 @@
-import { getColumnWidthRule } from '$lib/table/columns';
+import { getColumnWidthRule } from './columns';
 
 const widthBaselinesByContext = new Map<string, number[]>();
 
@@ -7,21 +7,30 @@ export interface WidthComputationOptions {
   maxShrinkPerUpdate?: number;
 }
 
-function textWidthCh(value: string): number {
-  return Array.from(value).length;
-}
+const DEFAULT_MAX_SHRINK = 1;
+const ONE = 1;
 
-function clamp(value: number, min: number, max: number): number {
+const textWidthCh = function textWidthCh(value: string): number {
+  let codePointCount = 0;
+  for (const character of value) {
+    if (character) {
+      codePointCount += ONE;
+    }
+  }
+  return codePointCount;
+};
+
+const clamp = function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
+};
 
-export function computeColumnWidths(
+export const computeColumnWidths = function computeColumnWidths(
   columns: string[],
   rows: string[][],
   options: WidthComputationOptions = {},
 ): number[] {
   const previous = options.previousWidthsCh ?? [];
-  const maxShrink = options.maxShrinkPerUpdate ?? 1;
+  const maxShrink = options.maxShrinkPerUpdate ?? DEFAULT_MAX_SHRINK;
 
   return columns.map((column, colIndex) => {
     const rule = getColumnWidthRule(column);
@@ -40,23 +49,23 @@ export function computeColumnWidths(
 
     return Math.max(target, baseline - maxShrink);
   });
-}
+};
 
-export function asChWidths(widths: number[]): string[] {
+export const asChWidths = function asChWidths(widths: number[]): string[] {
   return widths.map((width) => `${String(width)}ch`);
-}
+};
 
-export function computeStableColumnWidths(
+export const computeStableColumnWidths = function computeStableColumnWidths(
   contextKey: string,
   columns: string[],
   rows: string[][],
-  maxShrinkPerUpdate = 1,
+  maxShrinkPerUpdate = DEFAULT_MAX_SHRINK,
 ): number[] {
   const previousWidthsCh = widthBaselinesByContext.get(contextKey);
   const nextWidthsCh = computeColumnWidths(columns, rows, {
-    previousWidthsCh,
     maxShrinkPerUpdate,
+    previousWidthsCh,
   });
   widthBaselinesByContext.set(contextKey, nextWidthsCh);
   return nextWidthsCh;
-}
+};

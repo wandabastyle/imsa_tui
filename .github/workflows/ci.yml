@@ -111,7 +111,7 @@ jobs:
         if: needs.changes.outputs.web == 'true'
         run: cd web && vp check
 
-      - name: Svelte check
+      - name: Web typecheck
         if: needs.changes.outputs.web == 'true'
         run: cd web && vp run typecheck
 

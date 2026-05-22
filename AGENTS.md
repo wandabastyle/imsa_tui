@@ -19,13 +19,19 @@
 - Use the best model for the task - premium models for complex tasks (like coding) and mid-tier models for simpler tasks, like documentation
 - After completing features (large or small), always run verification commands:
   - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets --no-default-features -- -D warnings`, `cargo test`
-  - **Web**: `pnpm run check` (Vite+ build + Svelte typecheck)
+  - **Web**: `pnpm run check` (Vite+ build + React/TypeScript check)
 
 ## TESTING
 
 - Use any testing tools, libraries available to the project for testing your changes
 - Never assume your changes simply work, always test!
 - If the project does not have any testing tools, scripts, MCP tools, skills, etc. available for testing, ask the user whether testing should be skipped.
+
+## VERSION BUMPING
+
+- When making bug fixes or small improvements that could reasonably constitute a patch release, bump the project version in **both** `Cargo.toml` and `web/package.json` together. If dependency versions changed, run `cargo update -p <changed-crate>` to keep `Cargo.lock` in sync.
+- Only bump the minor/major version when the changeset is large enough or includes breaking changes. When in doubt, patch bump.
+- Keep `Cargo.toml` and `web/package.json` in sync.
 
 ## UI DESIGN
 

@@ -1,178 +1,184 @@
-// Shared timing domain model used by feed workers, TUI rendering, and web API serialization.
+// Shared timing domain model used by feed workers, TUI rendering, and web API
+// serialization.
 
-use std::collections::BTreeMap;
-use std::str::FromStr;
+use std::{
+   collections::BTreeMap,
+   str::FromStr,
+};
 
-use serde::{Deserialize, Serialize};
+use serde::{
+   Deserialize,
+   Serialize,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Series {
-    #[default]
-    Imsa,
-    Nls,
-    F1,
-    Wec,
-    Dhlm,
+   #[default]
+   Imsa,
+   Nls,
+   F1,
+   Wec,
+   Dhlm,
 }
 
 impl Series {
-    pub const fn all() -> [Series; 5] {
-        [
-            Series::Dhlm,
-            Series::F1,
-            Series::Imsa,
-            Series::Nls,
-            Series::Wec,
-        ]
-    }
+   pub const fn all() -> [Series; 5] {
+      [
+         Series::Dhlm,
+         Series::F1,
+         Series::Imsa,
+         Series::Nls,
+         Series::Wec,
+      ]
+   }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Series::Dhlm => "DHLM",
-            Series::Imsa => "IMSA",
-            Series::Nls => "NLS",
-            Series::F1 => "F1",
-            Series::Wec => "WEC",
-        }
-    }
+   pub fn label(self) -> &'static str {
+      match self {
+         Series::Dhlm => "DHLM",
+         Series::Imsa => "IMSA",
+         Series::Nls => "NLS",
+         Series::F1 => "F1",
+         Series::Wec => "WEC",
+      }
+   }
 
-    pub fn as_key_prefix(self) -> &'static str {
-        match self {
-            Series::Dhlm => "dhlm",
-            Series::Imsa => "imsa",
-            Series::Nls => "nls",
-            Series::F1 => "f1",
-            Series::Wec => "wec",
-        }
-    }
+   pub fn as_key_prefix(self) -> &'static str {
+      match self {
+         Series::Dhlm => "dhlm",
+         Series::Imsa => "imsa",
+         Series::Nls => "nls",
+         Series::F1 => "f1",
+         Series::Wec => "wec",
+      }
+   }
 }
 
 impl FromStr for Series {
-    type Err = String;
+   type Err = String;
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "dhlm" => Ok(Self::Dhlm),
-            "imsa" => Ok(Self::Imsa),
-            "nls" => Ok(Self::Nls),
-            "f1" => Ok(Self::F1),
-            "wec" => Ok(Self::Wec),
-            other => Err(format!("unsupported series: {other}")),
-        }
-    }
+   fn from_str(value: &str) -> Result<Self, Self::Err> {
+      match value.trim().to_ascii_lowercase().as_str() {
+         "dhlm" => Ok(Self::Dhlm),
+         "imsa" => Ok(Self::Imsa),
+         "nls" => Ok(Self::Nls),
+         "f1" => Ok(Self::F1),
+         "wec" => Ok(Self::Wec),
+         other => Err(format!("unsupported series: {other}")),
+      }
+   }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingHeader {
-    pub session_name: String,
-    #[serde(default)]
-    pub session_type_raw: String,
-    pub event_name: String,
-    #[serde(default)]
-    pub event_id: String,
-    pub track_name: String,
-    pub day_time: String,
-    pub flag: String,
-    pub time_to_go: String,
-    #[serde(default)]
-    pub class_colors: BTreeMap<String, TimingClassColor>,
+   pub session_name:     String,
+   #[serde(default)]
+   pub session_type_raw: String,
+   pub event_name:       String,
+   #[serde(default)]
+   pub event_id:         String,
+   pub track_name:       String,
+   pub day_time:         String,
+   pub flag:             String,
+   pub time_to_go:       String,
+   #[serde(default)]
+   pub class_colors:     BTreeMap<String, TimingClassColor>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingClassColor {
-    pub color: String,
+   pub color: String,
 }
 
 pub fn canonicalize_class_name(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.is_empty() || trimmed == "-" {
-        return "-".to_string();
-    }
+   let trimmed = value.trim();
+   if trimmed.is_empty() || trimmed == "-" {
+      return "-".to_string();
+   }
 
-    let mut normalized = String::with_capacity(trimmed.len());
-    let mut pending_separator = false;
+   let mut normalized = String::with_capacity(trimmed.len());
+   let mut pending_separator = false;
 
-    for ch in trimmed.chars() {
-        if ch.is_ascii_alphanumeric() {
-            if pending_separator && !normalized.is_empty() {
-                normalized.push('-');
-            }
-            normalized.push(ch.to_ascii_uppercase());
-            pending_separator = false;
-            continue;
-        }
+   for ch in trimmed.chars() {
+      if ch.is_ascii_alphanumeric() {
+         if pending_separator && !normalized.is_empty() {
+            normalized.push('-');
+         }
+         normalized.push(ch.to_ascii_uppercase());
+         pending_separator = false;
+         continue;
+      }
 
-        if ch.is_whitespace() || ch == '_' || ch == '-' {
-            pending_separator = !normalized.is_empty();
-        }
-    }
+      if ch.is_whitespace() || ch == '_' || ch == '-' {
+         pending_separator = !normalized.is_empty();
+      }
+   }
 
-    let canonical = match normalized.as_str() {
-        "GTDPRO" => "GTD-PRO".to_string(),
-        "PROAM" => "PRO-AM".to_string(),
-        "HYPERCAR" => "HYPER".to_string(),
-        _ => normalized,
-    };
+   let canonical = match normalized.as_str() {
+      "GTDPRO" => "GTD-PRO".to_string(),
+      "PROAM" => "PRO-AM".to_string(),
+      "HYPERCAR" => "HYPER".to_string(),
+      _ => normalized,
+   };
 
-    if canonical.is_empty() {
-        "-".to_string()
-    } else {
-        canonical
-    }
+   if canonical.is_empty() {
+      "-".to_string()
+   } else {
+      canonical
+   }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingEntry {
-    pub position: u32,
-    pub car_number: String,
-    pub class_name: String,
-    pub class_rank: String,
-    pub driver: String,
-    pub vehicle: String,
-    pub team: String,
-    pub laps: String,
-    pub gap_overall: String,
-    pub gap_class: String,
-    pub gap_next_in_class: String,
-    pub last_lap: String,
-    pub best_lap: String,
-    pub sector_1: String,
-    pub sector_2: String,
-    pub sector_3: String,
-    pub sector_4: String,
-    pub sector_5: String,
-    pub best_lap_no: String,
-    pub pit: String,
-    pub pit_stops: String,
-    pub fastest_driver: String,
-    pub stable_id: String,
+   pub position:          u32,
+   pub car_number:        String,
+   pub class_name:        String,
+   pub class_rank:        String,
+   pub driver:            String,
+   pub vehicle:           String,
+   pub team:              String,
+   pub laps:              String,
+   pub gap_overall:       String,
+   pub gap_class:         String,
+   pub gap_next_in_class: String,
+   pub last_lap:          String,
+   pub best_lap:          String,
+   pub sector_1:          String,
+   pub sector_2:          String,
+   pub sector_3:          String,
+   pub sector_4:          String,
+   pub sector_5:          String,
+   pub best_lap_no:       String,
+   pub pit:               String,
+   pub pit_stops:         String,
+   pub fastest_driver:    String,
+   pub stable_id:         String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TimingNotice {
-    pub id: String,
-    pub time: String,
-    pub text: String,
+   pub id:   String,
+   pub time: String,
+   pub text: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum TimingMessage {
-    Status {
-        source_id: u64,
-        text: String,
-    },
-    Error {
-        source_id: u64,
-        text: String,
-    },
-    Snapshot {
-        source_id: u64,
-        header: TimingHeader,
-        entries: Vec<TimingEntry>,
-    },
-    Notice {
-        source_id: u64,
-        notice: TimingNotice,
-    },
+   Status {
+      source_id: u64,
+      text:      String,
+   },
+   Error {
+      source_id: u64,
+      text:      String,
+   },
+   Snapshot {
+      source_id: u64,
+      header:    TimingHeader,
+      entries:   Vec<TimingEntry>,
+   },
+   Notice {
+      source_id: u64,
+      notice:    TimingNotice,
+   },
 }

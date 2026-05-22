@@ -7,8 +7,8 @@ This project uses a dark, compact motorsport timing-screen visual system. Interf
 ## Stack
 
 - **TUI:** Rust, `ratatui`, `crossterm`
-- **Web UI:** Svelte with Vite+
-- **Web styling:** Plain CSS in `web/src/app.css`
+- **Web UI:** React 19 with TypeScript, Vite+
+- **Web styling:** Plain CSS in `web/src/app.css`, React components in `web/src/lib/components/*.tsx`
 - **Backend:** Axum/Tokio web server with embedded or disk-served web assets
 - **Shared web contracts:** `crates/web-shared`
 - **Core TUI styling:** `src/ui/style.rs`, `src/ui/render.rs`, `src/ui/table.rs`
@@ -122,7 +122,7 @@ Pit state can override class color, but should not hide row selection or search 
 Purpose: event/session status, flag state, mode, update age, favourites count, key hints, search state, and errors.
 
 - TUI implementation: `src/ui/render.rs`.
-- Web implementation: `HeaderBar.svelte` in `web/src/lib/components/` plus `.header` styles.
+- Web implementation: `HeaderBar.tsx` in `web/src/lib/components/` plus `.header` styles.
 - Flag state may theme the whole header.
 - Keep key hints short and stable.
 - Show `DEMO` prominently when enabled.
@@ -133,7 +133,7 @@ Purpose: event/session status, flag state, mode, update age, favourites count, k
 Purpose: primary live timing surface.
 
 - TUI implementation: `src/ui/table.rs`.
-- Web implementation: `TimingTable.svelte` in `web/src/lib/components/` plus table styles.
+- Web implementation: `TimingTable.tsx` in `web/src/lib/components/` plus table styles.
 - Tables are dense, full-width, and scroll the data area, not the whole page.
 - Headers are sticky in Web and bold in TUI.
 - Selected rows need a distinct blue/gray background and strong contrast.
@@ -283,10 +283,10 @@ Interaction rules:
 - Centralize TUI semantic styling in `src/ui/style.rs`.
 - Keep frame-level layout and header rendering in `src/ui/render.rs`.
 - Keep row/table styling, selection, favourites, class styling, pit styling, and marquee behaviour in `src/ui/table.rs`.
-- Keep Web design tokens and component styles in `web/src/app.css` and Svelte component `<style>` blocks.
+- Keep Web design tokens and component styles in `web/src/app.css` and React component CSS modules.
 - Add new semantic Web colors as named CSS variables before using them broadly.
 - Mirror new semantic color intent in TUI helpers.
-- Avoid one-off inline colors in Svelte markup unless the value comes from feed data, such as live class colors.
+- Avoid one-off inline colors in React component markup unless the value comes from feed data, such as live class colors.
 - Prefer small explicit style helpers over broad theme abstractions.
 - Check visual changes in both TUI and Web for IMSA, NLS/DHLM, F1, and WEC data shapes.
 - Run formatting and available checks before treating visual changes as complete.
