@@ -286,7 +286,7 @@ Interaction rules:
 - Keep Web design tokens and component styles in `web/src/app.css` and React component CSS modules.
 - Add new semantic Web colors as named CSS variables before using them broadly.
 - Mirror new semantic color intent in TUI helpers.
-- Avoid one-off inline colors in Svelte markup unless the value comes from feed data, such as live class colors.
+- Avoid one-off inline colors in React component markup unless the value comes from feed data, such as live class colors.
 - Prefer small explicit style helpers over broad theme abstractions.
 - Check visual changes in both TUI and Web for IMSA, NLS/DHLM, F1, and WEC data shapes.
 - Run formatting and available checks before treating visual changes as complete.

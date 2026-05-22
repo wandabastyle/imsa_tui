@@ -16,7 +16,7 @@ To test local web applications, write native Python Playwright scripts.
 ## Project-Specific Testing Notes
 
 This project uses:
-- **Frontend**: Svelte 5 with Vite+ (`pnpm run dev` or `vp dev`)
+- **Frontend**: React 19 with Vite+ (`pnpm run dev` or `vp dev`)
 - **Backend**: Rust Axum server (`cargo run --bin web_server`)
 - **Package Manager**: pnpm (not npm)
 

@@ -19,7 +19,7 @@
 - Use the best model for the task - premium models for complex tasks (like coding) and mid-tier models for simpler tasks, like documentation
 - After completing features (large or small), always run verification commands:
   - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets --no-default-features -- -D warnings`, `cargo test`
-  - **Web**: `pnpm run check` (Vite+ build + Svelte typecheck)
+  - **Web**: `pnpm run check` (Vite+ build + React/TypeScript check)
 
 ## TESTING
 
