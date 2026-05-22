@@ -15,6 +15,7 @@ const NEGATIVE_ONE = -1;
 const INITIAL_INDEX = 0;
 const TIMEOUT_DELAY = 0;
 const NO_NOTICES = 0;
+const FOCUSABLE_TAB_INDEX = -1;
 
 export const MessagesModal = function MessagesModal(props: MessagesModalProps): JSX.Element | null {
   const { notices, onClose, open } = props;
@@ -118,11 +119,11 @@ export const MessagesModal = function MessagesModal(props: MessagesModalProps): 
       wasOpenRef.current = true;
       // Store the trigger element when opening
       previouslyFocusedRef.current = document.activeElement;
-      // Focus the first item
+      // Focus the scroll container so keyboard stays within modal context
       setTimeout((): void => {
-        const firstItem = modalElRef.current?.querySelector('.entry');
-        if (firstItem instanceof HTMLElement) {
-          firstItem.focus();
+        const scrollContainer = scrollContainerRef.current;
+        if (scrollContainer instanceof HTMLElement) {
+          scrollContainer.focus();
         }
       }, TIMEOUT_DELAY);
     }
@@ -161,7 +162,7 @@ export const MessagesModal = function MessagesModal(props: MessagesModalProps): 
         onClick={stopPropagation}
       >
         <h2 id="messages-title">Race Messages</h2>
-        <div className="entries" ref={scrollContainerRef}>
+        <div className="entries" ref={scrollContainerRef} tabIndex={FOCUSABLE_TAB_INDEX}>
           {notices.length === NO_NOTICES ? (
             <p className="empty">No active race messages.</p>
           ) : (

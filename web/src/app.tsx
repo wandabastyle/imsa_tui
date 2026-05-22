@@ -26,6 +26,11 @@ const MIN_GROUP_COUNT = 1;
 const LARGE_FALLBACK_RANK = 9999;
 const GROUP_NAME_INDEX = 0;
 const GROUP_ENTRIES_INDEX = 1;
+const KEY_ESCAPE = 'Escape';
+const KEY_H = 'h';
+const KEY_HELP_ALIAS = '?';
+const KEY_L = 'l';
+const KEY_M = 'm';
 
 interface GroupedSection {
   name: string;
@@ -470,6 +475,20 @@ export const App = (): JSX.Element => {
         onGroupPickerKeydown(event);
         return;
       }
+
+      if (state.showNlsLiveticker || state.showMessages) {
+        const { key } = event;
+        if (
+          key !== KEY_ESCAPE &&
+          key !== KEY_H &&
+          key !== KEY_HELP_ALIAS &&
+          key !== KEY_L &&
+          key !== KEY_M
+        ) {
+          return;
+        }
+      }
+
       onMainKeydown(event);
     },
     [
@@ -480,6 +499,8 @@ export const App = (): JSX.Element => {
       onSeriesPickerKeydown,
       state.search.inputActive,
       state.showGroupPicker,
+      state.showMessages,
+      state.showNlsLiveticker,
       state.showSeriesPicker,
     ],
   );

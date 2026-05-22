@@ -17,6 +17,8 @@ const MINUTES_PER_HOUR = 60;
 const ZERO = 0;
 const SCROLL_UNIT = 1;
 const SCROLL_PAGE = 10;
+const FOCUS_DELAY_MS = 0;
+const FOCUSABLE_TAB_INDEX = -1;
 
 const formatAge = function formatAge(ms: number): string {
   const seconds = Math.floor(ms / MS_PER_SECOND);
@@ -40,7 +42,19 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
 ): JSX.Element | null {
   const { entries, lastError, lastUpdateUnixMs, onClose, open } = props;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<Element | null>(null);
+  const wasOpenRef = useRef(false);
   const orderedEntries = entries.toReversed();
+
+  const closeModal = useCallback((): void => {
+    onClose();
+    setTimeout((): void => {
+      const previousFocused = previouslyFocusedRef.current;
+      if (previousFocused instanceof HTMLElement) {
+        previousFocused.focus();
+      }
+    }, FOCUS_DELAY_MS);
+  }, [onClose]);
 
   const scrollUp = useCallback((): void => {
     if (scrollContainerRef.current) {
@@ -114,7 +128,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
           break;
         }
         case 'Escape': {
-          onClose();
+          closeModal();
           break;
         }
         default: {
@@ -123,8 +137,24 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
         }
       }
     },
-    [onClose, scrollUp, scrollDown, scrollPageUp, scrollPageDown, scrollHome, scrollEnd],
+    [closeModal, scrollUp, scrollDown, scrollPageUp, scrollPageDown, scrollHome, scrollEnd],
   );
+
+  useEffect(() => {
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      previouslyFocusedRef.current = document.activeElement;
+      const scrollContainer = scrollContainerRef.current;
+      if (scrollContainer instanceof HTMLElement) {
+        scrollContainer.focus();
+      }
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -147,7 +177,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
 
   const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (event.target === event.currentTarget) {
-      onClose();
+      closeModal();
     }
   };
 
@@ -165,7 +195,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
             <span className="error"> | Error: {lastError}</span>
           ) : null}
         </div>
-        <div className="entries" ref={scrollContainerRef}>
+        <div className="entries" ref={scrollContainerRef} tabIndex={FOCUSABLE_TAB_INDEX}>
           {orderedEntries.length === ZERO ? (
             <p className="empty">No liveticker entries yet.</p>
           ) : (

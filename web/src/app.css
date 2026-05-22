@@ -408,6 +408,12 @@ p {
   max-height: 60vh;
 }
 
+.messages-modal .entries:focus,
+.messages-modal .entries:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .messages-modal .entry {
   display: flex;
   gap: 0.5rem;
@@ -457,6 +463,12 @@ p {
   flex: 1;
   overflow-y: auto;
   max-height: 60vh;
+}
+
+.liveticker-modal .entries:focus,
+.liveticker-modal .entries:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .liveticker-modal .entry {
