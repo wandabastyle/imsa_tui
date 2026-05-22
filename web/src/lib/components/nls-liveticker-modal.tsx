@@ -152,7 +152,11 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
 
   return (
     <div className="backdrop" role="presentation" onClick={handleBackdropClick}>
-      <dialog className="modal" aria-labelledby="liveticker-title" onClick={handleModalClick}>
+      <dialog
+        className="modal liveticker-modal"
+        aria-labelledby="liveticker-title"
+        onClick={handleModalClick}
+      >
         <h2 id="liveticker-title">NLS Liveticker</h2>
         <div className="meta">
           {entries.length} entries | updated {ageText}

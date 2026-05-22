@@ -8,9 +8,16 @@ export interface WidthComputationOptions {
 }
 
 const DEFAULT_MAX_SHRINK = 1;
+const ONE = 1;
 
 const textWidthCh = function textWidthCh(value: string): number {
-  return value.length;
+  let codePointCount = 0;
+  for (const character of value) {
+    if (character) {
+      codePointCount += ONE;
+    }
+  }
+  return codePointCount;
 };
 
 const clamp = function clamp(value: number, min: number, max: number): number {

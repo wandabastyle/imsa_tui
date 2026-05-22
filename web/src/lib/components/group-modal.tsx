@@ -135,7 +135,7 @@ export const GroupModal = function GroupModal(props: GroupModalProps): JSX.Eleme
   return (
     <div className="backdrop" onClick={handleClose} role="presentation">
       <dialog
-        className="modal"
+        className="modal group-modal"
         aria-labelledby="group-title"
         onClick={(event): void => {
           event.stopPropagation();

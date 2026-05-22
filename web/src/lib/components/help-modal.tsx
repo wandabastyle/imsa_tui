@@ -69,7 +69,7 @@ export const HelpModal = function HelpModal(props: HelpModalProps): JSX.Element 
     <div className="backdrop" role="presentation" onClick={closeModal}>
       <dialog
         ref={modalRef}
-        className="modal"
+        className="modal help-modal"
         aria-labelledby="help-title"
         onClick={(event: React.MouseEvent<HTMLDialogElement>): void => {
           event.stopPropagation();

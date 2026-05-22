@@ -102,7 +102,7 @@ export const SeriesModal = function SeriesModal(props: SeriesModalProps): JSX.El
     >
       <dialog
         ref={modalElRef}
-        className="modal"
+        className="modal series-modal"
         aria-labelledby="series-title"
         onClick={handleDialogClick}
       >

@@ -156,7 +156,7 @@ export const MessagesModal = function MessagesModal(props: MessagesModalProps): 
     <div className="backdrop" role="presentation" onClick={onBackdropClick}>
       <dialog
         ref={modalElRef}
-        className="modal"
+        className="modal messages-modal"
         aria-labelledby="messages-title"
         onClick={stopPropagation}
       >
