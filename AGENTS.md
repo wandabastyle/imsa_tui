@@ -31,7 +31,7 @@
 
 - When making bug fixes or small improvements that could reasonably constitute a patch release, bump the project version in **both** `Cargo.toml` and `web/package.json` together. If dependency versions changed, run `cargo update -p <changed-crate>` to keep `Cargo.lock` in sync.
 - Only bump the minor/major version when the changeset is large enough or includes breaking changes. When in doubt, patch bump.
-- Do not leave `Cargo.toml` and `web/package.json` out of sync.
+- Keep `Cargo.toml` and `web/package.json` in sync.
 
 ## UI DESIGN
 
