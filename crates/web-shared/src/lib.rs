@@ -175,6 +175,7 @@ pub struct SessionStateResponse {
    pub authenticated: bool,
 }
 
+#[must_use]
 pub fn canonicalize_class_name(value: &str) -> String {
    let trimmed = value.trim();
    if trimmed.is_empty() || trimmed == "-" {
@@ -209,6 +210,7 @@ pub fn canonicalize_class_name(value: &str) -> String {
    }
 }
 
+#[must_use]
 pub fn class_display_name(name: &str) -> String {
    canonicalize_class_name(name)
 }

@@ -21,15 +21,15 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(crate) struct ActiveFeed {
-   pub(crate) source_id: u64,
-   stop_tx:              Sender<()>,
-   debug_rx:             Option<Receiver<String>>,
+pub struct ActiveFeed {
+   pub source_id: u64,
+   stop_tx:       Sender<()>,
+   debug_rx:      Option<Receiver<String>>,
 }
 
-pub(crate) const IMSA_DEBUG_LOG_CAPACITY: usize = 150;
+pub const IMSA_DEBUG_LOG_CAPACITY: usize = 150;
 
-pub(crate) fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
+pub fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
    let (stop_tx, stop_rx) = mpsc::channel::<()>();
    let (debug_tx, debug_rx) = mpsc::channel::<String>();
    let debug_output = SeriesDebugOutput::Channel(debug_tx);
@@ -43,20 +43,20 @@ pub(crate) fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u
    }
 }
 
-pub(crate) fn stop_feed(feed: &mut Option<ActiveFeed>) {
+pub fn stop_feed(feed: &mut Option<ActiveFeed>) {
    if let Some(active_feed) = feed.take() {
       let _ = active_feed.stop_tx.send(());
    }
 }
 
-pub(crate) fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
+pub fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
    logs.push_back(line);
    while logs.len() > IMSA_DEBUG_LOG_CAPACITY {
       logs.pop_front();
    }
 }
 
-pub(crate) fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
+pub fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
    let Some(active_feed) = feed.as_ref() else {
       return;
    };
@@ -69,7 +69,7 @@ pub(crate) fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecD
    }
 }
 
-pub(crate) fn drain_messages(
+pub fn drain_messages(
    rx: &Receiver<TimingMessage>,
    active_source_id: u64,
    header: &mut TimingHeader,

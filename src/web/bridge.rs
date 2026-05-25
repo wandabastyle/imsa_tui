@@ -251,7 +251,7 @@ fn spawn_worker_thread(
    );
 }
 
-fn series_idle_ttl(series: Series) -> Duration {
+const fn series_idle_ttl(series: Series) -> Duration {
    match series {
       // IMSA polling reconnects quickly; keep the idle window short.
       Series::Imsa => Duration::from_secs(30),

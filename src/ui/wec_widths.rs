@@ -14,7 +14,7 @@ use crate::timing::TimingEntry;
 const WEC_COLUMN_COUNT: usize = 14;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct WecColumnWidths {
+pub struct WecColumnWidths {
    pos:        u16,
    car_number: u16,
    class:      u16,
@@ -51,7 +51,7 @@ impl WecColumnWidths {
       }
    }
 
-   pub(crate) fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
+   pub fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
       if entries.is_empty() {
          return None;
       }
@@ -149,7 +149,7 @@ impl WecColumnWidths {
       self.team as usize
    }
 
-   pub(crate) fn merge_keep_larger(self, other: Self) -> Self {
+   pub fn merge_keep_larger(self, other: Self) -> Self {
       let a = self.to_array();
       let b = other.to_array();
       let mut merged = [0_u16; WEC_COLUMN_COUNT];
@@ -160,7 +160,7 @@ impl WecColumnWidths {
    }
 }
 
-pub(crate) fn calculate_wec_widths(
+pub fn calculate_wec_widths(
    terminal_width: u16,
    entries: &[TimingEntry],
    baseline: Option<&WecColumnWidths>,
@@ -199,7 +199,7 @@ pub(crate) fn calculate_wec_widths(
    WecColumnWidths::from_array(widths)
 }
 
-pub(crate) fn wec_constraints(widths: WecColumnWidths) -> Vec<Constraint> {
+pub fn wec_constraints(widths: WecColumnWidths) -> Vec<Constraint> {
    widths
       .to_array()
       .into_iter()

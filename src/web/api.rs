@@ -295,8 +295,7 @@ fn profile_hint(profile_id: &str) -> String {
 fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|d| d.as_secs())
-      .unwrap_or(0)
+      .map_or(0, |d| d.as_secs())
 }
 
 fn with_profile_cookie(cookie: Option<String>, mut response: Response) -> Response {

@@ -15,7 +15,7 @@ const NLS_COLUMN_COUNT: usize = 16;
 const F1_COLUMN_COUNT: usize = 11;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct NlsColumnWidths {
+pub struct NlsColumnWidths {
    pos:        u16,
    car_number: u16,
    class:      u16,
@@ -56,7 +56,7 @@ impl NlsColumnWidths {
       }
    }
 
-   pub(crate) fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
+   pub fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
       if entries.is_empty() {
          return None;
       }
@@ -161,7 +161,7 @@ impl NlsColumnWidths {
       self.team as usize
    }
 
-   pub(crate) fn merge_keep_larger(self, other: Self) -> Self {
+   pub fn merge_keep_larger(self, other: Self) -> Self {
       let a = self.to_array();
       let b = other.to_array();
       let mut merged = [0_u16; NLS_COLUMN_COUNT];
@@ -173,7 +173,7 @@ impl NlsColumnWidths {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct F1ColumnWidths {
+pub struct F1ColumnWidths {
    pos:        u16,
    car_number: u16,
    driver:     u16,
@@ -204,7 +204,7 @@ impl F1ColumnWidths {
       }
    }
 
-   pub(crate) fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
+   pub fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
       if entries.is_empty() {
          return None;
       }
@@ -285,7 +285,7 @@ impl F1ColumnWidths {
       self.team as usize
    }
 
-   pub(crate) fn merge_keep_larger(self, other: Self) -> Self {
+   pub fn merge_keep_larger(self, other: Self) -> Self {
       let a = self.to_array();
       let b = other.to_array();
       let mut merged = [0_u16; F1_COLUMN_COUNT];
@@ -296,7 +296,7 @@ impl F1ColumnWidths {
    }
 }
 
-pub(crate) fn calculate_nls_widths(
+pub fn calculate_nls_widths(
    terminal_width: u16,
    entries: &[TimingEntry],
    baseline: Option<&NlsColumnWidths>,
@@ -332,7 +332,7 @@ pub(crate) fn calculate_nls_widths(
    NlsColumnWidths::from_array(widths)
 }
 
-pub(crate) fn nls_constraints(widths: NlsColumnWidths) -> Vec<Constraint> {
+pub fn nls_constraints(widths: NlsColumnWidths) -> Vec<Constraint> {
    widths
       .to_array()
       .into_iter()
@@ -340,7 +340,7 @@ pub(crate) fn nls_constraints(widths: NlsColumnWidths) -> Vec<Constraint> {
       .collect()
 }
 
-pub(crate) fn calculate_f1_widths(
+pub fn calculate_f1_widths(
    terminal_width: u16,
    entries: &[TimingEntry],
    baseline: Option<&F1ColumnWidths>,
@@ -374,7 +374,7 @@ pub(crate) fn calculate_f1_widths(
    F1ColumnWidths::from_array(widths)
 }
 
-pub(crate) fn f1_constraints(widths: F1ColumnWidths) -> Vec<Constraint> {
+pub fn f1_constraints(widths: F1ColumnWidths) -> Vec<Constraint> {
    widths
       .to_array()
       .into_iter()

@@ -10,14 +10,14 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ViewMode {
+pub enum ViewMode {
    Overall,
    Grouped,
    Class(usize),
    Favourites,
 }
 
-pub(crate) fn grouped_entries(
+pub fn grouped_entries(
    entries: &[TimingEntry],
    _active_series: Series,
 ) -> Vec<(String, Vec<TimingEntry>)> {
@@ -48,7 +48,7 @@ pub(crate) fn grouped_entries(
 }
 
 #[allow(clippy::missing_const_for_fn)]
-pub(crate) fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
+pub fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
    if groups_len == 0 {
       return match current {
          ViewMode::Overall => ViewMode::Grouped,
@@ -71,7 +71,7 @@ pub(crate) fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
    }
 }
 
-pub(crate) fn view_entries_for_mode<'a>(
+pub fn view_entries_for_mode<'a>(
    all_entries: &'a [TimingEntry],
    current_groups: &'a [(String, Vec<TimingEntry>)],
    view_mode: ViewMode,
@@ -103,7 +103,7 @@ pub(crate) fn view_entries_for_mode<'a>(
    }
 }
 
-pub(crate) fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
+pub fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
    match view_mode {
       ViewMode::Overall => "Overall".to_string(),
       ViewMode::Grouped => "Grouped".to_string(),
@@ -118,14 +118,14 @@ pub(crate) fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> Str
    }
 }
 
-pub(crate) fn selected_series_index(series: Series) -> usize {
+pub fn selected_series_index(series: Series) -> usize {
    Series::all()
       .iter()
       .position(|candidate| *candidate == series)
       .unwrap_or(0)
 }
 
-pub(crate) fn favourites_count_for_series(series: Series, favourites: &HashSet<String>) -> usize {
+pub fn favourites_count_for_series(series: Series, favourites: &HashSet<String>) -> usize {
    let prefix = format!("{}|", series.as_key_prefix());
    favourites
       .iter()
@@ -133,7 +133,7 @@ pub(crate) fn favourites_count_for_series(series: Series, favourites: &HashSet<S
       .count()
 }
 
-pub(crate) fn display_event_name(_series: Series, raw: &str) -> String {
+pub fn display_event_name(_series: Series, raw: &str) -> String {
    if raw.trim().is_empty() || raw == "-" {
       return "-".to_string();
    }
@@ -141,7 +141,7 @@ pub(crate) fn display_event_name(_series: Series, raw: &str) -> String {
    raw.trim().to_string()
 }
 
-pub(crate) fn display_session_name(series: Series, raw: &str) -> String {
+pub fn display_session_name(series: Series, raw: &str) -> String {
    if raw.trim().is_empty() || raw == "-" {
       return "-".to_string();
    }

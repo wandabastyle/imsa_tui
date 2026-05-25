@@ -34,6 +34,7 @@ pub struct RuntimeInfo {
    pub started_unix_secs: u64,
 }
 
+#[must_use]
 pub const fn static_source_label(source: StaticSource) -> &'static str {
    match source {
       StaticSource::Disk => "disk (WEB_DIST_DIR)",
@@ -136,6 +137,7 @@ pub async fn wait_for_shutdown_signal() {
    }
 }
 
+#[must_use]
 pub fn runtime_dir() -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().to_path_buf())
@@ -178,14 +180,17 @@ pub fn cleanup_stale_profile_artifacts() {
    }
 }
 
+#[must_use]
 pub fn pid_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.pid"))
 }
 
+#[must_use]
 pub fn info_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.info.toml"))
 }
 
+#[must_use]
 pub fn log_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.log"))
 }
@@ -247,13 +252,14 @@ pub fn clear_runtime_files() -> Result<(), Box<dyn std::error::Error>> {
    Ok(())
 }
 
+#[must_use]
 pub fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|d| d.as_secs())
-      .unwrap_or(0)
+      .map_or(0, |d| d.as_secs())
 }
 
+#[must_use]
 pub fn is_process_running(pid: i32) -> bool {
    if pid <= 0 {
       return false;

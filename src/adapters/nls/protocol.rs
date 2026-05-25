@@ -176,6 +176,7 @@ fn pit_flag_from_inout_state(inout_state: &str) -> String {
    "-".to_string()
 }
 
+#[must_use]
 pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
    let car_number = parse_u32_field(v, "STNR")?.to_string();
    let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
@@ -397,7 +398,7 @@ pub(super) fn parse_ws_message(
 }
 
 #[cfg(test)]
-pub(super) fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
+   pub fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
    let _ = stream.set_read_timeout(Some(timeout));
 }
 

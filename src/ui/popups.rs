@@ -32,13 +32,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SeriesPickerState {
-   pub(crate) is_open:      bool,
-   pub(crate) selected_idx: usize,
+pub struct SeriesPickerState {
+   pub is_open:      bool,
+   pub selected_idx: usize,
 }
 
 impl SeriesPickerState {
-   pub(crate) const fn closed() -> Self {
+   pub const fn closed() -> Self {
       Self {
          is_open:      false,
          selected_idx: 0,
@@ -47,13 +47,13 @@ impl SeriesPickerState {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct GroupPickerState {
-   pub(crate) is_open:      bool,
-   pub(crate) selected_idx: usize,
+pub struct GroupPickerState {
+   pub is_open:      bool,
+   pub selected_idx: usize,
 }
 
 impl GroupPickerState {
-   pub(crate) const fn closed() -> Self {
+   pub const fn closed() -> Self {
       Self {
          is_open:      false,
          selected_idx: 0,
@@ -62,25 +62,25 @@ impl GroupPickerState {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct LogsPanelState {
-   pub(crate) is_open: bool,
-   pub(crate) scroll:  usize,
+pub struct LogsPanelState {
+   pub is_open:       bool,
+   pub(crate) scroll: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MessagesPanelState {
-   pub(crate) is_open:      bool,
-   pub(crate) selected_idx: usize,
+pub struct MessagesPanelState {
+   pub is_open:      bool,
+   pub selected_idx: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct NlsLivetickerPanelState {
-   pub(crate) is_open: bool,
-   pub(crate) scroll:  usize,
+pub struct NlsLivetickerPanelState {
+   pub is_open:       bool,
+   pub(crate) scroll: usize,
 }
 
 impl MessagesPanelState {
-   pub(crate) const fn closed() -> Self {
+   pub const fn closed() -> Self {
       Self {
          is_open:      false,
          selected_idx: 0,
@@ -89,7 +89,7 @@ impl MessagesPanelState {
 }
 
 impl NlsLivetickerPanelState {
-   pub(crate) const fn closed() -> Self {
+   pub const fn closed() -> Self {
       Self {
          is_open: false,
          scroll:  0,
@@ -98,7 +98,7 @@ impl NlsLivetickerPanelState {
 }
 
 impl LogsPanelState {
-   pub(crate) const fn closed() -> Self {
+   pub const fn closed() -> Self {
       Self {
          is_open: false,
          scroll:  0,
@@ -106,7 +106,7 @@ impl LogsPanelState {
    }
 }
 
-pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
    let vertical = Layout::default()
       .direction(Direction::Vertical)
       .constraints([
@@ -126,7 +126,7 @@ pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect 
       .split(vertical[1])[1]
 }
 
-pub(crate) fn help_popup() -> Paragraph<'static> {
+pub fn help_popup() -> Paragraph<'static> {
    let text = vec![
       Line::from(vec![Span::styled(
          "Keyboard Help",
@@ -162,7 +162,7 @@ pub(crate) fn help_popup() -> Paragraph<'static> {
       .block(Block::default().title("Help").borders(Borders::ALL))
 }
 
-pub(crate) fn messages_popup(
+pub fn messages_popup(
    notices: &[TimingNotice],
    selected_idx: usize,
    scroll: usize,
@@ -212,10 +212,7 @@ pub(crate) fn messages_popup(
       .block(Block::default().title("Messages").borders(Borders::ALL))
 }
 
-pub(crate) fn series_picker_popup(
-   active_series: Series,
-   selected_idx: usize,
-) -> Paragraph<'static> {
+pub fn series_picker_popup(active_series: Series, selected_idx: usize) -> Paragraph<'static> {
    let mut lines = vec![
       Line::from(vec![Span::styled(
          "Select Series",
@@ -255,7 +252,7 @@ pub(crate) fn series_picker_popup(
       .block(Block::default().title("Series").borders(Borders::ALL))
 }
 
-pub(crate) fn group_picker_popup(groups: &[String], selected_idx: usize) -> Paragraph<'static> {
+pub fn group_picker_popup(groups: &[String], selected_idx: usize) -> Paragraph<'static> {
    let mut lines = vec![
       Line::from(vec![Span::styled(
          "Select Group",
@@ -294,7 +291,7 @@ pub(crate) fn group_picker_popup(groups: &[String], selected_idx: usize) -> Para
       .block(Block::default().title("Group").borders(Borders::ALL))
 }
 
-pub(crate) fn nls_liveticker_popup(
+pub fn nls_liveticker_popup(
    entries: &[LivetickerEntry],
    scroll: usize,
    updated_age_secs: Option<u64>,
@@ -353,7 +350,7 @@ pub(crate) fn nls_liveticker_popup(
       )
 }
 
-pub(crate) fn liveticker_line_count(entries: &[LivetickerEntry], has_error: bool) -> usize {
+pub fn liveticker_line_count(entries: &[LivetickerEntry], has_error: bool) -> usize {
    let mut lines = 2usize;
    lines += 2;
    if has_error {

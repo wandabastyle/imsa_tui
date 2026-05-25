@@ -26,7 +26,7 @@ enum PitHighlightPhase {
 }
 
 #[derive(Clone)]
-pub(crate) struct PitTracker {
+pub struct PitTracker {
    in_pit:    bool,
    in_until:  Option<Instant>,
    out_until: Option<Instant>,
@@ -76,7 +76,7 @@ fn pit_phase_style(phase: PitHighlightPhase) -> Option<Style> {
    }
 }
 
-pub(crate) fn refresh_pit_trackers(
+pub fn refresh_pit_trackers(
    trackers: &mut HashMap<String, PitTracker>,
    entries: &[TimingEntry],
    active_series: Series,
@@ -111,7 +111,7 @@ pub(crate) fn refresh_pit_trackers(
    }
 }
 
-pub(crate) fn pit_style_for_entry(
+pub fn pit_style_for_entry(
    trackers: &HashMap<String, PitTracker>,
    entry: &TimingEntry,
    now: Instant,

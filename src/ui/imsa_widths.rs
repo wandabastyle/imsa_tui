@@ -14,7 +14,7 @@ use crate::timing::TimingEntry;
 const IMSA_COLUMN_COUNT: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ImsaColumnWidths {
+pub struct ImsaColumnWidths {
    pos:        u16,
    car_number: u16,
    class:      u16,
@@ -55,7 +55,7 @@ impl ImsaColumnWidths {
       }
    }
 
-   pub(crate) fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
+   pub fn from_entries(entries: &[TimingEntry]) -> Option<Self> {
       if entries.is_empty() {
          return None;
       }
@@ -86,7 +86,7 @@ impl ImsaColumnWidths {
       })
    }
 
-   pub(crate) fn merge_keep_larger(self, other: Self) -> Self {
+   pub fn merge_keep_larger(self, other: Self) -> Self {
       Self {
          pos:        self.pos.max(other.pos),
          car_number: self.car_number.max(other.car_number),
@@ -129,7 +129,7 @@ impl ImsaColumnWidths {
       }
    }
 
-   pub(crate) const fn to_array(self) -> [u16; 16] {
+   pub const fn to_array(self) -> [u16; 16] {
       [
          self.pos,
          self.car_number,
@@ -150,7 +150,7 @@ impl ImsaColumnWidths {
       ]
    }
 
-   fn from_array(values: [u16; 16]) -> Self {
+   const fn from_array(values: [u16; 16]) -> Self {
       Self {
          pos:        values[0],
          car_number: values[1],
@@ -171,20 +171,20 @@ impl ImsaColumnWidths {
       }
    }
 
-   pub(crate) const fn driver_width(self) -> usize {
+   pub const fn driver_width(self) -> usize {
       self.driver as usize
    }
 
-   pub(crate) const fn vehicle_width(self) -> usize {
+   pub const fn vehicle_width(self) -> usize {
       self.vehicle as usize
    }
 
-   pub(crate) const fn fastest_width(self) -> usize {
+   pub const fn fastest_width(self) -> usize {
       self.fastest as usize
    }
 }
 
-pub(crate) fn calculate_imsa_widths(
+pub fn calculate_imsa_widths(
    terminal_width: u16,
    entries: &[TimingEntry],
    baseline: Option<&ImsaColumnWidths>,
@@ -222,7 +222,7 @@ pub(crate) fn calculate_imsa_widths(
    ImsaColumnWidths::from_array(widths)
 }
 
-pub(crate) fn imsa_constraints(widths: ImsaColumnWidths) -> Vec<Constraint> {
+pub fn imsa_constraints(widths: ImsaColumnWidths) -> Vec<Constraint> {
    widths
       .to_array()
       .into_iter()

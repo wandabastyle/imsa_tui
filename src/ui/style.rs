@@ -82,7 +82,7 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
    }
 }
 
-pub(crate) fn animated_flag_theme(
+pub fn animated_flag_theme(
    flag: &str,
    previous_flag: &str,
    transition_started_at: Instant,
@@ -99,7 +99,7 @@ pub(crate) fn animated_flag_theme(
    (flag_text, flag_span_style, header_style)
 }
 
-pub(crate) fn class_style(
+pub fn class_style(
    class_name: &str,
    active_series: Series,
    class_colors: &BTreeMap<String, TimingClassColor>,
@@ -224,7 +224,7 @@ fn class_style_wec_static(class_key: &str) -> Style {
    }
 }
 
-pub(crate) fn class_display_name(name: &str) -> String {
+pub fn class_display_name(name: &str) -> String {
    canonicalize_class_name(name)
 }
 

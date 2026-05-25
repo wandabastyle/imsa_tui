@@ -1,6 +1,6 @@
 use crate::timing::TimingEntry;
 
-pub(crate) fn max_text_width<F>(entries: &[TimingEntry], accessor: F) -> u16
+pub fn max_text_width<F>(entries: &[TimingEntry], accessor: F) -> u16
 where
    F: Fn(&TimingEntry) -> &str,
 {
@@ -11,7 +11,7 @@ where
       .unwrap_or(1) as u16
 }
 
-pub(crate) fn distribute_extra_space<const N: usize>(widths: &mut [u16; N], mut extra: u16) {
+pub fn distribute_extra_space<const N: usize>(widths: &mut [u16; N], mut extra: u16) {
    if extra == 0 {
       return;
    }
@@ -32,7 +32,7 @@ pub(crate) fn distribute_extra_space<const N: usize>(widths: &mut [u16; N], mut 
    }
 }
 
-pub(crate) fn reduce_widths_in_order<const N: usize>(
+pub fn reduce_widths_in_order<const N: usize>(
    widths: &mut [u16; N],
    minimums: &[u16; N],
    mut deficit: u16,

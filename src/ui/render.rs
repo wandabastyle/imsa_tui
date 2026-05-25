@@ -73,7 +73,7 @@ use crate::{
    },
 };
 
-pub(crate) struct RenderCtx<'a> {
+pub struct RenderCtx<'a> {
    pub(crate) active_series:              Series,
    pub(crate) status:                     &'a str,
    pub(crate) header:                     &'a TimingHeader,
@@ -111,7 +111,7 @@ pub(crate) struct RenderCtx<'a> {
    pub(crate) config:                     &'a AppConfig,
 }
 
-pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
+pub fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
    let size = f.area();
    let chunks = Layout::default()
       .direction(Direction::Vertical)

@@ -48,12 +48,7 @@ pub fn data_local_snapshot_path(file_name: &str) -> Option<PathBuf> {
 #[must_use]
 pub fn debounce_elapsed(last_save_at: Option<SystemTime>, debounce: Duration) -> bool {
    match last_save_at {
-      Some(last) => {
-         last
-            .elapsed()
-            .map(|elapsed| elapsed >= debounce)
-            .unwrap_or(true)
-      },
+      Some(last) => last.elapsed().map_or(true, |elapsed| elapsed >= debounce),
       None => true,
    }
 }

@@ -1,5 +1,6 @@
 use crate::timing::Series;
 
+#[must_use]
 pub const fn source_id_for(series: Series) -> u64 {
    match series {
       Series::Dhlm => 5,

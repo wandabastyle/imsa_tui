@@ -20,14 +20,14 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct AppConfig {
-   pub(crate) favourites:            HashSet<String>,
+pub struct AppConfig {
+   pub favourites:            HashSet<String>,
    #[serde(default)]
-   pub(crate) selected_series:       Series,
+   pub selected_series:       Series,
    #[serde(default, deserialize_with = "deserialize_dismissed_notice_keys")]
-   pub(crate) dismissed_notice_keys: HashMap<String, u64>,
+   pub dismissed_notice_keys: HashMap<String, u64>,
    #[serde(default)]
-   pub(crate) grouped_min_rows:      u16,
+   pub grouped_min_rows:      u16,
 }
 
 fn deserialize_dismissed_notice_keys<'de, D>(
@@ -56,7 +56,7 @@ fn config_path() -> Option<PathBuf> {
    Some(dirs.config_dir().join("config.toml"))
 }
 
-pub(crate) fn load_config() -> AppConfig {
+pub fn load_config() -> AppConfig {
    let Some(path) = config_path() else {
       return AppConfig::default();
    };
@@ -68,7 +68,7 @@ pub(crate) fn load_config() -> AppConfig {
    toml::from_str::<AppConfig>(&text).unwrap_or_default()
 }
 
-pub(crate) fn save_config(config: &AppConfig) -> Result<(), String> {
+pub fn save_config(config: &AppConfig) -> Result<(), String> {
    let Some(path) = config_path() else {
       return Err("unable to resolve platform config directory".to_string());
    };

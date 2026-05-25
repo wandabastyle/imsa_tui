@@ -64,9 +64,8 @@ pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
       .ok()
       .and_then(|value| value.parse::<u16>().ok())
       .unwrap_or(8080);
-   let static_root = env::var("WEB_DIST_DIR")
-      .map(PathBuf::from)
-      .unwrap_or_else(|_| PathBuf::from("web/build"));
+   let static_root =
+      env::var("WEB_DIST_DIR").map_or_else(|_| PathBuf::from("web/build"), PathBuf::from);
    cleanup_legacy_config_artifacts();
    cleanup_stale_profile_artifacts();
    let resolved_auth = resolve_auth();

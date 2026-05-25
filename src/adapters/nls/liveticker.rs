@@ -150,6 +150,7 @@ fn fetch_liveticker_entries(client: &Client, url: &str) -> Result<Vec<Liveticker
    Ok(parse_liveticker_entries(&body))
 }
 
+#[must_use]
 pub fn parse_liveticker_entries(raw: &str) -> Vec<LivetickerEntry> {
    let mut lines = extract_lines_from_table(raw);
    if lines.is_empty() {

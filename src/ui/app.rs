@@ -146,8 +146,7 @@ const DISMISSED_NOTICE_MAX_PER_SERIES: usize = 500;
 fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|duration| duration.as_secs())
-      .unwrap_or(0)
+      .map_or(0, |duration| duration.as_secs())
 }
 
 fn parse_notice_time_seconds(raw: &str) -> Option<u32> {

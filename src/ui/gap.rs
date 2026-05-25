@@ -1,7 +1,7 @@
 use crate::timing::TimingEntry;
 
 #[derive(Clone)]
-pub(crate) struct GapAnchorInfo {
+pub struct GapAnchorInfo {
    stable_id:         String,
    laps:              String,
    gap_overall:       String,
@@ -22,7 +22,7 @@ enum GapValue {
    Laps(i32),
 }
 
-pub(crate) fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
+pub fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
    GapAnchorInfo {
       stable_id:         entry.stable_id.clone(),
       laps:              entry.laps.clone(),
@@ -153,7 +153,7 @@ fn format_lap_delta(laps: i32) -> String {
    }
 }
 
-pub(crate) fn relative_gap_overall_text(
+pub fn relative_gap_overall_text(
    entry: &TimingEntry,
    raw_value: &str,
    anchor: Option<&GapAnchorInfo>,
@@ -170,7 +170,7 @@ pub(crate) fn relative_gap_overall_text(
    )
 }
 
-pub(crate) fn relative_gap_class_text(
+pub fn relative_gap_class_text(
    entry: &TimingEntry,
    raw_value: &str,
    anchor: Option<&GapAnchorInfo>,
@@ -187,7 +187,7 @@ pub(crate) fn relative_gap_class_text(
    )
 }
 
-pub(crate) fn relative_gap_next_in_class_text(
+pub fn relative_gap_next_in_class_text(
    entry: &TimingEntry,
    raw_value: &str,
    anchor: Option<&GapAnchorInfo>,

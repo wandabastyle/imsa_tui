@@ -414,20 +414,20 @@ fn current_utc_iso8601() -> String {
    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
-fn epoch_seconds_to_yyyymmdd(epoch_seconds: i64) -> i32 {
+const fn epoch_seconds_to_yyyymmdd(epoch_seconds: i64) -> i32 {
    let days_since_epoch = epoch_seconds.div_euclid(86_400);
    let (year, month, day) = civil_from_days(days_since_epoch);
    year * 10000 + month * 100 + day
 }
 
-fn yyyymmdd_to_epoch_days(value: i32) -> i32 {
+const fn yyyymmdd_to_epoch_days(value: i32) -> i32 {
    let year = value / 10_000;
    let month = (value / 100) % 100;
    let day = value % 100;
    days_from_civil(year, month, day) as i32
 }
 
-fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
+const fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
    let z = days_since_epoch + 719_468;
    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
    let doe = z - era * 146_097;
@@ -441,7 +441,7 @@ fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
    (year as i32, m as i32, d as i32)
 }
 
-fn days_from_civil(year: i32, month: i32, day: i32) -> i64 {
+const fn days_from_civil(year: i32, month: i32, day: i32) -> i64 {
    let y = year - if month <= 2 { 1 } else { 0 };
    let era = if y >= 0 { y } else { y - 399 } / 400;
    let yoe = y - era * 400;

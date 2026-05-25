@@ -63,19 +63,19 @@ use crate::{
    },
 };
 
-pub(crate) struct TableRenderCtx<'a> {
-   pub(crate) favourites:           &'a HashSet<String>,
-   pub(crate) marked_stable_id:     Option<&'a str>,
-   pub(crate) active_series:        Series,
-   pub(crate) selected_row_in_view: Option<usize>,
-   pub(crate) marquee_tick:         usize,
-   pub(crate) gap_anchor:           Option<&'a GapAnchorInfo>,
-   pub(crate) pit_trackers:         &'a HashMap<String, PitTracker>,
-   pub(crate) class_colors:         &'a BTreeMap<String, TimingClassColor>,
-   pub(crate) now:                  Instant,
-   pub(crate) session_type_raw:     &'a str,
-   pub(crate) session_name:         &'a str,
-   pub(crate) highlighted_cars:     &'a HashSet<String>,
+pub struct TableRenderCtx<'a> {
+   pub favourites:           &'a HashSet<String>,
+   pub marked_stable_id:     Option<&'a str>,
+   pub active_series:        Series,
+   pub selected_row_in_view: Option<usize>,
+   pub marquee_tick:         usize,
+   pub gap_anchor:           Option<&'a GapAnchorInfo>,
+   pub pit_trackers:         &'a HashMap<String, PitTracker>,
+   pub class_colors:         &'a BTreeMap<String, TimingClassColor>,
+   pub now:                  Instant,
+   pub session_type_raw:     &'a str,
+   pub session_name:         &'a str,
+   pub highlighted_cars:     &'a HashSet<String>,
 }
 
 type TableLayout = (
@@ -88,14 +88,14 @@ type TableLayout = (
 );
 
 #[derive(Clone, Copy, Default)]
-pub(crate) struct TableWidthBaselines<'a> {
-   pub(crate) imsa: Option<&'a ImsaColumnWidths>,
-   pub(crate) nls:  Option<&'a NlsColumnWidths>,
-   pub(crate) f1:   Option<&'a F1ColumnWidths>,
-   pub(crate) wec:  Option<&'a WecColumnWidths>,
+pub struct TableWidthBaselines<'a> {
+   pub imsa: Option<&'a ImsaColumnWidths>,
+   pub nls:  Option<&'a NlsColumnWidths>,
+   pub f1:   Option<&'a F1ColumnWidths>,
+   pub wec:  Option<&'a WecColumnWidths>,
 }
 
-pub(crate) fn build_table<'a>(
+pub fn build_table<'a>(
    title: impl Into<String>,
    entries: &'a [TimingEntry],
    ctx: &TableRenderCtx<'_>,

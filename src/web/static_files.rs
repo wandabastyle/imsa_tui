@@ -36,6 +36,7 @@ static EMBEDDED_WEB_DIST: include_dir::Dir<'_> =
    include_dir::include_dir!("$CARGO_MANIFEST_DIR/web/build");
 
 impl StaticConfig {
+   #[must_use]
    #[allow(clippy::missing_const_for_fn)]
    pub fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
       Self {
