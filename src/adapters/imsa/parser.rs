@@ -100,9 +100,9 @@ pub(super) fn is_transponder_placeholder(obj: &Value) -> bool {
       return false;
    }
 
-   let class_empty = get_str(obj, "C").map_or(true, |s| s.trim().is_empty());
-   let driver_empty = get_str(obj, "F").map_or(true, |s| s.trim().is_empty());
-   let vehicle_empty = get_str(obj, "V").map_or(true, |s| s.trim().is_empty());
+   let class_empty = get_str(obj, "C").is_none_or(|s| s.trim().is_empty());
+   let driver_empty = get_str(obj, "F").is_none_or(|s| s.trim().is_empty());
+   let vehicle_empty = get_str(obj, "V").is_none_or(|s| s.trim().is_empty());
 
    class_empty && driver_empty && vehicle_empty
 }

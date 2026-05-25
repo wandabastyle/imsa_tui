@@ -100,15 +100,15 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
             let hours: u64 = parts[0].parse().ok()?;
             let mins: u64 = parts[1].parse().ok()?;
             let secs: f64 = parts[2].parse().ok()?;
-            Some(hours * 360000 + mins * 6000 + (secs * 100.0) as u64)
+            Some(hours * 360_000 + mins * 6000 + (secs * 100.0) as u64)
          },
          _ => None,
       }
    }
 
    fn format_centisecs(cs: u64) -> String {
-      let hours = cs / 360000;
-      let mins = (cs % 360000) / 6000;
+      let hours = cs / 360_000;
+      let mins = (cs % 360_000) / 6000;
       let secs = (cs % 6000) as f64 / 100.0;
       if hours > 0 {
          format!("{}:{:02}:{:05.2}", hours, mins, secs)
@@ -119,13 +119,11 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
       }
    }
 
-   let t1 = match parse_time_to_centisecs(time1) {
-      Some(v) => v,
-      None => return time1.to_string(),
+   let Some(t1) = parse_time_to_centisecs(time1) else {
+      return time1.to_string();
    };
-   let t2 = match parse_time_to_centisecs(time2) {
-      Some(v) => v,
-      None => return time1.to_string(),
+   let Some(t2) = parse_time_to_centisecs(time2) else {
+      return time1.to_string();
    };
    let sum = t1.saturating_add(t2);
    format_centisecs(sum)
@@ -317,7 +315,7 @@ pub(super) fn parse_ws_message(
          }
 
          let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
-         let cup_is_dhlm = ws_cup.map_or(false, |name| name.to_ascii_lowercase().contains("dhlm"));
+         let cup_is_dhlm = ws_cup.is_some_and(|name| name.to_ascii_lowercase().contains("dhlm"));
 
          if cup_is_dhlm {
             header.event_name = ws_cup.unwrap().to_string();
@@ -398,7 +396,7 @@ pub(super) fn parse_ws_message(
 }
 
 #[cfg(test)]
-   pub fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
+pub fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
    let _ = stream.set_read_timeout(Some(timeout));
 }
 

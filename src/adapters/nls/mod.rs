@@ -94,9 +94,8 @@ const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 
-#[allow(clippy::needless_pass_by_value)]
-pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
+pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
 
 pub fn websocket_worker_with_debug(
@@ -131,9 +130,9 @@ pub fn websocket_worker_with_debug(
       &mut persist,
       &mut header,
       &mut latest_entries,
-      &tx,
+      tx,
       source_id,
-      &debug_output,
+      debug_output,
    );
    if !latest_entries.is_empty() {
       last_good_live_snapshot = Some(NlsSnapshot {
@@ -148,7 +147,7 @@ pub fn websocket_worker_with_debug(
    'outer: loop {
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_good_live_snapshot.as_ref() {
-            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, &debug_output);
+            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
          }
          break;
       }
@@ -164,7 +163,7 @@ pub fn websocket_worker_with_debug(
 
             if termine_event_name.is_none() {
                if let Some(parsed_name) = homepage_event_name.as_ref() {
-                  header.event_name = parsed_name.clone();
+                  header.event_name.clone_from(parsed_name);
                }
             }
 
@@ -185,7 +184,7 @@ pub fn websocket_worker_with_debug(
          source_id,
          text: "Connecting to NLS websocket...".to_string(),
       });
-      log_series_debug(&debug_output, "NLS", "connecting websocket");
+      log_series_debug(debug_output, "NLS", "connecting websocket");
 
       let request = nurburgring_ws::build_request(WS_URL, "https://livetiming.azurewebsites.net");
       let connection = connect(request);
@@ -211,7 +210,7 @@ pub fn websocket_worker_with_debug(
          text: format!("NLS connected ({})", response.status()),
       });
       log_series_debug(
-         &debug_output,
+         debug_output,
          "NLS",
          format!("websocket connected ({})", response.status()),
       );
@@ -235,7 +234,7 @@ pub fn websocket_worker_with_debug(
       }
       let subscribed_event_id = active_event_id;
       log_series_debug(
-         &debug_output,
+         debug_output,
          "NLS",
          format!("subscribed eventId {}", active_event_id),
       );
@@ -243,12 +242,7 @@ pub fn websocket_worker_with_debug(
       loop {
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_good_live_snapshot.as_ref() {
-               persist_snapshot_if_dirty(
-                  &mut persist,
-                  snapshot,
-                  now_millis() as u64,
-                  &debug_output,
-               );
+               persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
             }
             break 'outer;
          }
@@ -304,7 +298,7 @@ pub fn websocket_worker_with_debug(
                   let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                   let materially_changed = last_good_live_snapshot
                      .as_ref()
-                     .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+                     .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                   if materially_changed {
                      persist.dirty_since_last_save = true;
@@ -318,7 +312,7 @@ pub fn websocket_worker_with_debug(
                         && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
 
                   if save_now {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, &debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, debug_output);
                   }
 
                   last_session_id = session_id;
@@ -370,7 +364,7 @@ pub fn websocket_worker_with_debug(
                      let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                      let materially_changed = last_good_live_snapshot
                         .as_ref()
-                        .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+                        .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                      if materially_changed {
                         persist.dirty_since_last_save = true;
@@ -388,7 +382,7 @@ pub fn websocket_worker_with_debug(
                            &mut persist,
                            &snapshot,
                            now_millis() as u64,
-                           &debug_output,
+                           debug_output,
                         );
                      }
 
@@ -448,7 +442,7 @@ pub fn websocket_worker_with_debug(
          source_id,
          text: "NLS reconnecting in 3s...".to_string(),
       });
-      log_series_debug(&debug_output, "NLS", "reconnecting in 3s");
+      log_series_debug(debug_output, "NLS", "reconnecting in 3s");
       if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
          break;
       }

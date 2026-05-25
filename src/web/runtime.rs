@@ -155,17 +155,17 @@ pub fn cleanup_legacy_config_artifacts() {
       "web_server.log",
    ] {
       let path = legacy_dir.join(name);
-      match fs::remove_file(&path) {
-         Ok(_) => {},
-         Err(err) if err.kind() == ErrorKind::NotFound => {},
-         Err(err) => {
-            eprintln!(
-               "failed to remove legacy web artifact {}: {err}",
-               path.display()
-            )
-         },
-      }
-   }
+       match fs::remove_file(&path) {
+          Ok(_) => {},
+          Err(err) if err.kind() == ErrorKind::NotFound => {},
+          Err(err) => {
+             eprintln!(
+                "failed to remove legacy web artifact {}: {err}",
+                path.display()
+             );
+          },
+       }
+    }
 }
 
 pub fn cleanup_stale_profile_artifacts() {
@@ -195,6 +195,10 @@ pub fn log_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.log"))
 }
 
+/// Write the daemon PID to file.
+///
+/// # Errors
+/// Returns an error if the pid file path cannot be resolved or if writing fails.
 pub fn write_pid(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
    let path = pid_path().ok_or("unable to resolve pid path")?;
    if let Some(parent) = path.parent() {
@@ -204,6 +208,10 @@ pub fn write_pid(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
    Ok(())
 }
 
+/// Read the daemon PID from file.
+///
+/// # Errors
+/// Returns an error if the pid file cannot be read (except for NotFound which returns None).
 pub fn read_pid() -> Result<Option<i32>, Box<dyn std::error::Error>> {
    let Some(path) = pid_path() else {
       return Ok(None);
@@ -217,6 +225,10 @@ pub fn read_pid() -> Result<Option<i32>, Box<dyn std::error::Error>> {
    Ok(pid)
 }
 
+/// Write runtime info to file.
+///
+/// # Errors
+/// Returns an error if the info path cannot be resolved or if writing fails.
 pub fn write_runtime_info(info: &RuntimeInfo) -> Result<(), Box<dyn std::error::Error>> {
    let path = info_path().ok_or("unable to resolve info path")?;
    if let Some(parent) = path.parent() {
@@ -227,6 +239,10 @@ pub fn write_runtime_info(info: &RuntimeInfo) -> Result<(), Box<dyn std::error::
    Ok(())
 }
 
+/// Read runtime info from file.
+///
+/// # Errors
+/// Returns an error if the info file cannot be read (except for NotFound which returns None).
 pub fn read_runtime_info() -> Result<Option<RuntimeInfo>, Box<dyn std::error::Error>> {
    let Some(path) = info_path() else {
       return Ok(None);
@@ -242,6 +258,10 @@ pub fn read_runtime_info() -> Result<Option<RuntimeInfo>, Box<dyn std::error::Er
    }
 }
 
+/// Clear all runtime files (PID and info).
+///
+/// # Errors
+/// Returns an error if file removal fails.
 pub fn clear_runtime_files() -> Result<(), Box<dyn std::error::Error>> {
    if let Some(path) = pid_path() {
       let _ = fs::remove_file(path);
@@ -282,6 +302,10 @@ pub fn is_process_running(pid: i32) -> bool {
    }
 }
 
+/// Send a signal to a process.
+///
+/// # Errors
+/// Returns an error if the signal cannot be sent (e.g., process does not exist or no permission).
 pub fn send_signal(pid: i32, signal: i32) -> Result<(), Box<dyn std::error::Error>> {
    #[cfg(unix)]
    {

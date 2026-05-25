@@ -127,9 +127,13 @@ impl WebAuthConfig {
    fn create_session(&self) -> Option<String> {
       let expires_at = now_unix_secs().saturating_add(self.session_ttl_secs);
       let token = generate_password(48);
-      let mut guard = self.sessions.write().ok()?;
+      let Ok(mut guard) = self.sessions.write() else {
+         return None;
+      };
       guard.insert(token.clone(), expires_at);
-      Some(token)
+      let result = Some(token);
+      drop(guard);
+      result
    }
 
    fn validate_headers(&self, headers: &HeaderMap) -> bool {
@@ -137,14 +141,15 @@ impl WebAuthConfig {
          return false;
       };
       let now = now_unix_secs();
-      let mut guard = match self.sessions.write() {
-         Ok(g) => g,
-         Err(_) => return false,
+      let Ok(mut guard) = self.sessions.write() else {
+         return false;
       };
 
       guard.retain(|_, expires| *expires > now);
 
-      matches!(guard.get(token), Some(expires) if *expires > now)
+      let result = matches!(guard.get(token), Some(expires) if *expires > now);
+      drop(guard);
+      result
    }
 
    fn revoke_from_headers(&self, headers: &HeaderMap) -> bool {
@@ -159,9 +164,8 @@ impl WebAuthConfig {
 
    fn check_login_allowed(&self, key: &str) -> Result<(), u64> {
       let now = now_unix_secs();
-      let mut guard = match self.login_attempts.write() {
-         Ok(g) => g,
-         Err(_) => return Err(self.login_block_secs),
+      let Ok(mut guard) = self.login_attempts.write() else {
+         return Err(self.login_block_secs);
       };
 
       guard.retain(|_, state| {
@@ -171,7 +175,9 @@ impl WebAuthConfig {
 
       let state = guard.entry(key.to_string()).or_default();
       if state.blocked_until > now {
-         return Err(state.blocked_until.saturating_sub(now));
+         let blocked_for = state.blocked_until.saturating_sub(now);
+         drop(guard);
+         return Err(blocked_for);
       }
 
       if now.saturating_sub(state.window_start) > self.login_window_secs {
@@ -385,15 +391,12 @@ fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u6
 pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    if rotate {
       let generated = generate_password(24);
-      let hash = match hash_access_code(&generated) {
-         Ok(value) => value,
-         Err(_) => {
-            return ResolvedAccessCode {
-               access_code_hash:     String::new(),
-               one_time_access_code: Some(generated),
-               state:                PasswordState::GeneratedEphemeral,
-            }
-         },
+      let Ok(hash) = hash_access_code(&generated) else {
+         return ResolvedAccessCode {
+            access_code_hash:     String::new(),
+            one_time_access_code: Some(generated),
+            state:                PasswordState::GeneratedEphemeral,
+         };
       };
 
       return match save_stored_auth(&hash) {
@@ -427,15 +430,12 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    }
 
    let generated = generate_password(24);
-   let hash = match hash_access_code(&generated) {
-      Ok(value) => value,
-      Err(_) => {
-         return ResolvedAccessCode {
-            access_code_hash:     String::new(),
-            one_time_access_code: Some(generated),
-            state:                PasswordState::GeneratedEphemeral,
-         }
-      },
+   let Ok(hash) = hash_access_code(&generated) else {
+      return ResolvedAccessCode {
+         access_code_hash:     String::new(),
+         one_time_access_code: Some(generated),
+         state:                PasswordState::GeneratedEphemeral,
+      };
    };
 
    match save_stored_auth(&hash) {
@@ -456,6 +456,12 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    }
 }
 
+/// Hash an access code using Argon2.
+///
+/// Generates a random salt and hashes the provided access code.
+///
+/// # Errors
+/// Returns an error if salt generation fails or if password hashing fails.
 pub fn hash_access_code(access_code: &str) -> Result<String, String> {
    let mut rng = rand::rng();
    let salt_bytes: [u8; 16] = rng.random();

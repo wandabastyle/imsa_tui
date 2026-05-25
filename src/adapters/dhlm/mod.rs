@@ -76,9 +76,8 @@ fn now_millis() -> u128 {
       .as_millis()
 }
 
-#[allow(clippy::needless_pass_by_value)]
-pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
+pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
 
 pub fn websocket_worker_with_debug(
@@ -100,12 +99,12 @@ pub fn websocket_worker_with_debug(
       &mut persist,
       &mut header,
       &mut latest_entries,
-      &tx,
+      tx,
       source_id,
-      &debug_output,
+      debug_output,
    );
 
-   log_series_debug(&debug_output, "DHLM", "initializing");
+   log_series_debug(debug_output, "DHLM", "initializing");
 
    'outer: loop {
       if stop_rx.try_recv().is_ok() {
@@ -200,10 +199,10 @@ pub fn websocket_worker_with_debug(
 
                   let should_persist = last_good_snapshot
                      .as_ref()
-                     .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+                     .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                   if should_persist {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, &debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, debug_output);
                   }
                   last_good_snapshot = Some(snapshot);
                   let _ = tx.send(TimingMessage::Snapshot {
@@ -223,12 +222,7 @@ pub fn websocket_worker_with_debug(
       loop {
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_good_snapshot.as_ref() {
-               persist_snapshot_if_dirty(
-                  &mut persist,
-                  snapshot,
-                  now_millis() as u64,
-                  &debug_output,
-               );
+               persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
             }
             break 'outer;
          }
@@ -255,11 +249,11 @@ pub fn websocket_worker_with_debug(
                let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                let materially_changed = last_good_snapshot
                   .as_ref()
-                  .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+                  .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                if first_real_of_session || materially_changed || session_complete {
                   if first_real_of_session || session_complete {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, &debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, debug_output);
                   }
                   let _ = tx.send(TimingMessage::Snapshot {
                      source_id,
@@ -309,9 +303,8 @@ fn parse_timing_message(
       Err(_) => return false,
    };
 
-   let pid = match parsed.get("PID").and_then(|v| v.as_str()) {
-      Some(p) => p,
-      None => return false,
+   let Some(pid) = parsed.get("PID").and_then(|v| v.as_str()) else {
+      return false;
    };
 
    match pid {

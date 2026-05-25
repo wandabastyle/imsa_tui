@@ -55,9 +55,8 @@ struct SeriesRuntime {
 
 impl FeedController {
    pub fn register_client(&self, series: Series) {
-      let mut guard = match self.inner.runtimes.lock() {
-         Ok(g) => g,
-         Err(_) => return,
+      let Ok(mut guard) = self.inner.runtimes.lock() else {
+         return;
       };
       let runtime = guard.entry(series).or_default();
       runtime.active_clients = runtime.active_clients.saturating_add(1);
@@ -74,24 +73,26 @@ impl FeedController {
          runtime.running = true;
          runtime.stop_tx = Some(stop_tx);
       }
+      drop(guard);
    }
 
    pub fn unregister_client(&self, series: Series) {
       let (generation, should_schedule) = {
-         let mut guard = match self.inner.runtimes.lock() {
-            Ok(g) => g,
-            Err(_) => return,
+         let Ok(mut guard) = self.inner.runtimes.lock() else {
+            return;
          };
          let runtime = guard.entry(series).or_default();
          if runtime.active_clients > 0 {
             runtime.active_clients -= 1;
          }
-         if runtime.active_clients != 0 {
+         let result = if runtime.active_clients != 0 {
             (runtime.idle_generation, false)
          } else {
             runtime.idle_generation = runtime.idle_generation.saturating_add(1);
             (runtime.idle_generation, true)
-         }
+         };
+         drop(guard);
+         result
       };
 
       if !should_schedule {
@@ -108,23 +109,27 @@ impl FeedController {
 
    fn stop_if_still_idle(&self, series: Series, expected_generation: u64) {
       let stop_tx = {
-         let mut guard = match self.inner.runtimes.lock() {
-            Ok(g) => g,
-            Err(_) => return,
+         let Ok(mut guard) = self.inner.runtimes.lock() else {
+            return;
          };
          let Some(runtime) = guard.get_mut(&series) else {
+            drop(guard);
             return;
          };
 
          if runtime.active_clients != 0 || runtime.idle_generation != expected_generation {
+            drop(guard);
             return;
          }
          if !runtime.running {
+            drop(guard);
             return;
          }
 
          runtime.running = false;
-         runtime.stop_tx.take()
+         let tx = runtime.stop_tx.take();
+         drop(guard);
+         tx
       };
 
       if let Some(stop_tx) = stop_tx {
@@ -146,9 +151,8 @@ impl FeedController {
 
    pub fn stop_all(&self) {
       let stop_txs = {
-         let mut guard = match self.inner.runtimes.lock() {
-            Ok(g) => g,
-            Err(_) => return,
+         let Ok(mut guard) = self.inner.runtimes.lock() else {
+            return;
          };
 
          let mut txs = Vec::new();
@@ -160,6 +164,7 @@ impl FeedController {
                txs.push(stop_tx);
             }
          }
+         drop(guard);
          txs
       };
 

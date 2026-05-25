@@ -105,8 +105,8 @@ pub(super) fn restore_snapshot_from_disk(
    runtime.dirty_since_last_save = false;
 
    // Restore header and entries
-   *header = saved.header;
-   *entries = saved.entries.clone();
+   header.clone_from(&saved.header);
+   entries.clone_from(&saved.entries);
 
    // Sanitize restored snapshot for event 50 race sessions with stale near-zero
    // time_to_go

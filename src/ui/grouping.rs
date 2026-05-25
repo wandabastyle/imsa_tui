@@ -47,8 +47,7 @@ pub fn grouped_entries(
    groups
 }
 
-#[allow(clippy::missing_const_for_fn)]
-pub fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
+pub const fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
    if groups_len == 0 {
       return match current {
          ViewMode::Overall => ViewMode::Grouped,

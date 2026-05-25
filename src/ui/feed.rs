@@ -82,10 +82,10 @@ pub fn drain_messages(
    while let Ok(msg) = rx.try_recv() {
       match msg {
          TimingMessage::Status { source_id, text } if source_id == active_source_id => {
-            *status = text
+            *status = text;
          },
-         TimingMessage::Error { source_id, text } if source_id == active_source_id => {
-            *last_error = Some(text)
+          TimingMessage::Error { source_id, text } if source_id == active_source_id => {
+            *last_error = Some(text);
          },
          TimingMessage::Snapshot {
             source_id,
@@ -93,37 +93,37 @@ pub fn drain_messages(
             entries: new_entries,
          } if source_id == active_source_id => {
             if new_header.event_name != "-" {
-               header.event_name = new_header.event_name;
+               header.event_name.clone_from(&new_header.event_name);
             }
             if new_header.session_name != "-" {
-               header.session_name = new_header.session_name;
+               header.session_name.clone_from(&new_header.session_name);
             }
             if !new_header.session_type_raw.trim().is_empty() && new_header.session_type_raw != "-"
             {
-               header.session_type_raw = new_header.session_type_raw;
+               header.session_type_raw.clone_from(&new_header.session_type_raw);
             }
             if new_header.track_name != "-" {
-               header.track_name = new_header.track_name;
+               header.track_name.clone_from(&new_header.track_name);
             }
             if new_header.day_time != "-" {
-               header.day_time = new_header.day_time;
+               header.day_time.clone_from(&new_header.day_time);
             }
             if new_header.flag != "-" {
-               header.flag = new_header.flag;
+               header.flag.clone_from(&new_header.flag);
             }
             if new_header.time_to_go != "-" {
-               header.time_to_go = new_header.time_to_go;
+               header.time_to_go.clone_from(&new_header.time_to_go);
             }
             if !new_header.event_id.is_empty() {
-               header.event_id = new_header.event_id;
+               header.event_id.clone_from(&new_header.event_id);
             }
-            *entries = new_entries;
-            *status = "Live timing connected".to_string();
+            entries.clone_from(&new_entries);
+            status.clone_from(&"Live timing connected".to_string());
             *last_error = None;
             *last_update = Some(Instant::now());
          },
          TimingMessage::Notice { source_id, notice } if source_id == active_source_id => {
-            notices.push(notice)
+            notices.push(notice);
          },
          _ => {},
       }

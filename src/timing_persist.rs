@@ -27,9 +27,8 @@ pub struct PersistState {
 }
 
 impl PersistState {
-   #[allow(clippy::missing_const_for_fn)]
    #[must_use]
-   pub fn new(path: Option<PathBuf>) -> Self {
+   pub const fn new(path: Option<PathBuf>) -> Self {
       Self {
          path,
          last_persisted_hash: None,
@@ -59,6 +58,12 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
    serde_json::from_str::<T>(&text).ok()
 }
 
+/// Write JSON to file with pretty formatting.
+///
+/// Creates parent directories if needed.
+///
+/// # Errors
+/// Returns an IO error if directory creation or file write fails, or if JSON encoding fails.
 pub fn write_json_pretty<T: Serialize>(path: &Path, payload: &T) -> io::Result<()> {
    if let Some(parent) = path.parent() {
       fs::create_dir_all(parent)?;

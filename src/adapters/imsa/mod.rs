@@ -125,9 +125,8 @@ impl ImsaRuntimeState {
    }
 }
 
-#[allow(clippy::needless_pass_by_value)]
-pub fn polling_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   polling_worker_with_debug(&tx, source_id, &stop_rx, &ImsaDebugOutput::Silent)
+pub fn polling_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   polling_worker_with_debug(tx, source_id, stop_rx, &ImsaDebugOutput::Silent);
 }
 
 pub fn polling_worker_with_debug(
@@ -154,7 +153,7 @@ pub fn polling_worker_with_debug(
    };
 
    let mut runtime = ImsaRuntimeState::new(debug_output.clone());
-   restore_snapshot_from_disk(&mut runtime, &tx, source_id);
+   restore_snapshot_from_disk(&mut runtime, tx, source_id);
    let _ = tx.send(TimingMessage::Status {
       source_id,
       text: "[SNAPSHOT] Restored from saved data".to_string(),
@@ -180,7 +179,7 @@ pub fn polling_worker_with_debug(
          now_millis(),
       ) {
          Ok(fetched) => {
-            handle_fetched_snapshot(&tx, source_id, &mut runtime, fetched);
+            handle_fetched_snapshot(tx, source_id, &mut runtime, fetched);
          },
          Err(err) => {
             let _ = tx.send(TimingMessage::Error {
@@ -270,7 +269,7 @@ fn handle_fetched_snapshot(
 
    let first_real_of_session = session_id.is_some() && session_id != runtime.last_session_id;
    let materially_changed =
-      previous_snapshot.map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+      previous_snapshot.is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
    runtime.last_good_live_snapshot = Some(snapshot.clone());
    runtime.last_session_id = session_id;
@@ -330,7 +329,7 @@ fn classify_payload(
 }
 
 fn has_meaningful_results_rows(results_root: &Value) -> bool {
-   extract_results_rows(results_root).map_or(false, |rows| rows.iter().any(row_looks_meaningful))
+   extract_results_rows(results_root).is_some_and(|rows| rows.iter().any(row_looks_meaningful))
 }
 
 fn extract_results_rows(results_root: &Value) -> Option<&[Value]> {

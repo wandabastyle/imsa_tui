@@ -58,6 +58,13 @@ struct AuthRuntimeOptions {
    cookie_secure: bool,
 }
 
+/// Run the web server with the specified run mode.
+///
+/// Initializes the Axum router with all routes and middleware, binds to the configured address,
+/// and starts the server.
+///
+/// # Errors
+/// Returns an error if the server cannot bind to the address or if initialization fails.
 pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
    let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
    let bind_port = env::var("PORT")
@@ -233,10 +240,10 @@ fn print_startup_info(
    match state {
       PasswordState::Loaded => println!("web auth enabled (loaded saved access code)."),
       PasswordState::GeneratedPersisted => {
-         println!("web auth enabled (generated and saved new access code).")
+         println!("web auth enabled (generated and saved new access code).");
       },
       PasswordState::GeneratedEphemeral => {
-         println!("web auth enabled (generated access code but could not save).")
+         println!("web auth enabled (generated access code but could not save).");
       },
    }
    if let Some(access_code) = one_time_access_code {

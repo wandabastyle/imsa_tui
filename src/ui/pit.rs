@@ -129,12 +129,12 @@ fn pit_phase_for_entry(
    };
 
    if tracker.in_pit {
-      if tracker.in_until.map_or(false, |until| now <= until) {
+      if tracker.in_until.is_some_and(|until| now <= until) {
          PitHighlightPhase::In
       } else {
          PitHighlightPhase::Pit
       }
-   } else if tracker.out_until.map_or(false, |until| now <= until) {
+   } else if tracker.out_until.is_some_and(|until| now <= until) {
       PitHighlightPhase::Out
    } else {
       PitHighlightPhase::None

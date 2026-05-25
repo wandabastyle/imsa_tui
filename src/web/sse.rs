@@ -42,7 +42,7 @@ pub async fn stream_series(
 
    if let Some(session_token) = session_token_from_headers(&headers) {
       if state.demo_state_for_session(&session_token).enabled {
-         return stream_demo_series(state.clone(), series, session_token).into_response();
+         return stream_demo_series(&state, series, &session_token).into_response();
       }
    };
 
@@ -85,25 +85,24 @@ pub async fn stream_series(
       .into_response()
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn stream_demo_series(
-   state: WebAppState,
+   state: &WebAppState,
    series: Series,
-   session_token: String,
+   session_token: &str,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
    use std::time::Duration;
 
    use tokio_stream::wrappers::IntervalStream;
 
    let initial_event = state
-      .demo_snapshot_response_for(series, &session_token)
+      .demo_snapshot_response_for(series, session_token)
       .and_then(|snapshot| serde_json::to_string(&snapshot).ok())
       .map(|json| Ok(Event::default().event("snapshot").data(json)));
 
    let interval = tokio::time::interval(Duration::from_secs(1));
    let update_stream = IntervalStream::new(interval).filter_map({
       let state = state.clone();
-      let session_token = session_token.clone();
+      let session_token = session_token.to_string();
       move |_| {
          let json = state
             .demo_snapshot_response_for(series, &session_token)

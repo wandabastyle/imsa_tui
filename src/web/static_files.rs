@@ -37,8 +37,7 @@ static EMBEDDED_WEB_DIST: include_dir::Dir<'_> =
 
 impl StaticConfig {
    #[must_use]
-   #[allow(clippy::missing_const_for_fn)]
-   pub fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
+   pub const fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
       Self {
          root_dir,
          source: select_source(prefer_embedded),
@@ -81,9 +80,8 @@ pub async fn asset_or_index(config: StaticConfig, request_path: &str) -> impl In
 }
 
 async fn serve_file_or_404(path: PathBuf) -> Response {
-   let data = match tokio::fs::read(&path).await {
-      Ok(data) => data,
-      Err(_) => return StatusCode::NOT_FOUND.into_response(),
+   let Ok(data) = tokio::fs::read(&path).await else {
+      return StatusCode::NOT_FOUND.into_response();
    };
 
    let mime = mime_guess::from_path(&path).first_or_octet_stream();

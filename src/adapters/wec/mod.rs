@@ -190,9 +190,8 @@ struct WecCarState {
    sector_laps:       [Option<u32>; 3],
 }
 
-#[allow(clippy::needless_pass_by_value)]
-pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
+pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
 
 pub fn websocket_worker_with_debug(
@@ -214,7 +213,7 @@ pub fn websocket_worker_with_debug(
 
    let mut persist = PersistState::new(snapshot_path("wec_snapshot.json"));
    let mut last_snapshot =
-      restore_snapshot_from_disk(&mut persist, &tx, source_id, "WEC", &debug_output);
+      restore_snapshot_from_disk(&mut persist, tx, source_id, "WEC", debug_output);
    if last_snapshot.is_some() {
       let _ = tx.send(TimingMessage::Status {
          source_id,
@@ -230,7 +229,7 @@ pub fn websocket_worker_with_debug(
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_snapshot.as_ref() {
             if persist.dirty_since_last_save {
-               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", &debug_output);
+               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", debug_output);
             }
          }
          break;
@@ -250,17 +249,17 @@ pub fn websocket_worker_with_debug(
             match fetch_latest_finished_race_snapshot(&client) {
                Ok(snapshot) => {
                   emit_snapshot(
-                     (&tx, source_id),
+                     (tx, source_id),
                      snapshot.header,
                      snapshot.entries,
                      &mut persist,
                      &mut last_snapshot,
                      &mut last_session_id,
-                     &debug_output,
+                     debug_output,
                   );
                   if !fallback_detail_logged {
                      log_series_debug(
-                        &debug_output,
+                        debug_output,
                         "WEC",
                         format!(
                            "No active FIA WEC live session; showing latest finished race results \
@@ -407,13 +406,13 @@ pub fn websocket_worker_with_debug(
          });
       } else if let Some((header, entries)) = snapshot_from_live_state(&live_state) {
          emit_snapshot(
-            (&tx, source_id),
+            (tx, source_id),
             header,
             entries,
             &mut persist,
             &mut last_snapshot,
             &mut last_session_id,
-            &debug_output,
+            debug_output,
          );
       }
 
@@ -426,7 +425,7 @@ pub fn websocket_worker_with_debug(
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_snapshot.as_ref() {
                if persist.dirty_since_last_save {
-                  persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", &debug_output);
+                  persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", debug_output);
                }
             }
             break 'outer;
@@ -457,13 +456,13 @@ pub fn websocket_worker_with_debug(
                   if apply_signalr_arguments(&mut live_state, &target, &arguments) {
                      if let Some((header, entries)) = snapshot_from_live_state(&live_state) {
                         emit_snapshot(
-                           (&tx, source_id),
+                           (tx, source_id),
                            header,
                            entries,
                            &mut persist,
                            &mut last_snapshot,
                            &mut last_session_id,
-                           &debug_output,
+                           debug_output,
                         );
                      }
                   }
@@ -768,7 +767,7 @@ fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<M
          session
             .session_type
             .as_deref()
-            .map_or(false, |value| value.eq_ignore_ascii_case("Race"))
+            .is_some_and(|value| value.eq_ignore_ascii_case("Race"))
             && session.has_result
             && !session.is_running
       })
@@ -1655,7 +1654,7 @@ fn emit_snapshot(
    let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
    let materially_changed = last_snapshot
       .as_ref()
-      .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+      .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
    if materially_changed {
       persist.dirty_since_last_save = true;
    }

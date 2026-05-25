@@ -136,9 +136,8 @@ struct F1CarState {
    pit:           Option<bool>,
 }
 
-#[allow(clippy::needless_pass_by_value)]
-pub fn worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
+pub fn worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
 
 pub fn worker_with_debug(
@@ -160,7 +159,7 @@ pub fn worker_with_debug(
 
    let mut persist = PersistState::new(snapshot_path("f1_snapshot.json"));
    let mut last_snapshot =
-      restore_snapshot_from_disk(&mut persist, &tx, source_id, "F1", &debug_output);
+      restore_snapshot_from_disk(&mut persist, tx, source_id, "F1", debug_output);
    let mut last_session_id = last_snapshot
       .as_ref()
       .and_then(|snapshot| snapshot.session_id.clone());
@@ -170,7 +169,7 @@ pub fn worker_with_debug(
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_snapshot.as_ref() {
             if persist.dirty_since_last_save {
-               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "F1", &debug_output);
+               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "F1", debug_output);
             }
          }
          break;
@@ -183,7 +182,7 @@ pub fn worker_with_debug(
                source_id,
                text: format!("F1 live session sid={sid}"),
             });
-            build_live_snapshot_with_signalr_fallback(&client, sid, &debug_output)
+            build_live_snapshot_with_signalr_fallback(&client, sid, debug_output)
          },
          Err(live_err) => {
             let _ = tx.send(TimingMessage::Status {
@@ -192,7 +191,7 @@ pub fn worker_with_debug(
             });
             if !offline_detail_logged {
                log_series_debug(
-                  &debug_output,
+                  debug_output,
                   "F1",
                   format!(
                      "No active Formula 1 live session; showing latest finished race results \
@@ -209,12 +208,12 @@ pub fn worker_with_debug(
       match snapshot_result {
          Ok(snapshot) => {
             emit_snapshot(
-               (&tx, source_id),
+               (tx, source_id),
                snapshot,
                &mut persist,
                &mut last_snapshot,
                &mut last_session_id,
-               &debug_output,
+               debug_output,
             );
          },
          Err(err) => {
@@ -708,7 +707,7 @@ fn emit_snapshot(
 ) {
    let materially_changed = last_snapshot
       .as_ref()
-      .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
+      .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
    if materially_changed {
       persist.dirty_since_last_save = true;
    }
@@ -726,7 +725,7 @@ fn emit_snapshot(
       persist_snapshot(persist, &snapshot, now_unix_ms(), "F1", debug_output);
    }
 
-   *last_session_id = snapshot.session_id.clone();
+   last_session_id.clone_from(&snapshot.session_id);
    *last_snapshot = Some(snapshot.clone());
 
    let (tx, source_id) = emitter;

@@ -87,7 +87,7 @@ pub fn start_liveticker_feed(kind: LivetickerFeedKind) -> ActiveLivetickerFeed {
             Ok(latest_entries) => {
                let merged_entries = merge_entries(&latest_entries, &cached_entries);
                if merged_entries != cached_entries {
-                  cached_entries = merged_entries.clone();
+                  cached_entries.clone_from(&merged_entries);
                   let _ = tx.send(LivetickerWorkerMessage::Snapshot {
                      entries: merged_entries,
                   });

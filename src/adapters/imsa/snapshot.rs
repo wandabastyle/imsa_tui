@@ -102,7 +102,7 @@ pub(super) fn restore_snapshot_from_disk(
       raw_race_data_payload: saved.extra.raw_race_data_payload,
    };
 
-   runtime.last_session_id = snapshot.session_id.clone();
+   runtime.last_session_id.clone_from(&snapshot.session_id);
    runtime.last_good_live_snapshot = Some(snapshot.clone());
 
    let _ = tx.send(TimingMessage::Snapshot {

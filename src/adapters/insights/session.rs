@@ -124,7 +124,7 @@ pub(crate) fn resolve_live_sid_for_series(client: &Client, series_id: u64) -> Re
       let sid_series = map.get("seriesId").and_then(Value::as_u64);
       let domain = map.get("domain").and_then(Value::as_str);
       if sid_series == Some(series_id)
-         && domain.map_or(true, |value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
+         && domain.is_none_or(|value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
       {
          if let Some(windows) = maybe_official_windows.as_ref() {
             if !official_schedule_allows_live_session(series_id, map, windows, today) {
@@ -489,7 +489,7 @@ pub(crate) fn choose_latest_finished_race_session(
          session
             .session_type
             .as_deref()
-            .map_or(false, |value| value.eq_ignore_ascii_case("Race"))
+            .is_some_and(|value| value.eq_ignore_ascii_case("Race"))
             && session.has_result
       })
       .cloned()
@@ -577,8 +577,8 @@ mod tests {
 
       let parsed = parse_wec_official_event_windows(html).expect("parse WEC calendar");
       assert_eq!(parsed.len(), 2);
-      assert_eq!(parsed[0].start_yyyymmdd, 20260414);
-      assert_eq!(parsed[1].start_yyyymmdd, 20260419);
+      assert_eq!(parsed[0].start_yyyymmdd, 20_260_414);
+      assert_eq!(parsed[1].start_yyyymmdd, 20_260_419);
       assert!(parsed[1].label.contains("imola"));
    }
 
@@ -590,8 +590,8 @@ mod tests {
       });
       let windows = vec![OfficialEventWindow {
          label:          "official prologue imola".to_string(),
-         start_yyyymmdd: 20260414,
-         end_yyyymmdd:   20260414,
+         start_yyyymmdd: 20_260_414,
+         end_yyyymmdd:   20_260_414,
       }];
 
       let allowed = official_schedule_allows_live_session(
@@ -600,7 +600,7 @@ mod tests {
             .as_object()
             .expect("session-info object for WEC test"),
          &windows,
-         20260414,
+         20_260_414,
       );
 
       assert!(allowed);
@@ -614,8 +614,8 @@ mod tests {
       });
       let windows = vec![OfficialEventWindow {
          label:          "bapco energies 8 hours of bahrain".to_string(),
-         start_yyyymmdd: 20251108,
-         end_yyyymmdd:   20251108,
+         start_yyyymmdd: 20_251_108,
+         end_yyyymmdd:   20_251_108,
       }];
 
       let allowed = official_schedule_allows_live_session(
@@ -624,7 +624,7 @@ mod tests {
             .as_object()
             .expect("session-info object for out-of-window test"),
          &windows,
-         20260421,
+         20_260_421,
       );
 
       assert!(!allowed);
@@ -637,8 +637,8 @@ mod tests {
       });
       let windows = vec![OfficialEventWindow {
          label:          "melbourne".to_string(),
-         start_yyyymmdd: 20260306,
-         end_yyyymmdd:   20260308,
+         start_yyyymmdd: 20_260_306,
+         end_yyyymmdd:   20_260_308,
       }];
 
       let allowed = official_schedule_allows_live_session(
@@ -647,7 +647,7 @@ mod tests {
             .as_object()
             .expect("session-info object for F1 test"),
          &windows,
-         20260307,
+         20_260_307,
       );
 
       assert!(allowed);
@@ -655,8 +655,8 @@ mod tests {
 
    #[test]
    fn window_check_respects_tolerance() {
-      assert!(is_within_window(20260421, 20260419, 20260419, 2));
-      assert!(!is_within_window(20260425, 20260419, 20260419, 2));
+      assert!(is_within_window(20_260_421, 20_260_419, 20_260_419, 2));
+      assert!(!is_within_window(20_260_425, 20_260_419, 20_260_419, 2));
    }
 
    #[test]
