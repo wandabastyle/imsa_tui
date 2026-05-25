@@ -52,6 +52,7 @@ impl SeriesWidthBaselines {
       }
    }
 
+   #[allow(clippy::missing_const_for_fn)]
    pub(crate) fn table_baselines(&self, active_series: Series) -> TableWidthBaselines<'_> {
       let active_nls = match active_series {
          Series::Nls => self.persisted.nls.as_ref(),

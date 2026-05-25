@@ -129,7 +129,7 @@ impl ImsaColumnWidths {
       }
    }
 
-   pub(crate) fn to_array(self) -> [u16; 16] {
+   pub(crate) const fn to_array(self) -> [u16; 16] {
       [
          self.pos,
          self.car_number,
@@ -171,15 +171,15 @@ impl ImsaColumnWidths {
       }
    }
 
-   pub(crate) fn driver_width(self) -> usize {
+   pub(crate) const fn driver_width(self) -> usize {
       self.driver as usize
    }
 
-   pub(crate) fn vehicle_width(self) -> usize {
+   pub(crate) const fn vehicle_width(self) -> usize {
       self.vehicle as usize
    }
 
-   pub(crate) fn fastest_width(self) -> usize {
+   pub(crate) const fn fastest_width(self) -> usize {
       self.fastest as usize
    }
 }

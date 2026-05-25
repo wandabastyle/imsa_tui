@@ -125,15 +125,16 @@ impl ImsaRuntimeState {
    }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn polling_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   polling_worker_with_debug(tx, source_id, stop_rx, ImsaDebugOutput::Silent)
+   polling_worker_with_debug(&tx, source_id, &stop_rx, &ImsaDebugOutput::Silent)
 }
 
 pub fn polling_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: ImsaDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &ImsaDebugOutput,
 ) {
    let client = match Client::builder()
       .timeout(Duration::from_secs(12))
@@ -152,7 +153,7 @@ pub fn polling_worker_with_debug(
       },
    };
 
-   let mut runtime = ImsaRuntimeState::new(debug_output);
+   let mut runtime = ImsaRuntimeState::new(debug_output.clone());
    restore_snapshot_from_disk(&mut runtime, &tx, source_id);
    let _ = tx.send(TimingMessage::Status {
       source_id,
@@ -268,9 +269,8 @@ fn handle_fetched_snapshot(
    };
 
    let first_real_of_session = session_id.is_some() && session_id != runtime.last_session_id;
-   let materially_changed = previous_snapshot
-      .map(|prev| prev.fingerprint != snapshot.fingerprint)
-      .unwrap_or(true);
+   let materially_changed =
+      previous_snapshot.map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
 
    runtime.last_good_live_snapshot = Some(snapshot.clone());
    runtime.last_session_id = session_id;
@@ -330,9 +330,7 @@ fn classify_payload(
 }
 
 fn has_meaningful_results_rows(results_root: &Value) -> bool {
-   extract_results_rows(results_root)
-      .map(|rows| rows.iter().any(row_looks_meaningful))
-      .unwrap_or(false)
+   extract_results_rows(results_root).map_or(false, |rows| rows.iter().any(row_looks_meaningful))
 }
 
 fn extract_results_rows(results_root: &Value) -> Option<&[Value]> {
@@ -416,7 +414,7 @@ fn is_session_complete(race_data_root: &Value, header: &TimingHeader) -> bool {
    false
 }
 
-fn payload_classification_label(classification: PayloadClassification) -> &'static str {
+const fn payload_classification_label(classification: PayloadClassification) -> &'static str {
    match classification {
       PayloadClassification::Placeholder => "placeholder",
       PayloadClassification::Real => "real",

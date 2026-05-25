@@ -190,15 +190,16 @@ struct WecCarState {
    sector_laps:       [Option<u32>; 3],
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+   websocket_worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
 }
 
 pub fn websocket_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: SeriesDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
 ) {
    let client = match Client::builder().timeout(Duration::from_secs(12)).build() {
       Ok(client) => client,
@@ -641,15 +642,12 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
 
       let class_name = participant
          .and_then(|item| item.class_id.as_deref())
-         .map(format_wec_class_name)
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), format_wec_class_name);
 
       let driver_name = participant
          .and_then(|item| item.drivers.first())
          .and_then(|driver| driver.display_name.as_deref())
-         .map(normalize_driver_name)
-         .filter(|value| !value.trim().is_empty())
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), normalize_driver_name);
 
       let team_name = participant
          .and_then(|item| item.team_name.clone())
@@ -663,8 +661,7 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
       let position = row.overall_finished_at.unwrap_or((idx + 1) as u32);
       let class_rank = row
          .finished_at
-         .map(|rank| rank.to_string())
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), |rank| rank.to_string());
 
       let stable_id = if car_number != "-" {
          format!("wec:{car_number}")
@@ -682,8 +679,7 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
          team: team_name,
          laps: row
             .number_of_laps_completed
-            .map(|laps| laps.to_string())
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), |laps| laps.to_string()),
          gap_overall: format_gap(row.overall_gap_from_first, row.overall_gap_from_first_laps)
             .unwrap_or_else(|| "-".to_string()),
          gap_class: "-".to_string(),
@@ -692,20 +688,16 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
          last_lap: "-".to_string(),
          best_lap: row
             .best_lap_time
-            .map(format_lap_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_lap_time_ms),
          sector_1: row
             .best_sector_1_ms
-            .map(format_sector_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_sector_time_ms),
          sector_2: row
             .best_sector_2_ms
-            .map(format_sector_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_sector_time_ms),
          sector_3: row
             .best_sector_3_ms
-            .map(format_sector_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_sector_time_ms),
          sector_4: "-".to_string(),
          sector_5: "-".to_string(),
          best_lap_no: "-".to_string(),
@@ -776,8 +768,7 @@ fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<M
          session
             .session_type
             .as_deref()
-            .map(|value| value.eq_ignore_ascii_case("Race"))
-            .unwrap_or(false)
+            .map_or(false, |value| value.eq_ignore_ascii_case("Race"))
             && session.has_result
             && !session.is_running
       })
@@ -1300,53 +1291,45 @@ fn row_to_timing_entry(state: &WecLiveState, row: WecCarState) -> TimingEntry {
       class_name,
       class_rank: row
          .class_rank
-         .map(|rank| rank.to_string())
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), |rank| rank.to_string()),
       driver: row.driver.unwrap_or_else(|| "-".to_string()),
       vehicle: row.vehicle.unwrap_or_else(|| "-".to_string()),
       team: row.team.unwrap_or_else(|| "-".to_string()),
       laps: row
          .laps
-         .map(|lap| lap.to_string())
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), |lap| lap.to_string()),
       gap_overall: row.gap_overall.unwrap_or_else(|| "-".to_string()),
       gap_class: "-".to_string(),
       gap_next_in_class: row.gap_next_in_class.unwrap_or_else(|| "-".to_string()),
       last_lap: row
          .last_lap_ms
-         .map(format_lap_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_lap_time_ms),
       best_lap: row
          .best_lap_ms
-         .map(format_lap_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_lap_time_ms),
       sector_1: row
          .sector_times
          .first()
          .copied()
          .flatten()
-         .map(format_sector_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_sector_time_ms),
       sector_2: row
          .sector_times
          .get(1)
          .copied()
          .flatten()
-         .map(format_sector_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_sector_time_ms),
       sector_3: row
          .sector_times
          .get(2)
          .copied()
          .flatten()
-         .map(format_sector_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_sector_time_ms),
       sector_4: "-".to_string(),
       sector_5: "-".to_string(),
       best_lap_no: row
          .best_lap_no
-         .map(|lap| lap.to_string())
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), |lap| lap.to_string()),
       pit: if row.pit.unwrap_or(false) {
          "Yes".to_string()
       } else {
@@ -1473,8 +1456,7 @@ fn normalize_driver_name_token(token: &str) -> String {
    }
    let letters: String = token.chars().filter(|ch| ch.is_alphabetic()).collect();
    let needs_normalization = !letters.is_empty()
-      && (letters.chars().all(|ch| ch.is_uppercase())
-         || letters.chars().all(|ch| ch.is_lowercase()));
+      && (letters.chars().all(char::is_uppercase) || letters.chars().all(char::is_lowercase));
    if !needs_normalization {
       return token.to_string();
    }
@@ -1673,8 +1655,7 @@ fn emit_snapshot(
    let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
    let materially_changed = last_snapshot
       .as_ref()
-      .map(|prev| prev.fingerprint != snapshot.fingerprint)
-      .unwrap_or(true);
+      .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
    if materially_changed {
       persist.dirty_since_last_save = true;
    }

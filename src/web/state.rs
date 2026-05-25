@@ -376,7 +376,7 @@ impl WebAppState {
    }
 
    pub fn subscribe_series(&self, series: Series) -> Option<broadcast::Receiver<()>> {
-      self.streams.get(&series).map(|tx| tx.subscribe())
+      self.streams.get(&series).map(broadcast::Sender::subscribe)
    }
 
    pub fn set_feed_controller(&self, controller: FeedController) {

@@ -225,17 +225,13 @@ fn build_rows(
                   Cell::from(e.class_rank.clone()),
                   Cell::from(marquee_if_needed(
                      &e.driver,
-                     imsa_widths
-                        .map(ImsaColumnWidths::driver_width)
-                        .unwrap_or(28),
+                     imsa_widths.map_or(28, ImsaColumnWidths::driver_width),
                      selected,
                      ctx.marquee_tick,
                   )),
                   Cell::from(marquee_if_needed(
                      &e.vehicle,
-                     imsa_widths
-                        .map(ImsaColumnWidths::vehicle_width)
-                        .unwrap_or(45),
+                     imsa_widths.map_or(45, ImsaColumnWidths::vehicle_width),
                      selected,
                      ctx.marquee_tick,
                   )),
@@ -268,9 +264,7 @@ fn build_rows(
                   Cell::from(e.pit_stops.clone()),
                   Cell::from(marquee_if_needed(
                      &e.fastest_driver,
-                     imsa_widths
-                        .map(ImsaColumnWidths::fastest_width)
-                        .unwrap_or(28),
+                     imsa_widths.map_or(28, ImsaColumnWidths::fastest_width),
                      selected,
                      ctx.marquee_tick,
                   )),
@@ -284,19 +278,19 @@ fn build_rows(
                   Cell::from(e.class_rank.clone()),
                   Cell::from(marquee_if_needed(
                      &e.driver,
-                     nls_widths.map(NlsColumnWidths::driver_width).unwrap_or(18),
+                     nls_widths.map_or(18, NlsColumnWidths::driver_width),
                      selected,
                      ctx.marquee_tick,
                   )),
                   Cell::from(marquee_if_needed(
                      &e.vehicle,
-                     nls_widths.map(NlsColumnWidths::vehicle_width).unwrap_or(18),
+                     nls_widths.map_or(18, NlsColumnWidths::vehicle_width),
                      selected,
                      ctx.marquee_tick,
                   )),
                   Cell::from(marquee_if_needed(
                      &e.team,
-                     nls_widths.map(NlsColumnWidths::team_width).unwrap_or(24),
+                     nls_widths.map_or(24, NlsColumnWidths::team_width),
                      selected,
                      ctx.marquee_tick,
                   )),
@@ -323,13 +317,13 @@ fn build_rows(
                   car_cell,
                   Cell::from(marquee_if_needed(
                      &e.driver,
-                     f1_widths.map(F1ColumnWidths::driver_width).unwrap_or(32),
+                     f1_widths.map_or(32, F1ColumnWidths::driver_width),
                      selected,
                      ctx.marquee_tick,
                   )),
                   Cell::from(marquee_if_needed(
                      &e.team,
-                     f1_widths.map(F1ColumnWidths::team_width).unwrap_or(22),
+                     f1_widths.map_or(22, F1ColumnWidths::team_width),
                      selected,
                      ctx.marquee_tick,
                   )),
@@ -362,19 +356,19 @@ fn build_rows(
                   Cell::from(e.class_rank.clone()),
                   Cell::from(marquee_if_needed(
                      &e.driver,
-                     wec_widths.map(WecColumnWidths::driver_width).unwrap_or(18),
+                     wec_widths.map_or(18, WecColumnWidths::driver_width),
                      selected,
                      ctx.marquee_tick,
                   )),
                   Cell::from(marquee_if_needed(
                      &e.vehicle,
-                     wec_widths.map(WecColumnWidths::vehicle_width).unwrap_or(18),
+                     wec_widths.map_or(18, WecColumnWidths::vehicle_width),
                      selected,
                      ctx.marquee_tick,
                   )),
                   Cell::from(marquee_if_needed(
                      &e.team,
-                     wec_widths.map(WecColumnWidths::team_width).unwrap_or(24),
+                     wec_widths.map_or(24, WecColumnWidths::team_width),
                      selected,
                      ctx.marquee_tick,
                   )),

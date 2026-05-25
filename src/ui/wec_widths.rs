@@ -99,7 +99,7 @@ impl WecColumnWidths {
       }
    }
 
-   fn to_array(self) -> [u16; WEC_COLUMN_COUNT] {
+   const fn to_array(self) -> [u16; WEC_COLUMN_COUNT] {
       [
          self.pos,
          self.car_number,
@@ -118,7 +118,7 @@ impl WecColumnWidths {
       ]
    }
 
-   fn from_array(values: [u16; WEC_COLUMN_COUNT]) -> Self {
+   const fn from_array(values: [u16; WEC_COLUMN_COUNT]) -> Self {
       Self {
          pos:        values[0],
          car_number: values[1],
@@ -137,15 +137,15 @@ impl WecColumnWidths {
       }
    }
 
-   pub(crate) fn driver_width(self) -> usize {
+   pub(crate) const fn driver_width(self) -> usize {
       self.driver as usize
    }
 
-   pub(crate) fn vehicle_width(self) -> usize {
+   pub(crate) const fn vehicle_width(self) -> usize {
       self.vehicle as usize
    }
 
-   pub(crate) fn team_width(self) -> usize {
+   pub(crate) const fn team_width(self) -> usize {
       self.team as usize
    }
 

@@ -341,11 +341,11 @@ pub(super) fn html_to_text_lines(html: &str) -> Vec<String> {
       .collect()
 }
 
-fn is_leap_year(year: i32) -> bool {
+const fn is_leap_year(year: i32) -> bool {
    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
-fn days_in_month(year: i32, month: u32) -> Option<u32> {
+const fn days_in_month(year: i32, month: u32) -> Option<u32> {
    match month {
       1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
       4 | 6 | 9 | 11 => Some(30),
@@ -356,7 +356,7 @@ fn days_in_month(year: i32, month: u32) -> Option<u32> {
 }
 
 fn parse_u32_fragment(raw: &str) -> Option<u32> {
-   let digits: String = raw.chars().filter(|ch| ch.is_ascii_digit()).collect();
+   let digits: String = raw.chars().filter(char::is_ascii_digit).collect();
    if digits.is_empty() {
       None
    } else {

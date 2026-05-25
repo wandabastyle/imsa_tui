@@ -22,7 +22,7 @@ use crate::timing::{
 };
 
 fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
-   obj.get(key).and_then(|x| x.as_str())
+   obj.get(key).and_then(serde_json::Value::as_str)
 }
 
 fn first_non_empty<'a>(obj: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -34,12 +34,13 @@ fn first_non_empty<'a>(obj: &'a Value, keys: &[&str]) -> Option<&'a str> {
 }
 
 fn parse_u32_field(obj: &Value, key: &str) -> Option<u32> {
-   if let Some(s) = get_str(obj, key) {
-      return s.trim().parse::<u32>().ok();
-   }
-   obj.get(key)
-      .and_then(|x| x.as_u64())
-      .and_then(|n| u32::try_from(n).ok())
+   get_str(obj, key)
+      .and_then(|s| s.trim().parse::<u32>().ok())
+      .or_else(|| {
+         obj.get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+      })
 }
 
 fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
@@ -50,7 +51,7 @@ fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
       }
    }
 
-   if let Some(n) = obj.get(key).and_then(|x| x.as_u64()) {
+   if let Some(n) = obj.get(key).and_then(serde_json::Value::as_u64) {
       return Some(n.to_string());
    }
 
@@ -315,9 +316,7 @@ pub(super) fn parse_ws_message(
          }
 
          let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
-         let cup_is_dhlm = ws_cup
-            .map(|name| name.to_ascii_lowercase().contains("dhlm"))
-            .unwrap_or(false);
+         let cup_is_dhlm = ws_cup.map_or(false, |name| name.to_ascii_lowercase().contains("dhlm"));
 
          if cup_is_dhlm {
             header.event_name = ws_cup.unwrap().to_string();
@@ -368,9 +367,7 @@ pub(super) fn parse_ws_message(
          }
 
          let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
-         let cup_is_dhlm = ws_cup
-            .map(|name| name.to_ascii_lowercase().contains("dhlm"))
-            .unwrap_or(false);
+         let cup_is_dhlm = ws_cup.map_or(false, |name| name.to_ascii_lowercase().contains("dhlm"));
 
          if cup_is_dhlm {
             header.event_name = ws_cup.unwrap().to_string();
@@ -404,7 +401,7 @@ pub(super) fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Du
    let _ = stream.set_read_timeout(Some(timeout));
 }
 
-pub(super) fn should_emit_connected_status_on_update(
+pub(super) const fn should_emit_connected_status_on_update(
    header_changed: bool,
    connected_status_already_sent: bool,
 ) -> bool {

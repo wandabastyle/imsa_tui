@@ -24,7 +24,7 @@ fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 fn get_u64(obj: &Value, key: &str) -> Option<u64> {
-   obj.get(key).and_then(|x| x.as_u64())
+   obj.get(key).and_then(serde_json::Value::as_u64)
 }
 
 fn looks_like_mojibake(s: &str) -> bool {
@@ -41,10 +41,7 @@ fn fix_mojibake(s: &str) -> String {
       return s.to_string();
    };
 
-   match String::from_utf8(bytes) {
-      Ok(decoded) => decoded,
-      Err(_) => s.to_string(),
-   }
+   String::from_utf8(bytes).map_or_else(|_| s.to_string(), |decoded| decoded)
 }
 
 fn clean_string(s: &str) -> String {
@@ -65,7 +62,7 @@ fn as_string(obj: &Value, key: &str) -> String {
 }
 
 fn parse_position(obj: &Value) -> Option<u32> {
-   if let Some(n) = obj.get("A").and_then(|v| v.as_u64()) {
+   if let Some(n) = obj.get("A").and_then(serde_json::Value::as_u64) {
       return u32::try_from(n).ok();
    }
    if let Some(s) = get_str(obj, "A") {
@@ -103,15 +100,9 @@ pub(super) fn is_transponder_placeholder(obj: &Value) -> bool {
       return false;
    }
 
-   let class_empty = get_str(obj, "C")
-      .map(|s| s.trim().is_empty())
-      .unwrap_or(true);
-   let driver_empty = get_str(obj, "F")
-      .map(|s| s.trim().is_empty())
-      .unwrap_or(true);
-   let vehicle_empty = get_str(obj, "V")
-      .map(|s| s.trim().is_empty())
-      .unwrap_or(true);
+   let class_empty = get_str(obj, "C").map_or(true, |s| s.trim().is_empty());
+   let driver_empty = get_str(obj, "F").map_or(true, |s| s.trim().is_empty());
+   let vehicle_empty = get_str(obj, "V").map_or(true, |s| s.trim().is_empty());
 
    class_empty && driver_empty && vehicle_empty
 }

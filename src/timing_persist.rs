@@ -27,6 +27,8 @@ pub struct PersistState {
 }
 
 impl PersistState {
+   #[allow(clippy::missing_const_for_fn)]
+   #[must_use]
    pub fn new(path: Option<PathBuf>) -> Self {
       Self {
          path,
@@ -37,11 +39,13 @@ impl PersistState {
    }
 }
 
+#[must_use]
 pub fn data_local_snapshot_path(file_name: &str) -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().join(file_name))
 }
 
+#[must_use]
 pub fn debounce_elapsed(last_save_at: Option<SystemTime>, debounce: Duration) -> bool {
    match last_save_at {
       Some(last) => {
@@ -54,6 +58,7 @@ pub fn debounce_elapsed(last_save_at: Option<SystemTime>, debounce: Duration) ->
    }
 }
 
+#[must_use]
 pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
    let text = fs::read_to_string(path).ok()?;
    serde_json::from_str::<T>(&text).ok()

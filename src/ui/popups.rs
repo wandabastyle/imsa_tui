@@ -38,7 +38,7 @@ pub(crate) struct SeriesPickerState {
 }
 
 impl SeriesPickerState {
-   pub(crate) fn closed() -> Self {
+   pub(crate) const fn closed() -> Self {
       Self {
          is_open:      false,
          selected_idx: 0,
@@ -53,7 +53,7 @@ pub(crate) struct GroupPickerState {
 }
 
 impl GroupPickerState {
-   pub(crate) fn closed() -> Self {
+   pub(crate) const fn closed() -> Self {
       Self {
          is_open:      false,
          selected_idx: 0,
@@ -80,7 +80,7 @@ pub(crate) struct NlsLivetickerPanelState {
 }
 
 impl MessagesPanelState {
-   pub(crate) fn closed() -> Self {
+   pub(crate) const fn closed() -> Self {
       Self {
          is_open:      false,
          selected_idx: 0,
@@ -89,7 +89,7 @@ impl MessagesPanelState {
 }
 
 impl NlsLivetickerPanelState {
-   pub(crate) fn closed() -> Self {
+   pub(crate) const fn closed() -> Self {
       Self {
          is_open: false,
          scroll:  0,
@@ -98,7 +98,7 @@ impl NlsLivetickerPanelState {
 }
 
 impl LogsPanelState {
-   pub(crate) fn closed() -> Self {
+   pub(crate) const fn closed() -> Self {
       Self {
          is_open: false,
          scroll:  0,

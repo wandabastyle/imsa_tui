@@ -1,5 +1,14 @@
 # CRITICAL RULES - MUST FOLLOW
 
+## GENERAL PRINCIPLES
+
+- **No `#[allow(...)]` attributes**: Never suppress Clippy or compiler warnings with `#[allow(...)]` attributes. This includes (but is not limited to):
+  - `#[allow(dead_code)]` - Dead code should be removed rather than suppressed
+  - `#[allow(clippy::too_many_arguments)]` - Refactor to use context structs instead
+  - Any other `#[allow(clippy::...)]` - Fix the underlying issue
+  
+  If there's a valid reason to keep code that triggers warnings (e.g., for future use or API completeness), add a comment explaining why and fix the root cause (removing dead code, using constants/structs, or refactoring) rather than suppressing warnings.
+
 ## RESPONSES
 
 - Keep responses concise and to the point - unless the user asks otherwise

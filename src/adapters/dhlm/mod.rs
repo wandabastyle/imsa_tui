@@ -62,7 +62,7 @@ fn extract_cup_from_message(text: &str) -> Option<String> {
       .get("CUP")
       .or_else(|| parsed.get("EVENTNAME"))
       .and_then(|value| value.as_str())
-      .map(|value| value.to_string())
+      .map(std::string::ToString::to_string)
 }
 
 fn cup_is_dhlm(cup: &str) -> bool {
@@ -76,15 +76,16 @@ fn now_millis() -> u128 {
       .as_millis()
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+   websocket_worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
 }
 
 pub fn websocket_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: SeriesDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
 ) {
    let mut header = TimingHeader {
       event_name: "DHLM Live Timing".to_string(),
@@ -109,7 +110,7 @@ pub fn websocket_worker_with_debug(
    'outer: loop {
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_good_snapshot.as_ref() {
-            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, &debug_output);
+            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
          }
          break;
       }
@@ -173,10 +174,7 @@ pub fn websocket_worker_with_debug(
          }
       }
 
-      let use_dump_mode = ws_cup
-         .as_deref()
-         .map(|cup| !cup_is_dhlm(cup))
-         .unwrap_or(false);
+      let use_dump_mode = ws_cup.as_deref().is_some_and(|cup| !cup_is_dhlm(cup));
       if use_dump_mode {
          let _ = tx.send(TimingMessage::Status {
             source_id,
@@ -202,8 +200,7 @@ pub fn websocket_worker_with_debug(
 
                   let should_persist = last_good_snapshot
                      .as_ref()
-                     .map(|prev| prev.fingerprint != snapshot.fingerprint)
-                     .unwrap_or(true);
+                     .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
 
                   if should_persist {
                      persist_snapshot(&mut persist, &snapshot, now_millis() as u64, &debug_output);
@@ -258,8 +255,7 @@ pub fn websocket_worker_with_debug(
                let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                let materially_changed = last_good_snapshot
                   .as_ref()
-                  .map(|prev| prev.fingerprint != snapshot.fingerprint)
-                  .unwrap_or(true);
+                  .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
 
                if first_real_of_session || materially_changed || session_complete {
                   if first_real_of_session || session_complete {

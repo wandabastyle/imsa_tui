@@ -94,15 +94,16 @@ const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+   websocket_worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
 }
 
 pub fn websocket_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: SeriesDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
 ) {
    let mut header = TimingHeader {
       event_name: "NLS Live Timing".to_string(),
@@ -303,8 +304,7 @@ pub fn websocket_worker_with_debug(
                   let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                   let materially_changed = last_good_live_snapshot
                      .as_ref()
-                     .map(|prev| prev.fingerprint != snapshot.fingerprint)
-                     .unwrap_or(true);
+                     .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
 
                   if materially_changed {
                      persist.dirty_since_last_save = true;
@@ -370,8 +370,7 @@ pub fn websocket_worker_with_debug(
                      let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                      let materially_changed = last_good_live_snapshot
                         .as_ref()
-                        .map(|prev| prev.fingerprint != snapshot.fingerprint)
-                        .unwrap_or(true);
+                        .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
 
                      if materially_changed {
                         persist.dirty_since_last_save = true;

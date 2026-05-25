@@ -36,6 +36,7 @@ static EMBEDDED_WEB_DIST: include_dir::Dir<'_> =
    include_dir::include_dir!("$CARGO_MANIFEST_DIR/web/build");
 
 impl StaticConfig {
+   #[allow(clippy::missing_const_for_fn)]
    pub fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
       Self {
          root_dir,
@@ -134,7 +135,7 @@ fn serve_embedded_or_404(path: &str) -> Response {
    response
 }
 
-fn select_source(prefer_embedded: bool) -> StaticSource {
+const fn select_source(prefer_embedded: bool) -> StaticSource {
    #[cfg(feature = "embed-ui")]
    {
       if prefer_embedded {

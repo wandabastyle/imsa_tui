@@ -22,7 +22,7 @@ pub enum LivetickerFeedKind {
 }
 
 impl LivetickerFeedKind {
-   fn url(self) -> &'static str {
+   const fn url(self) -> &'static str {
       match self {
             Self::Nls => "https://www.nuerburgring-langstrecken-serie.de/wp-content/themes/pofo-child/liveticker.php",
             Self::N24 => "https://www.24h-rennen.de/liveticker.php",
@@ -54,6 +54,7 @@ pub struct ActiveLivetickerFeed {
    pub rx:   Receiver<LivetickerWorkerMessage>,
 }
 
+#[must_use]
 pub fn start_liveticker_feed(kind: LivetickerFeedKind) -> ActiveLivetickerFeed {
    let (stop_tx, stop_rx) = mpsc::channel::<()>();
    let (tx, rx) = mpsc::channel::<LivetickerWorkerMessage>();

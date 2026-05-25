@@ -18,6 +18,7 @@ use crate::timing::{
    TimingHeader,
 };
 
+#[must_use]
 pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    match series {
       Series::Imsa => (imsa_header(), imsa_entries()),
@@ -28,6 +29,7 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    }
 }
 
+#[must_use]
 pub fn demo_snapshot_at(
    series: Series,
    seed: u64,
@@ -83,7 +85,7 @@ pub fn demo_snapshot_at(
 }
 
 fn parse_laps(raw: &str) -> Option<u64> {
-   let digits: String = raw.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+   let digits: String = raw.chars().take_while(char::is_ascii_digit).collect();
    if digits.is_empty() {
       return None;
    }
@@ -146,7 +148,7 @@ pub fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
    }
 }
 
-fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
+const fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
    match series {
       Series::Imsa => &["imsa:7", "imsa:31", "imsa:77"],
       Series::Nls => &["nls:911", "nls:27", "nls:18"],

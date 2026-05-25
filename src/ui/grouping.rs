@@ -47,6 +47,7 @@ pub(crate) fn grouped_entries(
    groups
 }
 
+#[allow(clippy::missing_const_for_fn)]
 pub(crate) fn next_view_mode(current: ViewMode, groups_len: usize) -> ViewMode {
    if groups_len == 0 {
       return match current {

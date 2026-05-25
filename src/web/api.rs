@@ -213,7 +213,7 @@ fn from_api_preferences(value: Preferences) -> prefs::Preferences {
    }
 }
 
-fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
+const fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
    match value {
       crate::timing::Series::Imsa => web_shared::Series::Imsa,
       crate::timing::Series::Nls => web_shared::Series::Nls,
@@ -223,7 +223,7 @@ fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
    }
 }
 
-fn from_api_series(value: web_shared::Series) -> crate::timing::Series {
+const fn from_api_series(value: web_shared::Series) -> crate::timing::Series {
    match value {
       web_shared::Series::Imsa => crate::timing::Series::Imsa,
       web_shared::Series::Nls => crate::timing::Series::Nls,

@@ -124,9 +124,7 @@ pub(crate) fn resolve_live_sid_for_series(client: &Client, series_id: u64) -> Re
       let sid_series = map.get("seriesId").and_then(Value::as_u64);
       let domain = map.get("domain").and_then(Value::as_str);
       if sid_series == Some(series_id)
-         && domain
-            .map(|value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
-            .unwrap_or(true)
+         && domain.map_or(true, |value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
       {
          if let Some(windows) = maybe_official_windows.as_ref() {
             if !official_schedule_allows_live_session(series_id, map, windows, today) {
@@ -257,7 +255,7 @@ fn extract_year_from_slug(href: &str) -> Option<i32> {
 
    for idx in 0..=(chars.len() - 4) {
       let slice = [chars[idx], chars[idx + 1], chars[idx + 2], chars[idx + 3]];
-      if slice.iter().all(|ch| ch.is_ascii_digit()) {
+      if slice.iter().all(char::is_ascii_digit) {
          let candidate = slice.iter().collect::<String>().parse::<i32>().ok();
          if candidate.is_some_and(|year| (2000..=2100).contains(&year)) {
             last_match = candidate;
@@ -491,8 +489,7 @@ pub(crate) fn choose_latest_finished_race_session(
          session
             .session_type
             .as_deref()
-            .map(|value| value.eq_ignore_ascii_case("Race"))
-            .unwrap_or(false)
+            .map_or(false, |value| value.eq_ignore_ascii_case("Race"))
             && session.has_result
       })
       .cloned()

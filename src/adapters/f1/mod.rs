@@ -136,15 +136,16 @@ struct F1CarState {
    pit:           Option<bool>,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+   worker_with_debug(&tx, source_id, &stop_rx, &SeriesDebugOutput::Silent)
 }
 
 pub fn worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: SeriesDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
 ) {
    let client = match Client::builder().timeout(Duration::from_secs(12)).build() {
       Ok(c) => c,
@@ -440,8 +441,7 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
       let driver = participant
          .and_then(|item| item.drivers.first())
          .and_then(|driver| driver.display_name.as_deref())
-         .map(normalize_driver_name)
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), normalize_driver_name);
 
       entries.push(TimingEntry {
          position: row.overall_finished_at.unwrap_or((idx + 1) as u32),
@@ -449,8 +449,7 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
          class_name: "F1".to_string(),
          class_rank: row
             .overall_finished_at
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), |value| value.to_string()),
          driver,
          vehicle: participant
             .and_then(|item| item.manufacturer.clone())
@@ -458,8 +457,7 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
          team,
          laps: row
             .number_of_laps_completed
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), |value| value.to_string()),
          gap_overall: format_gap(row.overall_gap_from_first, row.overall_gap_from_first_laps)
             .unwrap_or_else(|| "-".to_string()),
          gap_class: format_gap(row.gap_from_first, row.gap_from_first_laps)
@@ -468,8 +466,7 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
          last_lap: "-".to_string(),
          best_lap: row
             .best_lap_time
-            .map(format_lap_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_lap_time_ms),
          sector_1: "-".to_string(),
          sector_2: "-".to_string(),
          sector_3: "-".to_string(),
@@ -629,26 +626,22 @@ fn snapshot_from_live_state(state: F1LiveState) -> Result<F1Snapshot, String> {
             class_name:        "F1".to_string(),
             class_rank:        row
                .position
-               .map(|value| value.to_string())
-               .unwrap_or_else(|| "-".to_string()),
+               .map_or_else(|| "-".to_string(), |value| value.to_string()),
             driver:            row.driver.unwrap_or_else(|| "-".to_string()),
             vehicle:           "-".to_string(),
             team:              row.team.unwrap_or_else(|| "-".to_string()),
             laps:              row
                .laps
-               .map(|value| value.to_string())
-               .unwrap_or_else(|| "-".to_string()),
+               .map_or_else(|| "-".to_string(), |value| value.to_string()),
             gap_overall:       row.gap_to_leader.unwrap_or_else(|| "-".to_string()),
             gap_class:         row.interval.unwrap_or_else(|| "-".to_string()),
             gap_next_in_class: "-".to_string(),
             last_lap:          row
                .last_lap_ms
-               .map(format_lap_time_ms)
-               .unwrap_or_else(|| "-".to_string()),
+               .map_or_else(|| "-".to_string(), format_lap_time_ms),
             best_lap:          row
                .best_lap_ms
-               .map(format_lap_time_ms)
-               .unwrap_or_else(|| "-".to_string()),
+               .map_or_else(|| "-".to_string(), format_lap_time_ms),
             sector_1:          "-".to_string(),
             sector_2:          "-".to_string(),
             sector_3:          "-".to_string(),
@@ -715,8 +708,7 @@ fn emit_snapshot(
 ) {
    let materially_changed = last_snapshot
       .as_ref()
-      .map(|prev| prev.fingerprint != snapshot.fingerprint)
-      .unwrap_or(true);
+      .map_or(true, |prev| prev.fingerprint != snapshot.fingerprint);
    if materially_changed {
       persist.dirty_since_last_save = true;
    }
@@ -749,11 +741,9 @@ fn payload_rows(payload: &Value) -> Vec<&Value> {
    match payload {
       Value::Array(rows) => rows.iter().collect(),
       Value::Object(map) => {
-         if let Some(items) = map.get("items").and_then(Value::as_array) {
-            items.iter().collect()
-         } else {
-            vec![payload]
-         }
+         map.get("items")
+            .and_then(Value::as_array)
+            .map_or_else(|| vec![payload], |items| items.iter().collect())
       },
       _ => Vec::new(),
    }
@@ -826,7 +816,7 @@ fn set_opt_string(slot: &mut Option<String>, incoming: Option<String>) {
    *slot = Some(incoming);
 }
 
-fn set_opt_u32(slot: &mut Option<u32>, incoming: Option<u32>) {
+const fn set_opt_u32(slot: &mut Option<u32>, incoming: Option<u32>) {
    if incoming.is_some() {
       *slot = incoming;
    }

@@ -23,6 +23,7 @@ pub enum Series {
 }
 
 impl Series {
+   #[must_use]
    pub const fn all() -> [Series; 5] {
       [
          Series::Dhlm,
@@ -33,7 +34,8 @@ impl Series {
       ]
    }
 
-   pub fn as_key_prefix(self) -> &'static str {
+   #[must_use]
+   pub const fn as_key_prefix(self) -> &'static str {
       match self {
          Series::Dhlm => "dhlm",
          Series::Imsa => "imsa",

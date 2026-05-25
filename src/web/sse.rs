@@ -85,6 +85,7 @@ pub async fn stream_series(
       .into_response()
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn stream_demo_series(
    state: WebAppState,
    series: Series,

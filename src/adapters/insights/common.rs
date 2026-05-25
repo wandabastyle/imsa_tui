@@ -88,8 +88,7 @@ fn normalize_driver_name_token(token: &str) -> String {
    }
    let letters: String = token.chars().filter(|ch| ch.is_alphabetic()).collect();
    let needs_normalization = !letters.is_empty()
-      && (letters.chars().all(|ch| ch.is_uppercase())
-         || letters.chars().all(|ch| ch.is_lowercase()));
+      && (letters.chars().all(char::is_uppercase) || letters.chars().all(char::is_lowercase));
    if !needs_normalization {
       return token.to_string();
    }

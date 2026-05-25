@@ -33,7 +33,7 @@ pub(crate) struct PitTracker {
 }
 
 impl PitTracker {
-   fn new() -> Self {
+   const fn new() -> Self {
       Self {
          in_pit:    false,
          in_until:  None,
@@ -129,12 +129,12 @@ fn pit_phase_for_entry(
    };
 
    if tracker.in_pit {
-      if tracker.in_until.map(|until| now <= until).unwrap_or(false) {
+      if tracker.in_until.map_or(false, |until| now <= until) {
          PitHighlightPhase::In
       } else {
          PitHighlightPhase::Pit
       }
-   } else if tracker.out_until.map(|until| now <= until).unwrap_or(false) {
+   } else if tracker.out_until.map_or(false, |until| now <= until) {
       PitHighlightPhase::Out
    } else {
       PitHighlightPhase::None

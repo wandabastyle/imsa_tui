@@ -34,7 +34,7 @@ pub struct RuntimeInfo {
    pub started_unix_secs: u64,
 }
 
-pub fn static_source_label(source: StaticSource) -> &'static str {
+pub const fn static_source_label(source: StaticSource) -> &'static str {
    match source {
       StaticSource::Disk => "disk (WEB_DIST_DIR)",
       #[cfg(feature = "embed-ui")]
@@ -42,6 +42,7 @@ pub fn static_source_label(source: StaticSource) -> &'static str {
    }
 }
 
+#[must_use]
 pub fn env_flag(name: &str, default: bool) -> bool {
    match env::var(name) {
       Ok(value) => parse_boolish(&value).unwrap_or(default),
@@ -49,6 +50,7 @@ pub fn env_flag(name: &str, default: bool) -> bool {
    }
 }
 
+#[must_use]
 pub fn parse_boolish(value: &str) -> Option<bool> {
    match value.trim().to_ascii_lowercase().as_str() {
       "1" | "true" | "on" | "yes" => Some(true),
@@ -57,6 +59,7 @@ pub fn parse_boolish(value: &str) -> Option<bool> {
    }
 }
 
+#[must_use]
 pub fn setup_tailscale_funnel(port: u16) -> Option<String> {
    let target = format!("http://127.0.0.1:{port}");
    let start = Command::new("tailscale")
