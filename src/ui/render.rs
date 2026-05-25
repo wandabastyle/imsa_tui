@@ -31,6 +31,7 @@ use ratatui::{
 };
 
 use super::{
+   config::AppConfig,
    gap::GapAnchorInfo,
    grouping::{
       display_event_name,
@@ -107,6 +108,7 @@ pub(crate) struct RenderCtx<'a> {
    pub(crate) transition_from_flag:       &'a str,
    pub(crate) transition_started_at:      Instant,
    pub(crate) debug_log_capacity:         usize,
+   pub(crate) config:                     &'a AppConfig,
 }
 
 pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
@@ -288,7 +290,7 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                   running += class_entries.len();
                }
 
-               let minimum_rows_per_group = 7_u16;
+               let minimum_rows_per_group = ctx.config.grouped_min_rows.max(3);
                let max_visible_groups = (chunks[1].height / minimum_rows_per_group).max(1) as usize;
                let visible_group_count = ctx.current_groups.len().min(max_visible_groups.max(1));
                let start_group_idx = if ctx.current_groups.len() <= visible_group_count {
@@ -302,9 +304,22 @@ pub(crate) fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
                let end_group_idx = start_group_idx + visible_group_count;
                let visible_groups = &ctx.current_groups[start_group_idx..end_group_idx];
 
+               let total_cars: usize = visible_groups
+                  .iter()
+                  .map(|(_, entries)| entries.len())
+                  .sum();
                let constraints: Vec<Constraint> = visible_groups
                   .iter()
-                  .map(|_| Constraint::Ratio(1, visible_groups.len() as u32))
+                  .map(|(_, entries)| {
+                     let ratio = if total_cars > 0 {
+                        entries.len() as f64 / total_cars as f64
+                     } else {
+                        1.0 / visible_groups.len() as f64
+                     };
+                     let min_rows = minimum_rows_per_group.clamp(3, entries.len() as u16);
+                     let target_rows = (ratio * chunks[1].height as f64).round() as u16;
+                     Constraint::Length(target_rows.clamp(min_rows, chunks[1].height))
+                  })
                   .collect();
                let group_chunks = Layout::default()
                   .direction(Direction::Vertical)

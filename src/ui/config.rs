@@ -26,6 +26,8 @@ pub(crate) struct AppConfig {
    pub(crate) selected_series:       Series,
    #[serde(default, deserialize_with = "deserialize_dismissed_notice_keys")]
    pub(crate) dismissed_notice_keys: HashMap<String, u64>,
+   #[serde(default)]
+   pub(crate) grouped_min_rows:      u16,
 }
 
 fn deserialize_dismissed_notice_keys<'de, D>(

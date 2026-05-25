@@ -17,6 +17,7 @@
 - Identify changes from the plan that can be implemented in parallel, and use sub-agents to implement the features efficiently
 - When using sub-agents to implement features, act as a coordinator only
 - Use the best model for the task - premium models for complex tasks (like coding) and mid-tier models for simpler tasks, like documentation
+- **Lint rules first**: Agents and subagents must read lint/typecheck output completely before making any code changes - don't assume you know the rules, read what the linter actually says
 - After completing features (large or small), always run verification commands:
   - **Rust**: `cargo fmt --check`, `cargo clippy --all-targets --no-default-features -- -D warnings`, `cargo test`
   - **Web**: `pnpm run check` (Vite+ build + React/TypeScript check)
@@ -39,6 +40,20 @@
 - Design System: @DESIGN.md
 
 **Important:** This project uses a dense, compact motorsport timing-screen aesthetic. The `frontend-design` skill's general "bold aesthetic" guidance should be overridden by the specific requirements in DESIGN.md when working on UI components.
+
+## LINT RULES
+
+Agents and subagents must read lint/typecheck output completely before making any code changes - don't assume you know the rules, read what the linter actually says.
+
+**Web lint rules:** `web/.oxlintrc.json`
+- All categories enabled: `correctness`, `suspicious`, `pedantic`, `perf`, `style`, `restriction`, `nursery`
+- No ESLint/oxc configs; rules explicitly defined in oxlintrc
+- No eslint config file (like `.eslintrc.js` or `eslint.config.js`)
+
+**Rust lint rules:** From `[lints.clippy]` section in `Cargo.toml`
+- `all`, `cargo`, `nursery`, `pedantic` = `warn`
+- `multiple_crate_versions` = `allow` (transitive deps ecosystem issue)
+- Run with: `cargo clippy --all-targets --no-default-features -- -D warnings`
 
 ## SKILLS
 

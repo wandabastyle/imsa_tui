@@ -109,6 +109,7 @@ export const MainContent = (props: MainContentProps): JSX.Element => {
         gapAnchorStableId={gapAnchorStableId}
         searchMatches={searchMatches}
         currentSearchMatch={state.search.currentMatch}
+        minRowsPerGroup={state.minRowsPerGroup}
       />
 
       <HelpModal onClose={onCloseHelp} open={state.showHelp} />

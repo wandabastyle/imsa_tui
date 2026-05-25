@@ -1,12 +1,14 @@
 import { useMemo, useRef, type JSX } from 'react';
 
 import { getColumnsForSeries } from '../../table/columns';
+import { useTableDimensions } from '../../table/use-table-dimensions';
 import { GroupedTable } from './grouped-table';
 import { SingleTable } from './single-table';
 import type { GapAnchorInfo, TimingTableProps } from './types';
 import { usePitTrackers } from './utils';
 
 const DEFAULT_CURRENT_MATCH = 0;
+const DEFAULT_MIN_ROWS_PER_GROUP = 5;
 const FALLBACK_ZERO = 0;
 
 export const TimingTable = (props: TimingTableProps): JSX.Element => {
@@ -25,12 +27,14 @@ export const TimingTable = (props: TimingTableProps): JSX.Element => {
     groupedSections = [],
     isGroupedMode = false,
     markedStableId = null,
+    minRowsPerGroup = DEFAULT_MIN_ROWS_PER_GROUP,
     loading = false,
   } = props;
 
   const columns = useMemo(() => getColumnsForSeries(series), [series]);
   const pitTrackers = usePitTrackers(entries, series);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const dimensions = useTableDimensions(scrollContainerRef);
 
   const gapAnchor = useMemo<GapAnchorInfo | null>(() => {
     if (gapAnchorStableId === null || gapAnchorStableId === '') {
@@ -65,6 +69,9 @@ export const TimingTable = (props: TimingTableProps): JSX.Element => {
             markedStableId={markedStableId}
             title={title}
             loading={loading}
+            viewportHeight={dimensions?.viewportHeight ?? null}
+            rowHeight={dimensions?.rowHeight ?? null}
+            minRowsPerGroup={minRowsPerGroup}
           />
         ) : (
           <SingleTable

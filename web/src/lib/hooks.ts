@@ -45,6 +45,7 @@ export interface AppState {
   gapAnchorStableId: string | null;
   groupPickerIndex: number;
   groups: string[];
+  minRowsPerGroup: number;
   nlsLiveticker: NlsLivetickerState;
   search: SearchState;
   selectedRow: number;
@@ -58,6 +59,8 @@ export interface AppState {
   viewMode: ViewMode;
 }
 
+const DEFAULT_MIN_ROWS_PER_GROUP = 5;
+
 const INITIAL_STATE: AppState = {
   activeSeries: 'imsa',
   connectionErrors: [],
@@ -66,6 +69,7 @@ const INITIAL_STATE: AppState = {
   gapAnchorStableId: null,
   groupPickerIndex: 0,
   groups: [],
+  minRowsPerGroup: DEFAULT_MIN_ROWS_PER_GROUP,
   nlsLiveticker: {
     entries: [],
     lastError: null,
@@ -148,8 +152,31 @@ const normalizeStableId = function normalizeStableId(series: Series, stableId: s
 // JSX is used for type annotations - do not remove
 export type { JSX };
 
+const MIN_ROWS_DEFAULT = 5;
+const MIN_ROWS_MIN_VALUE = 1;
+
+const parseMinRowsFromUrl = (): number => {
+  if (typeof URLSearchParams === 'undefined') {
+    return MIN_ROWS_DEFAULT;
+  }
+  const params = new URLSearchParams(globalThis.location.search);
+  const minRowsParam = params.get('minRows');
+  if (minRowsParam === null) {
+    return MIN_ROWS_DEFAULT;
+  }
+  const parsed = Number.parseInt(minRowsParam, 10);
+  if (Number.isNaN(parsed) || parsed < MIN_ROWS_MIN_VALUE) {
+    return MIN_ROWS_DEFAULT;
+  }
+  return parsed;
+};
+
 export const useAppState = function useAppState(): UseAppStateReturn {
-  const [state, setState] = useState<AppState>(INITIAL_STATE);
+  const initialMinRows = parseMinRowsFromUrl();
+  const [state, setState] = useState<AppState>({
+    ...INITIAL_STATE,
+    minRowsPerGroup: initialMinRows,
+  });
   const [activeStream, setActiveStream] = useState<{ series: Series; handle: EventSource } | null>(
     null,
   );

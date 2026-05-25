@@ -41,3 +41,12 @@ strip = true
 
 [profile.release.package.imsa_tui]
 opt-level = 3
+
+[lints.clippy]
+all      = { level = "warn", priority = -1 }
+cargo    = { level = "warn", priority = -1 }
+nursery  = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# This lint is disabled because transitive dependencies frequently require multiple versions
+# of the same crate, which is an ecosystem-wide issue that cannot be resolved by this application.
+multiple_crate_versions = { level = "allow", priority = 1 }

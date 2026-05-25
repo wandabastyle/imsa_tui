@@ -814,6 +814,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             transition_from_flag: &transition_from_flag,
             transition_started_at,
             debug_log_capacity: IMSA_DEBUG_LOG_CAPACITY,
+            config: &config,
          };
          draw_frame(f, &render_ctx);
       })?;
@@ -1175,6 +1176,22 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         favourites.insert(fav_key);
                      }
                      config.favourites = favourites.clone();
+                     if let Err(err) = save_config(&config) {
+                        last_error = Some(err);
+                     }
+                  }
+               },
+               KeyCode::Char('-') if !show_help && view_mode == ViewMode::Grouped => {
+                  if config.grouped_min_rows > 3 {
+                     config.grouped_min_rows -= 1;
+                     if let Err(err) = save_config(&config) {
+                        last_error = Some(err);
+                     }
+                  }
+               },
+               KeyCode::Char('+') if !show_help && view_mode == ViewMode::Grouped => {
+                  if config.grouped_min_rows < 20 {
+                     config.grouped_min_rows += 1;
                      if let Err(err) = save_config(&config) {
                         last_error = Some(err);
                      }
