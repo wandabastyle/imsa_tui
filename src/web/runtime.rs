@@ -34,7 +34,6 @@ pub struct RuntimeInfo {
    pub started_unix_secs: u64,
 }
 
-#[must_use]
 pub const fn static_source_label(source: StaticSource) -> &'static str {
    match source {
       StaticSource::Disk => "disk (WEB_DIST_DIR)",
@@ -43,15 +42,10 @@ pub const fn static_source_label(source: StaticSource) -> &'static str {
    }
 }
 
-#[must_use]
 pub fn env_flag(name: &str, default: bool) -> bool {
-   match env::var(name) {
-      Ok(value) => parse_boolish(&value).unwrap_or(default),
-      Err(_) => default,
-   }
+   env::var(name).map_or(default, |value| parse_boolish(&value).unwrap_or(default))
 }
 
-#[must_use]
 pub fn parse_boolish(value: &str) -> Option<bool> {
    match value.trim().to_ascii_lowercase().as_str() {
       "1" | "true" | "on" | "yes" => Some(true),
@@ -60,7 +54,6 @@ pub fn parse_boolish(value: &str) -> Option<bool> {
    }
 }
 
-#[must_use]
 pub fn setup_tailscale_funnel(port: u16) -> Option<String> {
    let target = format!("http://127.0.0.1:{port}");
    let start = Command::new("tailscale")
@@ -89,15 +82,16 @@ pub fn setup_tailscale_funnel(port: u16) -> Option<String> {
    match status {
       Ok(output) if output.status.success() => {
          let text = String::from_utf8_lossy(&output.stdout);
-         if let Some(url) = text
+         text
             .split_whitespace()
             .find(|token| token.starts_with("https://"))
-         {
-            Some(url.to_string())
-         } else {
-            println!("tailscale funnel status:\n{}", text.trim());
-            None
-         }
+            .map_or_else(
+               || {
+                  println!("tailscale funnel status:\n{}", text.trim());
+                  None
+               },
+               |url| Some(url.to_string()),
+            )
       },
       Ok(output) => {
          let stderr = String::from_utf8_lossy(&output.stderr);
@@ -137,7 +131,6 @@ pub async fn wait_for_shutdown_signal() {
    }
 }
 
-#[must_use]
 pub fn runtime_dir() -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().to_path_buf())
@@ -155,17 +148,17 @@ pub fn cleanup_legacy_config_artifacts() {
       "web_server.log",
    ] {
       let path = legacy_dir.join(name);
-       match fs::remove_file(&path) {
-          Ok(_) => {},
-          Err(err) if err.kind() == ErrorKind::NotFound => {},
-          Err(err) => {
-             eprintln!(
-                "failed to remove legacy web artifact {}: {err}",
-                path.display()
-             );
-          },
-       }
-    }
+      match fs::remove_file(&path) {
+         Ok(_) => {},
+         Err(err) if err.kind() == ErrorKind::NotFound => {},
+         Err(err) => {
+            eprintln!(
+               "failed to remove legacy web artifact {}: {err}",
+               path.display()
+            );
+         },
+      }
+   }
 }
 
 pub fn cleanup_stale_profile_artifacts() {
@@ -180,17 +173,14 @@ pub fn cleanup_stale_profile_artifacts() {
    }
 }
 
-#[must_use]
 pub fn pid_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.pid"))
 }
 
-#[must_use]
 pub fn info_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.info.toml"))
 }
 
-#[must_use]
 pub fn log_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.log"))
 }
@@ -198,7 +188,8 @@ pub fn log_path() -> Option<PathBuf> {
 /// Write the daemon PID to file.
 ///
 /// # Errors
-/// Returns an error if the pid file path cannot be resolved or if writing fails.
+/// Returns an error if the pid file path cannot be resolved or if writing
+/// fails.
 pub fn write_pid(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
    let path = pid_path().ok_or("unable to resolve pid path")?;
    if let Some(parent) = path.parent() {
@@ -211,7 +202,8 @@ pub fn write_pid(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
 /// Read the daemon PID from file.
 ///
 /// # Errors
-/// Returns an error if the pid file cannot be read (except for NotFound which returns None).
+/// Returns an error if the pid file cannot be read (except for `NotFound` which
+/// returns None).
 pub fn read_pid() -> Result<Option<i32>, Box<dyn std::error::Error>> {
    let Some(path) = pid_path() else {
       return Ok(None);
@@ -242,7 +234,8 @@ pub fn write_runtime_info(info: &RuntimeInfo) -> Result<(), Box<dyn std::error::
 /// Read runtime info from file.
 ///
 /// # Errors
-/// Returns an error if the info file cannot be read (except for NotFound which returns None).
+/// Returns an error if the info file cannot be read (except for `NotFound`
+/// which returns None).
 pub fn read_runtime_info() -> Result<Option<RuntimeInfo>, Box<dyn std::error::Error>> {
    let Some(path) = info_path() else {
       return Ok(None);
@@ -252,10 +245,7 @@ pub fn read_runtime_info() -> Result<Option<RuntimeInfo>, Box<dyn std::error::Er
       Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
       Err(err) => return Err(err.into()),
    };
-   match toml::from_str::<RuntimeInfo>(&text) {
-      Ok(info) => Ok(Some(info)),
-      Err(_) => Ok(None),
-   }
+   toml::from_str::<RuntimeInfo>(&text).map_or_else(|_| Ok(None), |info| Ok(Some(info)))
 }
 
 /// Clear all runtime files (PID and info).
@@ -272,14 +262,12 @@ pub fn clear_runtime_files() -> Result<(), Box<dyn std::error::Error>> {
    Ok(())
 }
 
-#[must_use]
 pub fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .map_or(0, |d| d.as_secs())
 }
 
-#[must_use]
 pub fn is_process_running(pid: i32) -> bool {
    if pid <= 0 {
       return false;
@@ -305,7 +293,8 @@ pub fn is_process_running(pid: i32) -> bool {
 /// Send a signal to a process.
 ///
 /// # Errors
-/// Returns an error if the signal cannot be sent (e.g., process does not exist or no permission).
+/// Returns an error if the signal cannot be sent (e.g., process does not exist
+/// or no permission).
 pub fn send_signal(pid: i32, signal: i32) -> Result<(), Box<dyn std::error::Error>> {
    #[cfg(unix)]
    {

@@ -22,7 +22,9 @@ pub(crate) fn format_lap_time_ms(ms: i64) -> String {
    if ms <= 0 {
       return "-".to_string();
    }
-   let total_ms = ms as u64;
+   // Safe cast: ms is positive here (checked above), and lap times won't exceed
+   // u64 range
+   let total_ms = u64::try_from(ms).unwrap_or(u64::MAX);
    let minutes = total_ms / 60_000;
    let seconds = (total_ms % 60_000) / 1000;
    let millis = total_ms % 1000;

@@ -6,7 +6,7 @@ use tungstenite::Error as WsError;
 
 use super::{
    countdown::{
-      now_millis,
+      now_unix_ms,
       refresh_header_time_to_go,
       CountdownState,
    },
@@ -89,18 +89,19 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
       match parts.len() {
          1 => {
             let secs = parts[0].parse::<f64>().ok()?;
-            Some((secs * 100.0) as u64)
+            // Safe: secs * 100.0 produces centisecs, well within u64 range for valid times
+            Some((secs * 100.0).round() as u64)
          },
          2 => {
             let mins: u64 = parts[0].parse().ok()?;
             let secs: f64 = parts[1].parse().ok()?;
-            Some(mins * 6000 + (secs * 100.0) as u64)
+            Some(mins * 6000 + (secs * 100.0).round() as u64)
          },
          3 => {
             let hours: u64 = parts[0].parse().ok()?;
             let mins: u64 = parts[1].parse().ok()?;
             let secs: f64 = parts[2].parse().ok()?;
-            Some(hours * 360_000 + mins * 6000 + (secs * 100.0) as u64)
+            Some(hours * 360_000 + mins * 6000 + (secs * 100.0).round() as u64)
          },
          _ => None,
       }
@@ -111,11 +112,11 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
       let mins = (cs % 360_000) / 6000;
       let secs = (cs % 6000) as f64 / 100.0;
       if hours > 0 {
-         format!("{}:{:02}:{:05.2}", hours, mins, secs)
+         format!("{hours}:{mins:02}:{secs:05.2}")
       } else if mins > 0 {
-         format!("{}:{:05.2}", mins, secs)
+         format!("{mins}:{secs:05.2}")
       } else {
-         format!("{:05.2}", secs)
+         format!("{secs:05.2}")
       }
    }
 
@@ -174,7 +175,6 @@ fn pit_flag_from_inout_state(inout_state: &str) -> String {
    "-".to_string()
 }
 
-#[must_use]
 pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
    let car_number = parse_u32_field(v, "STNR")?.to_string();
    let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
@@ -383,15 +383,14 @@ pub(super) fn parse_ws_message(
          *countdown = Some(CountdownState {
             end_time_raw,
             time_state_raw: time_state_raw.to_string(),
-            received_at_ms: now_millis() as u64,
+            received_at_ms: now_unix_ms(),
             is_race_session: *is_race_session,
          });
 
          refresh_header_time_to_go(header, countdown.as_ref());
          Some((None, true))
       },
-      "LTS_TIMESYNC" => None,
-      _ => None,
+      "LTS_TIMESYNC" | _ => None,
    }
 }
 

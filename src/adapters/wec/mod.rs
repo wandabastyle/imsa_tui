@@ -68,7 +68,7 @@ const NEGOTIATE_URL: &str =
 const ORIGIN_URL: &str = "https://insights.griiip.com";
 const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 const SIGNALR_RS: char = '\u{1e}';
 const WEC_SIGNALR_CHANNELS: &[&str; 8] = &[
    "session-info",
@@ -805,11 +805,9 @@ fn negotiate(client: &Client) -> Result<NegotiateResponse, String> {
 }
 
 fn websocket_url_from_negotiate(base_url: &str, token: &str) -> String {
-   let mut ws_url = if let Some(rest) = base_url.strip_prefix("https://") {
-      format!("wss://{rest}")
-   } else {
-      base_url.to_string()
-   };
+   let mut ws_url = base_url
+      .strip_prefix("https://")
+      .map_or_else(|| base_url.to_string(), |rest| format!("wss://{rest}"));
    let separator = if ws_url.contains('?') { '&' } else { '?' };
    ws_url.push(separator);
    ws_url.push_str("access_token=");
@@ -876,9 +874,8 @@ fn read_signalr_text(
             .map_err(|err| format!("WEC ping/pong handling failed: {err}"))?;
          Ok(None)
       },
-      Ok(Message::Pong(_)) => Ok(None),
+      Ok(Message::Pong(_) | Message::Frame(_)) => Ok(None),
       Ok(Message::Close(_)) => Ok(Some(format!("{{\"type\":7}}{SIGNALR_RS}"))),
-      Ok(Message::Frame(_)) => Ok(None),
       Err(WsError::Io(err))
          if err.kind() == std::io::ErrorKind::WouldBlock
             || err.kind() == std::io::ErrorKind::TimedOut =>
@@ -993,11 +990,9 @@ fn payload_rows(payload: &Value) -> Vec<&Value> {
    match payload {
       Value::Array(rows) => rows.iter().collect(),
       Value::Object(map) => {
-         if let Some(items) = map.get("items").and_then(Value::as_array) {
-            items.iter().collect()
-         } else {
-            vec![payload]
-         }
+         map.get("items")
+            .and_then(Value::as_array)
+            .map_or_else(|| vec![payload], |items| items.iter().collect())
       },
       _ => Vec::new(),
    }

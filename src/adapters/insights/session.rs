@@ -393,18 +393,20 @@ fn is_within_window(today: i32, start: i32, end: i32, tolerance_days: i32) -> bo
 }
 
 fn current_utc_yyyymmdd() -> i32 {
-   let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
-      Ok(duration) => duration.as_secs() as i64,
-      Err(_) => 0,
-   };
+   let now_secs = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map_or(0, |duration| {
+         i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+      });
    epoch_seconds_to_yyyymmdd(now_secs)
 }
 
 fn current_utc_iso8601() -> String {
-   let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
-      Ok(duration) => duration.as_secs() as i64,
-      Err(_) => 0,
-   };
+   let now_secs = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map_or(0, |duration| {
+         i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+      });
    let days_since_epoch = now_secs.div_euclid(86_400);
    let secs_of_day = now_secs.rem_euclid(86_400);
    let (year, month, day) = civil_from_days(days_since_epoch);

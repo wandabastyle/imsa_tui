@@ -299,10 +299,10 @@ pub fn nls_liveticker_popup(
 ) -> Paragraph<'static> {
    let mut lines = vec![];
 
-   let update_text = match updated_age_secs {
-      Some(age) => format!("updated {age}s ago"),
-      None => "updated -".to_string(),
-   };
+   let update_text = updated_age_secs.map_or_else(
+      || "updated -".to_string(),
+      |age| format!("updated {age}s ago"),
+   );
    lines.push(Line::from(format!(
       "{} entries | {}",
       entries.len(),

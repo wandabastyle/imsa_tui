@@ -31,7 +31,7 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 
 fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
    match flag.trim().to_ascii_lowercase().as_str() {
-      "green" | "normal" => {
+      "green" | "normal" | "-" | "" => {
          (
             "Green".to_string(),
             Color::Rgb(0, 153, 68),
@@ -63,14 +63,6 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
             false,
          )
       },
-      "-" | "" => {
-         (
-            "Green".to_string(),
-            Color::Rgb(0, 153, 68),
-            Color::Black,
-            false,
-         )
-      },
       other => {
          (
             other.to_string(),
@@ -87,13 +79,13 @@ pub fn animated_flag_theme(
    previous_flag: &str,
    transition_started_at: Instant,
 ) -> (String, Style, Style) {
-   let (flag_text, target_bg, target_fg, _) = base_flag_colors(flag);
+   let (flag_text, target_background, target_foreground, _) = base_flag_colors(flag);
    let (_, previous_bg, ..) = base_flag_colors(previous_flag);
 
    let transition_t = (transition_started_at.elapsed().as_millis() as f32 / 450.0).clamp(0.0, 1.0);
-   let bg = lerp_color(previous_bg, target_bg, transition_t);
+   let bg = lerp_color(previous_bg, target_background, transition_t);
 
-   let header_style = Style::default().fg(target_fg).bg(bg);
+   let header_style = Style::default().fg(target_foreground).bg(bg);
    let flag_span_style = header_style.add_modifier(Modifier::BOLD);
 
    (flag_text, flag_span_style, header_style)

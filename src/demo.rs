@@ -18,7 +18,6 @@ use crate::timing::{
    TimingHeader,
 };
 
-#[must_use]
 pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    match series {
       Series::Imsa => (imsa_header(), imsa_entries()),
@@ -29,7 +28,6 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    }
 }
 
-#[must_use]
 pub fn demo_snapshot_at(
    series: Series,
    seed: u64,
@@ -38,8 +36,12 @@ pub fn demo_snapshot_at(
    let (mut header, mut entries) = demo_snapshot(series);
 
    let flag_names = ["Green", "Yellow", "Red", "White", "Checkered"];
-   let flag_idx =
-      ((elapsed_secs / 45) as usize + (seed as usize % flag_names.len())) % flag_names.len();
+   // Safe: flag_names has 5 elements, and usize result is bounded by modulo
+   // arithmetic
+   let flag_idx = usize::try_from((elapsed_secs / 45) % flag_names.len() as u64)
+      .unwrap_or(0)
+      .wrapping_add(usize::try_from(seed % flag_names.len() as u64).unwrap_or(0))
+      % flag_names.len();
    header.flag = flag_names[flag_idx].to_string();
 
    match series {
@@ -72,7 +74,9 @@ pub fn demo_snapshot_at(
          continue;
       }
 
-      let movement = (((elapsed_secs / 8) + seed + idx as u64) % 30) as f32 / 10.0;
+      let movement =
+         (((elapsed_secs / 8) + seed + u64::try_from(idx).unwrap_or(0)) % 30) as f32 / 10.0;
+      // Safe: idx is typically under 100, well within f32 range
       let base = idx as f32 * 2.3;
       let gap = base + movement;
       let gap_text = format!("+{gap:.3}");
@@ -125,8 +129,10 @@ fn apply_demo_pit_state(
 }
 
 fn demo_nls_sector_5_time(lane: u64, elapsed_secs: u64) -> String {
-   let base_secs = 92.0 + ((lane % 17) as f32) * 0.7;
-   let wobble = ((elapsed_secs % 19) as f32) * 0.031;
+   // lane % 17 produces values 0-16, which fits in u16 safely
+   let base_secs = 92.0_f32 + (lane % 17) as f32 * 0.7;
+   // elapsed_secs % 19 produces values 0-18, which fits in u16 safely
+   let wobble = (elapsed_secs % 19) as f32 * 0.031;
    format!("{:.3}", base_secs + wobble)
 }
 

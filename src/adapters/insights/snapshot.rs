@@ -165,5 +165,7 @@ pub(crate) fn restore_snapshot_from_disk<Extra: Clone + Default + DeserializeOwn
 pub(crate) fn now_unix_ms() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map_or(0, |duration| duration.as_millis() as u64)
+      .map_or(0, |duration| {
+         u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+      })
 }

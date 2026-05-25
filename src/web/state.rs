@@ -108,12 +108,10 @@ struct SessionDemoState {
 }
 
 impl WebAppState {
-   #[must_use]
    pub fn new() -> Self {
       Self::with_profile_cookie_secure(false)
    }
 
-   #[must_use]
    pub fn with_profile_cookie_secure(profile_cookie_secure: bool) -> Self {
       let mut snapshots = HashMap::new();
       for series in Series::all() {
@@ -141,12 +139,10 @@ impl WebAppState {
       }
    }
 
-   #[must_use]
    pub fn snapshot_for(&self, series: Series) -> Option<SeriesSnapshot> {
       self.snapshots.read().ok()?.get(&series).cloned()
    }
 
-   #[must_use]
    pub fn snapshot_response_for(&self, series: Series) -> Option<SnapshotResponse> {
       self.snapshot_for(series).map(|snapshot| {
          SnapshotResponse {
@@ -206,7 +202,6 @@ impl WebAppState {
       drop(guard);
    }
 
-   #[must_use]
    pub fn nls_liveticker_response(&self, event_id: Option<&str>) -> NlsLivetickerResponse {
       let Ok(mut guard) = self.nls_liveticker.lock() else {
          return NlsLivetickerResponse::default();
@@ -272,7 +267,6 @@ impl WebAppState {
    }
 
    /// Get the currently tracked NLS event ID
-   #[must_use]
    pub fn nls_event_id(&self) -> Option<String> {
       self.nls_event_id.read().ok()?.clone()
    }
@@ -290,7 +284,6 @@ impl WebAppState {
       }
    }
 
-   #[must_use]
    pub fn demo_state_for_session(&self, session_token: &str) -> DemoStateResponse {
       let now = now_unix_ms();
       let Ok(mut guard) = self.session_demo.write() else {
@@ -314,7 +307,6 @@ impl WebAppState {
       result
    }
 
-   #[must_use]
    pub fn set_demo_for_session(&self, session_token: &str, enabled: bool) -> DemoStateResponse {
       let now = now_unix_ms();
       let Ok(mut guard) = self.session_demo.write() else {
@@ -340,7 +332,6 @@ impl WebAppState {
       result
    }
 
-   #[must_use]
    pub fn demo_snapshot_response_for(
       &self,
       series: Series,
@@ -393,7 +384,6 @@ impl WebAppState {
       }
    }
 
-   #[must_use]
    pub fn open_live_series(&self, series: Series) -> LiveSeriesGuard {
       let controller = self
          .feed_controller
@@ -408,7 +398,6 @@ impl WebAppState {
       LiveSeriesGuard { controller, series }
    }
 
-   #[must_use]
    pub const fn profile_cookie_secure(&self) -> bool {
       self.profile_cookie_secure
    }
@@ -442,7 +431,8 @@ impl WebAppState {
    /// Update preferences for a profile and persist the changes.
    ///
    /// # Errors
-   /// Returns an error if preferences cannot be saved or if the preferences lock is poisoned.
+   /// Returns an error if preferences cannot be saved or if the preferences
+   /// lock is poisoned.
    pub fn update_preferences_for(
       &self,
       profile_id: &str,
@@ -466,7 +456,8 @@ impl WebAppState {
    /// Reset preferences for a profile to defaults.
    ///
    /// # Errors
-   /// Returns an error if preferences cannot be reset or if the preferences lock is poisoned.
+   /// Returns an error if preferences cannot be reset or if the preferences
+   /// lock is poisoned.
    pub fn reset_preferences_for(&self, profile_id: &str) -> Result<Preferences, String> {
       let defaults = reset_preferences(profile_id)?;
       let mut guard = self

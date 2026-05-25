@@ -32,7 +32,6 @@ pub struct Preferences {
    pub selected_series: Series,
 }
 
-#[must_use]
 pub fn load_preferences(profile_id: &str) -> Preferences {
    let Some(path) = preferences_path(profile_id) else {
       return Preferences::default();
@@ -47,7 +46,8 @@ pub fn load_preferences(profile_id: &str) -> Preferences {
 /// Save user preferences for a profile.
 ///
 /// # Errors
-/// Returns an error if the config directory cannot be resolved, created, or written to.
+/// Returns an error if the config directory cannot be resolved, created, or
+/// written to.
 pub fn save_preferences(profile_id: &str, preferences: &Preferences) -> Result<(), String> {
    let Some(path) = preferences_path(profile_id) else {
       return Err("unable to resolve config directory".to_string());

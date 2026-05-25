@@ -323,7 +323,6 @@ fn normalized_notice_text_for_dismissal_key(text: &str) -> String {
             normalized.push(chars[idx]);
             idx += 1;
          }
-         continue;
       }
    }
 
@@ -403,7 +402,9 @@ fn persist_dismissed_notice_keys(
    last_error: &mut Option<String>,
 ) {
    prune_dismissed_notice_keys(dismissed_notice_keys, now_unix_secs());
-   config.dismissed_notice_keys.clone_from(dismissed_notice_keys);
+   config
+      .dismissed_notice_keys
+      .clone_from(dismissed_notice_keys);
    if let Err(err) = save_config(config) {
       *last_error = Some(err);
    }
@@ -561,7 +562,8 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
 /// Run the TUI application with the terminal backend.
 ///
 /// # Errors
-/// Returns an IO error if terminal operations fail or if there are errors initializing the application.
+/// Returns an IO error if terminal operations fail or if there are errors
+/// initializing the application.
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
    let (tx, rx) = mpsc::channel::<TimingMessage>();
    let tick_rate = Duration::from_millis(250);
@@ -1167,9 +1169,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                   selected_row = step_selection(selected_row, current_view_entries.len(), -10);
                },
                KeyCode::Home if !show_help => selected_row = 0,
-                KeyCode::End if !show_help => {
-                   selected_row = current_view_entries.len().saturating_sub(1);
-                },
+               KeyCode::End if !show_help => {
+                  selected_row = current_view_entries.len().saturating_sub(1);
+               },
                KeyCode::Char(' ') if !show_help => {
                   if let Some(entry) = current_view_entries.get(selected_row) {
                      let fav_key = favourite_key(active_series, &entry.stable_id);

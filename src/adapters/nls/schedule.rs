@@ -296,7 +296,7 @@ fn parse_event_name_from_homepage(html: &str) -> Option<String> {
       return None;
    }
 
-   Some(format!("{} - {}", nls_code, race_title))
+   Some(format!("{nls_code} - {race_title}"))
 }
 
 pub(super) fn fetch_homepage_event_name(client: &Client) -> Option<String> {

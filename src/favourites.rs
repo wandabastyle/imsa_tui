@@ -4,12 +4,10 @@ use std::collections::HashSet;
 
 use crate::timing::Series;
 
-#[must_use]
 pub fn favourite_key(series: Series, stable_id: &str) -> String {
    format!("{}|{}", series.as_key_prefix(), stable_id.trim())
 }
 
-#[must_use]
 pub fn normalize_favourite_key(raw: &str) -> Option<String> {
    let (series_raw, stable_raw) = raw.split_once('|')?;
    let series = parse_series_key(series_raw.trim())?;

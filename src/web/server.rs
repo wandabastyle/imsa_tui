@@ -60,11 +60,12 @@ struct AuthRuntimeOptions {
 
 /// Run the web server with the specified run mode.
 ///
-/// Initializes the Axum router with all routes and middleware, binds to the configured address,
-/// and starts the server.
+/// Initializes the Axum router with all routes and middleware, binds to the
+/// configured address, and starts the server.
 ///
 /// # Errors
-/// Returns an error if the server cannot bind to the address or if initialization fails.
+/// Returns an error if the server cannot bind to the address or if
+/// initialization fails.
 pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
    let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
    let bind_port = env::var("PORT")
@@ -221,10 +222,10 @@ fn resolve_static_config(root_dir: PathBuf) -> StaticConfig {
 }
 
 fn resolve_auth_options() -> AuthRuntimeOptions {
-   let cookie_secure = match env::var("WEBUI_COOKIE_SECURE") {
-      Ok(value) => parse_boolish(&value).unwrap_or(false),
-      Err(_) => env_flag("WEBUI_AUTO_FUNNEL", true),
-   };
+   let cookie_secure = env::var("WEBUI_COOKIE_SECURE").map_or_else(
+      |_| env_flag("WEBUI_AUTO_FUNNEL", true),
+      |value| parse_boolish(&value).unwrap_or(false),
+   );
 
    AuthRuntimeOptions { cookie_secure }
 }

@@ -76,6 +76,13 @@ fn now_millis() -> u128 {
       .as_millis()
 }
 
+/// Returns current time as u64 milliseconds since UNIX epoch.
+/// Safe conversion from u128 - timestamps won't exceed u64 range until year 584
+/// billion.
+fn now_unix_ms() -> u64 {
+   u64::try_from(now_millis()).unwrap_or(u64::MAX)
+}
+
 pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
    websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
@@ -109,7 +116,7 @@ pub fn websocket_worker_with_debug(
    'outer: loop {
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_good_snapshot.as_ref() {
-            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
+            persist_snapshot_if_dirty(&mut persist, snapshot, now_unix_ms(), debug_output);
          }
          break;
       }
@@ -169,7 +176,7 @@ pub fn websocket_worker_with_debug(
                   break;
                }
             },
-            _ => continue,
+            _ => {},
          }
       }
 
@@ -202,7 +209,7 @@ pub fn websocket_worker_with_debug(
                      .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                   if should_persist {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
                   }
                   last_good_snapshot = Some(snapshot);
                   let _ = tx.send(TimingMessage::Snapshot {
@@ -222,7 +229,7 @@ pub fn websocket_worker_with_debug(
       loop {
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_good_snapshot.as_ref() {
-               persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
+               persist_snapshot_if_dirty(&mut persist, snapshot, now_unix_ms(), debug_output);
             }
             break 'outer;
          }
@@ -253,7 +260,7 @@ pub fn websocket_worker_with_debug(
 
                if first_real_of_session || materially_changed || session_complete {
                   if first_real_of_session || session_complete {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
                   }
                   let _ = tx.send(TimingMessage::Snapshot {
                      source_id,
@@ -285,7 +292,6 @@ pub fn websocket_worker_with_debug(
                if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
                   break 'outer;
                }
-               continue;
             },
             _ => {},
          }

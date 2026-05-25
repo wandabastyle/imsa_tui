@@ -139,5 +139,7 @@ pub(super) fn meaningful_snapshot_fingerprint(
 }
 
 pub(super) fn now_unix_ms() -> u64 {
-   now_millis() as u64
+   // Safe conversion from u128 - timestamps won't exceed u64 range until year 584
+   // billion.
+   u64::try_from(now_millis()).unwrap_or(u64::MAX)
 }

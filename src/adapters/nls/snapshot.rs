@@ -57,7 +57,7 @@ pub(super) fn persist_snapshot_if_dirty(
    shared_snapshot::persist_snapshot_if_dirty(runtime, snapshot, saved_unix_ms, "NLS", debug);
 }
 
-/// Checks if time_to_go matches near-zero patterns ("00:00:01", "00:00:00",
+/// Checks if `time_to_go` matches near-zero patterns ("00:00:01", "00:00:00",
 /// "0:00", "0:00:00", or "0")
 fn is_near_zero_time_to_go(value: &str) -> bool {
    let trimmed = value.trim();
@@ -65,7 +65,7 @@ fn is_near_zero_time_to_go(value: &str) -> bool {
 }
 
 /// Sanitizes the header for event 50 (24h) race sessions with stale near-zero
-/// time_to_go values. Returns true if sanitization was applied.
+/// `time_to_go` values. Returns true if sanitization was applied.
 fn sanitize_event50_race_header(header: &mut TimingHeader) -> bool {
    // Check if this is event 50 (24h) and a race session
    if header.event_id != "50" || header.session_type_raw != "R" {

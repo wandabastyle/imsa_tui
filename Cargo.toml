@@ -6,6 +6,7 @@ resolver = "2"
 name = "imsa_tui"
 version = "0.7.0"
 edition = "2021"
+description = "A terminal user interface for timing data"
 
 [features]
 default = ["embed-ui"]

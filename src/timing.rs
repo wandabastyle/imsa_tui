@@ -23,12 +23,10 @@ pub enum Series {
 }
 
 impl Series {
-   #[must_use]
    pub const fn all() -> [Self; 5] {
       [Self::Dhlm, Self::F1, Self::Imsa, Self::Nls, Self::Wec]
    }
 
-   #[must_use]
    pub const fn label(self) -> &'static str {
       match self {
          Self::Dhlm => "DHLM",
@@ -39,7 +37,6 @@ impl Series {
       }
    }
 
-   #[must_use]
    pub const fn as_key_prefix(self) -> &'static str {
       match self {
          Self::Dhlm => "dhlm",
@@ -87,7 +84,6 @@ pub struct TimingClassColor {
    pub color: String,
 }
 
-#[must_use]
 pub fn canonicalize_class_name(value: &str) -> String {
    let trimmed = value.trim();
    if trimmed.is_empty() || trimmed == "-" {

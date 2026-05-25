@@ -6,7 +6,8 @@
   - `#[allow(dead_code)]` - Dead code should be removed rather than suppressed
   - `#[allow(clippy::too_many_arguments)]` - Refactor to use context structs instead
   - Any other `#[allow(clippy::...)]` - Fix the underlying issue
-  
+- **No attribute-based overrides**: Do not use attributes like `#[must_use]` to address `must_use_candidate` warnings. Instead, refactor code so return values are naturally consumed, or accept that these are acceptable patterns (constructors, getters, pure functions) where values inherently get used.
+
   If there's a valid reason to keep code that triggers warnings (e.g., for future use or API completeness), add a comment explaining why and fix the root cause (removing dead code, using constants/structs, or refactoring) rather than suppressing warnings.
 
 ## RESPONSES

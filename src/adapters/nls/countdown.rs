@@ -20,6 +20,13 @@ pub(super) fn now_millis() -> u128 {
       .as_millis()
 }
 
+/// Returns current time as u64 milliseconds since UNIX epoch.
+/// Safe conversion from u128 - timestamps won't exceed u64 range until year 584
+/// billion.
+pub(super) fn now_unix_ms() -> u64 {
+   u64::try_from(now_millis()).unwrap_or(u64::MAX)
+}
+
 fn format_duration_ms(ms: u64) -> String {
    let total_secs = ms / 1000;
    let h = total_secs / 3600;
@@ -39,7 +46,7 @@ pub(super) fn current_time_to_end(
       end_time_raw,
       time_state_raw,
       received_at_ms,
-      now_millis() as u64,
+      now_unix_ms(),
    )
 }
 

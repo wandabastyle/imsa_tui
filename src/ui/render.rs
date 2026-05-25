@@ -118,10 +118,10 @@ pub fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
       .constraints([Constraint::Length(4), Constraint::Min(10)])
       .split(size);
 
-   let age = match ctx.last_update {
-      Some(t) => format!("Upd {}s", t.elapsed().as_secs()),
-      None => "Upd -".to_string(),
-   };
+   let age = ctx.last_update.map_or_else(
+      || "Upd -".to_string(),
+      |t| format!("Upd {}s", t.elapsed().as_secs()),
+   );
 
    let tte_text = if ctx.header.time_to_go.is_empty() {
       "-"
@@ -222,7 +222,7 @@ pub fn draw_frame(f: &mut Frame<'_>, ctx: &RenderCtx<'_>) {
    }
 
    if let Some(err) = ctx.last_error {
-      key_hint_spans.push(Span::styled(format!(" | Error: {}", err), header_style));
+      key_hint_spans.push(Span::styled(format!(" | Error: {err}"), header_style));
    }
 
    let status_widget = Paragraph::new(vec![Line::from(header_spans), Line::from(key_hint_spans)])

@@ -23,7 +23,6 @@ pub enum Series {
 }
 
 impl Series {
-   #[must_use]
    pub const fn all() -> [Series; 5] {
       [
          Series::Dhlm,
@@ -34,7 +33,6 @@ impl Series {
       ]
    }
 
-   #[must_use]
    pub const fn as_key_prefix(self) -> &'static str {
       match self {
          Series::Dhlm => "dhlm",
@@ -175,7 +173,6 @@ pub struct SessionStateResponse {
    pub authenticated: bool,
 }
 
-#[must_use]
 pub fn canonicalize_class_name(value: &str) -> String {
    let trimmed = value.trim();
    if trimmed.is_empty() || trimmed == "-" {
@@ -210,7 +207,6 @@ pub fn canonicalize_class_name(value: &str) -> String {
    }
 }
 
-#[must_use]
 pub fn class_display_name(name: &str) -> String {
    canonicalize_class_name(name)
 }

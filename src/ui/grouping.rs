@@ -108,11 +108,9 @@ pub fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
       ViewMode::Grouped => "Grouped".to_string(),
       ViewMode::Favourites => "Favourites".to_string(),
       ViewMode::Class(idx) => {
-         if let Some(name) = group_names.get(idx) {
-            format!("Class {name}")
-         } else {
-            "Class".to_string()
-         }
+         group_names
+            .get(idx)
+            .map_or_else(|| "Class".to_string(), |name| format!("Class {name}"))
       },
    }
 }

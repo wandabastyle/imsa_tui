@@ -64,8 +64,8 @@ const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSON
 const RESULTS_CALLBACK: &str = "jsonpRaceResults";
 const RACE_DATA_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceData_JSONP.json";
 const RACE_DATA_CALLBACK: &str = "jsonpRaceData";
-pub const POLL_INTERVAL: Duration = Duration::from_millis(5000);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
+pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 const WAITING_NEXT_SESSION_STATUS: &str = "Waiting for next session feed";
 
 pub type ImsaDebugOutput = SeriesDebugOutput;
@@ -219,21 +219,21 @@ fn handle_fetched_snapshot(
       &fetched.entries,
    );
    if runtime.last_classification != Some(classification) {
-      let message = match runtime.last_classification {
-         Some(previous) => {
+      let message = runtime.last_classification.map_or_else(
+         || {
+            format!(
+               "IMSA payload classified as {}.",
+               payload_classification_label(classification)
+            )
+         },
+         |previous| {
             format!(
                "IMSA payload classification changed: {} -> {}.",
                payload_classification_label(previous),
                payload_classification_label(classification)
             )
          },
-         None => {
-            format!(
-               "IMSA payload classified as {}.",
-               payload_classification_label(classification)
-            )
-         },
-      };
+      );
       log_debug(&runtime.debug_output, message);
    }
    runtime.last_classification = Some(classification);
@@ -366,8 +366,7 @@ fn race_data_looks_shell_only(race_data_root: &Value) -> bool {
 
 fn value_looks_real(value: &Value) -> bool {
    match value {
-      Value::Null => false,
-      Value::Bool(_) => false,
+      Value::Null | Value::Bool(_) => false,
       Value::Number(number) => {
          number
             .as_i64()
@@ -445,11 +444,11 @@ fn dirty_transition_reason(
       .entries
       .first()
       .map(|entry| entry.stable_id.as_str());
-   let next_leader = next_entries.first().map(|entry| entry.stable_id.as_str());
-   if previous_leader != next_leader {
+   let new_leader = next_entries.first().map(|entry| entry.stable_id.as_str());
+   if previous_leader != new_leader {
       let previous_text = previous_leader.unwrap_or("-");
-      let next_text = next_leader.unwrap_or("-");
-      return format!("leader changed {previous_text} -> {next_text}");
+      let new_text = new_leader.unwrap_or("-");
+      return format!("leader changed {previous_text} -> {new_text}");
    }
 
    if previous.header.flag != next_header.flag {
@@ -469,7 +468,6 @@ fn dirty_transition_reason(
    "classification/timing fields updated".to_string()
 }
 
-#[must_use]
 pub fn normalize_class_name(name: &str) -> String {
    normalize_class_name_impl(name)
 }

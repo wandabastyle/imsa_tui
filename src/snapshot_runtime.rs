@@ -8,7 +8,6 @@ use crate::timing::{
    TimingHeader,
 };
 
-#[must_use]
 pub fn derive_session_identifier(header: &TimingHeader) -> Option<String> {
    let event = header.event_name.trim();
    let session = header.session_name.trim();
@@ -22,7 +21,6 @@ pub fn derive_session_identifier(header: &TimingHeader) -> Option<String> {
    Some(format!("{event}|{session}|{track}").to_ascii_lowercase())
 }
 
-#[must_use]
 pub fn base_snapshot_fingerprint(header: &TimingHeader) -> DefaultHasher {
    let mut hasher = DefaultHasher::new();
    header

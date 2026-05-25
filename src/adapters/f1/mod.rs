@@ -68,7 +68,7 @@ use crate::{
 
 const F1_SERIES_ID: u64 = 370;
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 const F1_SIGNALR_CHANNELS: &[&str; 5] = &["session-info", "participants", "ranks", "gaps", "laps"];
 
 type F1Snapshot = Snapshot;
@@ -309,9 +309,8 @@ fn build_live_snapshot_via_signalr(client: &Client, sid: u64) -> Result<F1Snapsh
             let _ = socket.send(tungstenite::Message::Pong(payload));
             continue;
          },
-         tungstenite::Message::Pong(_) => continue,
+         tungstenite::Message::Pong(_) | tungstenite::Message::Frame(_) => continue,
          tungstenite::Message::Close(_) => break,
-         _ => continue,
       };
 
       for frame in split_signalr_frames(&text) {
@@ -443,7 +442,9 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
          .map_or_else(|| "-".to_string(), normalize_driver_name);
 
       entries.push(TimingEntry {
-         position: row.overall_finished_at.unwrap_or((idx + 1) as u32),
+         position: row
+            .overall_finished_at
+            .unwrap_or_else(|| u32::try_from(idx + 1).unwrap_or(0)),
          car_number: car_number.clone(),
          class_name: "F1".to_string(),
          class_rank: row

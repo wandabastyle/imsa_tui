@@ -109,7 +109,6 @@ struct LoginAttemptState {
 }
 
 impl WebAuthConfig {
-   #[must_use]
    pub fn new(access_code_hash: String, cookie_secure: bool) -> Self {
       Self {
          access_code_hash,
@@ -387,7 +386,6 @@ fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u6
    response
 }
 
-#[must_use]
 pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    if rotate {
       let generated = generate_password(24);
@@ -481,7 +479,6 @@ fn verify_access_code(access_code: &str, access_code_hash: &str) -> Result<bool,
       .is_ok())
 }
 
-#[must_use]
 pub fn stored_auth_path() -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().join("web_auth.toml"))

@@ -69,9 +69,8 @@ pub async fn get_snapshot(
       }
    }
 
-   match state.snapshot_response_for(series) {
-      Some(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
-      None => {
+   state.snapshot_response_for(series).map_or_else(
+      || {
          (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -80,7 +79,8 @@ pub async fn get_snapshot(
          )
             .into_response()
       },
-   }
+      |snapshot| (StatusCode::OK, Json(snapshot)).into_response(),
+   )
 }
 
 pub async fn get_demo_state(State(state): State<WebAppState>, headers: HeaderMap) -> Response {

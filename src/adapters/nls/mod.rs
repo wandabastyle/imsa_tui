@@ -45,6 +45,7 @@ use self::schedule::{
 use self::{
    countdown::{
       now_millis,
+      now_unix_ms,
       refresh_header_time_to_go,
       CountdownState,
    },
@@ -91,8 +92,8 @@ const DEFAULT_NLS_EVENT_ID: &str = "20";
 const N24_EVENT_ID: &str = "50";
 #[cfg(test)]
 const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
-const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
+const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_mins(10);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 
 pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
    websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
@@ -236,13 +237,13 @@ pub fn websocket_worker_with_debug(
       log_series_debug(
          debug_output,
          "NLS",
-         format!("subscribed eventId {}", active_event_id),
+         format!("subscribed eventId {active_event_id}"),
       );
 
       loop {
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_good_live_snapshot.as_ref() {
-               persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
+               persist_snapshot_if_dirty(&mut persist, snapshot, now_unix_ms(), debug_output);
             }
             break 'outer;
          }
@@ -312,7 +313,7 @@ pub fn websocket_worker_with_debug(
                         && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
 
                   if save_now {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
                   }
 
                   last_session_id = session_id;
@@ -378,12 +379,7 @@ pub fn websocket_worker_with_debug(
                            && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
 
                      if save_now {
-                        persist_snapshot(
-                           &mut persist,
-                           &snapshot,
-                           now_millis() as u64,
-                           debug_output,
-                        );
+                        persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
                      }
 
                      last_session_id = session_id;
@@ -416,7 +412,7 @@ pub fn websocket_worker_with_debug(
                   break;
                }
             },
-            Ok(Message::Pong(_)) => {},
+            Ok(Message::Pong(_) | Message::Frame(_)) => {},
             Ok(Message::Close(frame)) => {
                let _ = tx.send(TimingMessage::Error {
                   source_id,
@@ -424,10 +420,7 @@ pub fn websocket_worker_with_debug(
                });
                break;
             },
-            Ok(Message::Frame(_)) => {},
-            Err(err) if is_retriable_timeout(&err) => {
-               continue;
-            },
+            Err(err) if is_retriable_timeout(&err) => {},
             Err(err) => {
                let _ = tx.send(TimingMessage::Error {
                   source_id,
@@ -990,11 +983,11 @@ mod tests {
 
    #[test]
    fn extract_target_date_range_picks_current_year() {
-      let html = r#"
+      let html = r"
             <div>ADAC RAVENOL 24h Nürburgring</div>
             <div>14. &#8211; 17.05.2026</div>
             <div>27. &#8211; 30.05.2027</div>
-        "#;
+        ";
       let lines = html_to_text_lines(html);
 
       let parsed = extract_date_range_for_event_title(&lines, N24_TARGET_EVENT_TITLE, 2027)
@@ -1028,11 +1021,11 @@ mod tests {
 
    #[test]
    fn qualifiers_title_matcher_accepts_common_variant() {
-      let html = r#"
+      let html = r"
             <div>ADAC 24h Qualifiers</div>
             <div>18. &#8211; 19.04.2026</div>
             <div>17. &#8211; 18.04.2027</div>
-        "#;
+        ";
       let lines = html_to_text_lines(html);
 
       let line = lines
@@ -1044,11 +1037,11 @@ mod tests {
 
    #[test]
    fn qualifiers_title_matcher_accepts_nuerburgring_variant() {
-      let html = r#"
+      let html = r"
             <div>ADAC 24h Nürburgring Qualifiers</div>
             <div>17. &#8211; 19.04.2026</div>
             <div>16. &#8211; 18.04.2027</div>
-        "#;
+        ";
       let lines = html_to_text_lines(html);
 
       let line = lines

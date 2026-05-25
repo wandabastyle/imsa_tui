@@ -263,7 +263,7 @@ const fn series_idle_ttl(series: Series) -> Duration {
       // NLS/DHLM websocket reconnect is moderate; keep a bit more cushion.
       Series::Nls | Series::Dhlm => Duration::from_secs(75),
       // F1 SignalR reconnect is heaviest; keep the longest idle window.
-      Series::F1 => Duration::from_secs(120),
+      Series::F1 => Duration::from_mins(2),
       // WEC SignalR reconnect cost is close to NLS.
       Series::Wec => Duration::from_secs(90),
    }

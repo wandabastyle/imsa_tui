@@ -27,7 +27,6 @@ pub struct PersistState {
 }
 
 impl PersistState {
-   #[must_use]
    pub const fn new(path: Option<PathBuf>) -> Self {
       Self {
          path,
@@ -38,21 +37,17 @@ impl PersistState {
    }
 }
 
-#[must_use]
 pub fn data_local_snapshot_path(file_name: &str) -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().join(file_name))
 }
 
-#[must_use]
 pub fn debounce_elapsed(last_save_at: Option<SystemTime>, debounce: Duration) -> bool {
-   match last_save_at {
-      Some(last) => last.elapsed().map_or(true, |elapsed| elapsed >= debounce),
-      None => true,
-   }
+   last_save_at.map_or(true, |last| {
+      last.elapsed().map_or(true, |elapsed| elapsed >= debounce)
+   })
 }
 
-#[must_use]
 pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
    let text = fs::read_to_string(path).ok()?;
    serde_json::from_str::<T>(&text).ok()
@@ -63,7 +58,8 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
 /// Creates parent directories if needed.
 ///
 /// # Errors
-/// Returns an IO error if directory creation or file write fails, or if JSON encoding fails.
+/// Returns an IO error if directory creation or file write fails, or if JSON
+/// encoding fails.
 pub fn write_json_pretty<T: Serialize>(path: &Path, payload: &T) -> io::Result<()> {
    if let Some(parent) = path.parent() {
       fs::create_dir_all(parent)?;

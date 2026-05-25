@@ -62,13 +62,15 @@ pub(crate) fn negotiate(client: &Client) -> Result<NegotiateResponse, String> {
 }
 
 pub(crate) fn websocket_url_from_negotiate(base_url: &str, token: &str) -> String {
-   let ws_base = if let Some(rest) = base_url.strip_prefix("https://") {
-      format!("wss://{rest}")
-   } else if let Some(rest) = base_url.strip_prefix("http://") {
-      format!("ws://{rest}")
-   } else {
-      base_url.to_string()
-   };
+   let ws_base = base_url
+      .strip_prefix("https://")
+      .map(|rest| format!("wss://{rest}"))
+      .or_else(|| {
+         base_url
+            .strip_prefix("http://")
+            .map(|rest| format!("ws://{rest}"))
+      })
+      .unwrap_or_else(|| base_url.to_string());
 
    if ws_base.contains("access_token=") {
       return ws_base;

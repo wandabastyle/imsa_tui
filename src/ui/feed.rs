@@ -84,7 +84,7 @@ pub fn drain_messages(
          TimingMessage::Status { source_id, text } if source_id == active_source_id => {
             *status = text;
          },
-          TimingMessage::Error { source_id, text } if source_id == active_source_id => {
+         TimingMessage::Error { source_id, text } if source_id == active_source_id => {
             *last_error = Some(text);
          },
          TimingMessage::Snapshot {
@@ -100,7 +100,9 @@ pub fn drain_messages(
             }
             if !new_header.session_type_raw.trim().is_empty() && new_header.session_type_raw != "-"
             {
-               header.session_type_raw.clone_from(&new_header.session_type_raw);
+               header
+                  .session_type_raw
+                  .clone_from(&new_header.session_type_raw);
             }
             if new_header.track_name != "-" {
                header.track_name.clone_from(&new_header.track_name);
