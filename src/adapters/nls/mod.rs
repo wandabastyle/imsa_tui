@@ -9,82 +9,25 @@ pub mod snapshot;
 pub mod state;
 pub mod websocket;
 
-#[cfg(test)]
-use self::protocol::{
-    entry_from_value,
-    set_tcp_read_timeout,
-};
-#[cfg(test)]
-use self::schedule::{
-    discover_termine_url_from_homepage_html,
-    extract_date_range_for_event_title,
-    html_to_text_lines,
-    parse_german_date_range,
-    parse_termine_entries,
-    select_active_termine_event_title,
-    title_matches_24h_qualifiers,
-    CalendarDate,
-    TermineScheduleEntry,
-};
-use self::{
-    countdown::{
-        now_millis,
-        now_unix_ms,
-        refresh_header_time_to_go,
-        CountdownState,
-    },
-    protocol::{
-        notices_from_ws_message,
-        parse_ws_message,
-        refresh_active_event_id,
-        should_emit_connected_status_on_update,
-    },
-    schedule::{
-        determine_active_nuerburgring_event_id,
-        fetch_homepage_event_name,
-        fetch_termine_event_name,
-    },
-    snapshot::{
-        derive_session_id,
-        meaningful_snapshot_fingerprint,
-        nls_snapshot_path,
-        persist_snapshot,
-        persist_snapshot_if_dirty,
-        restore_snapshot_from_disk,
-        NlsSnapshot,
-    },
-};
-use crate::{
-    timing::{
-        TimingHeader,
-        TimingMessage,
-    },
-    timing_persist::SeriesDebugOutput,
-};
-
-const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
-const DEFAULT_NLS_EVENT_ID: &str = "20";
-#[cfg(test)]
-const N24_EVENT_ID: &str = "50";
-#[cfg(test)]
-const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
-const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_mins(10);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
+pub use countdown::CountdownState;
 
 // Re-export main entry points
 pub use websocket::{websocket_worker, websocket_worker_with_debug};
 
 #[cfg(test)]
 mod tests {
-   use serde_json::json;
+	use serde_json::json;
+	use std::time::Duration;
 
-   use super::{
-       countdown, derive_session_id, meaningful_snapshot_fingerprint, nls_snapshot_path,
-       notices_from_ws_message, parse_german_date_range, parse_termine_entries,
-       parse_ws_message, refresh_header_time_to_go, refresh_snapshot_if_dirty,
-       restore_snapshot_from_disk, CalendarDate, CountdownState, N24_EVENT_ID, N24_TARGET_EVENT_TITLE,
-       NlsSnapshot, SeriesDebugOutput, TermineScheduleEntry, TimingHeader, TimingMessage,
-   };
+	use crate::adapters::nls::{
+		countdown::{self, refresh_header_time_to_go},
+		protocol::{parse_ws_message, notices_from_ws_message, entry_from_value, set_tcp_read_timeout, should_emit_connected_status_on_update, refresh_active_event_id},
+		schedule::{parse_german_date_range, parse_termine_entries, CalendarDate, TermineScheduleEntry, N24_EVENT_ID, N24_TARGET_EVENT_TITLE, html_to_text_lines, extract_date_range_for_event_title, select_active_termine_event_title, title_matches_24h_qualifiers, discover_termine_url_from_homepage_html, DEFAULT_NLS_EVENT_ID},
+		CountdownState,
+		snapshot::{NlsSnapshot, restore_snapshot_from_disk, persist_snapshot_if_dirty},
+	};
+	use crate::timing::{TimingHeader, TimingMessage};
+	use crate::timing_persist::SeriesDebugOutput;
 
    #[test]
    fn current_time_to_end_at_counts_down_for_relative_mode() {
@@ -258,8 +201,7 @@ mod tests {
          Receiver,
       };
 
-      use snapshot::restore_snapshot_from_disk;
-
+      use crate::adapters::nls::snapshot::restore_snapshot_from_disk;
       use crate::timing_persist::PersistState;
 
       // Create a temporary directory for the test
@@ -367,8 +309,7 @@ mod tests {
          Receiver,
       };
 
-      use snapshot::restore_snapshot_from_disk;
-
+      use crate::adapters::nls::snapshot::restore_snapshot_from_disk;
       use crate::timing_persist::PersistState;
 
       // Create a temporary directory for the test

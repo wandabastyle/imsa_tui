@@ -434,8 +434,13 @@ fn step_selection(current: usize, len: usize, delta: isize) -> usize {
    if len == 0 {
       return 0;
    }
-   let max = (len - 1) as isize;
-   ((current as isize + delta).clamp(0, max)) as usize
+   // Safe: len > 0, so len - 1 fits in isize for reasonable lengths
+   let max = isize::try_from(len - 1).expect("len should fit in isize");
+   // Safe: current is clamped between 0 and max, both non-negative
+   (isize::try_from(current).expect("current should fit in isize") + delta)
+      .clamp(0, max)
+      .try_into()
+      .expect("clamped value should fit in usize")
 }
 
 fn series_log_prefix(series: Series) -> String {

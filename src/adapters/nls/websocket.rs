@@ -10,22 +10,15 @@ use tungstenite::{connect, Message, WebSocket};
 
 use crate::{
     adapters::nls::{
-        protocol::{
-            is_retriable_timeout, notices_from_ws_message, parse_ws_message,
-            refresh_active_event_id, should_emit_connected_status_on_update,
-        },
-        schedule::determine_active_nuerburgring_event_id,
-        snapshot::{
-            derive_session_id, meaningful_snapshot_fingerprint, nls_snapshot_path,
-            persist_snapshot, persist_snapshot_if_dirty, restore_snapshot_from_disk, NlsSnapshot,
-        },
+        protocol::{is_retriable_timeout, notices_from_ws_message, parse_ws_message},
+        snapshot::persist_snapshot_if_dirty,
         state::{
             build_website_client, check_event_id_change, refresh_website_data, update_timing_state,
             NlsWorkerContext,
         },
     },
     adapters::nurburgring_ws,
-    timing::{TimingEntry, TimingHeader, TimingMessage},
+    timing::TimingMessage,
     timing_persist::{log_series_debug, SeriesDebugOutput},
 };
 
@@ -50,7 +43,7 @@ pub fn websocket_worker_with_debug(
     'outer: loop {
         if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = ctx.last_good_live_snapshot.as_ref() {
-                persist_snapshot_if_dirty(&mut ctx.persist, snapshot, now_millis() as u64, debug_output);
+                persist_snapshot_if_dirty(&mut ctx.persist, snapshot, u64::try_from(now_millis()).expect("timestamp should fit in u64"), debug_output);
             }
             break;
         }

@@ -5,17 +5,15 @@ use ratatui::{
 
 use super::{
 	table_builder::{build_rows, build_table_layout},
-	table_widths::TableWidthBaselines,
 };
-use super::table_builder::TableRenderCtx;
 use crate::timing::TimingEntry;
 
 pub fn build_table<'a>(
 	title: impl Into<String>,
 	entries: &'a [TimingEntry],
-	ctx: &TableRenderCtx<'_>,
+	ctx: &super::table_builder::TableRenderCtx<'_>,
 	table_width: u16,
-	baselines: TableWidthBaselines<'_>,
+	baselines: super::table_widths::TableWidthBaselines<'_>,
 ) -> Table<'a> {
 	let layout = build_table_layout(ctx, table_width, entries, baselines);
 
@@ -36,11 +34,5 @@ pub fn build_table<'a>(
 }
 
 // Re-exports
-pub use super::table_utils::{
-	is_highlighted_car_number, marquee_if_needed, normalize_car_number,
-};
-
-pub use super::{
-	table_builder::TableRenderCtx,
-	table_widths::TableWidthBaselines,
-};
+pub use super::table_builder::TableRenderCtx;
+pub use super::table_widths::TableWidthBaselines;

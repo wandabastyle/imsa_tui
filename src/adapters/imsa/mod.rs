@@ -468,6 +468,7 @@ fn dirty_transition_reason(
    "classification/timing fields updated".to_string()
 }
 
+#[must_use]
 pub fn normalize_class_name(name: &str) -> String {
    normalize_class_name_impl(name)
 }

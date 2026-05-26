@@ -205,11 +205,11 @@ pub fn messages_popup(
    ));
    lines.push(Line::from("Esc or m close"));
 
-   Paragraph::new(lines)
-      .alignment(Alignment::Left)
-      .wrap(Wrap { trim: false })
-      .scroll((scroll as u16, 0))
-      .block(Block::default().title("Messages").borders(Borders::ALL))
+    Paragraph::new(lines)
+       .alignment(Alignment::Left)
+       .wrap(Wrap { trim: false })
+       .scroll((u16::try_from(scroll).expect("scroll should fit in u16"), 0))
+       .block(Block::default().title("Messages").borders(Borders::ALL))
 }
 
 pub fn series_picker_popup(active_series: Series, selected_idx: usize) -> Paragraph<'static> {
@@ -339,15 +339,15 @@ pub fn nls_liveticker_popup(
       "↑/↓ scroll | PgUp/PgDn fast scroll | Home/End jump | Esc or l close",
    ));
 
-   Paragraph::new(lines)
-      .alignment(Alignment::Left)
-      .wrap(Wrap { trim: false })
-      .scroll((scroll as u16, 0))
-      .block(
-         Block::default()
-            .title("NLS Liveticker")
-            .borders(Borders::ALL),
-      )
+    Paragraph::new(lines)
+       .alignment(Alignment::Left)
+       .wrap(Wrap { trim: false })
+       .scroll((u16::try_from(scroll).expect("scroll should fit in u16"), 0))
+       .block(
+          Block::default()
+             .title("NLS Liveticker")
+             .borders(Borders::ALL),
+       )
 }
 
 pub fn liveticker_line_count(entries: &[LivetickerEntry], has_error: bool) -> usize {

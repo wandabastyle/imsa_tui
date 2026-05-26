@@ -19,17 +19,17 @@ use crate::{
    },
 };
 
-pub(super) type NlsSnapshot = shared_snapshot::Snapshot;
+pub(crate) type NlsSnapshot = shared_snapshot::Snapshot;
 
-pub(super) fn derive_session_id(header: &TimingHeader) -> Option<String> {
+pub(crate) fn derive_session_id(header: &TimingHeader) -> Option<String> {
    derive_session_identifier(header)
 }
 
-pub(super) fn nls_snapshot_path() -> Option<std::path::PathBuf> {
+pub(crate) fn nls_snapshot_path() -> Option<std::path::PathBuf> {
    shared_snapshot::snapshot_path("nls_snapshot.json")
 }
 
-pub(super) fn meaningful_snapshot_fingerprint(
+pub(crate) fn meaningful_snapshot_fingerprint(
    header: &TimingHeader,
    entries: &[TimingEntry],
 ) -> u64 {
@@ -39,7 +39,7 @@ pub(super) fn meaningful_snapshot_fingerprint(
    })
 }
 
-pub(super) fn persist_snapshot(
+pub(crate) fn persist_snapshot(
    runtime: &mut PersistState,
    snapshot: &NlsSnapshot,
    saved_unix_ms: u64,
@@ -48,7 +48,7 @@ pub(super) fn persist_snapshot(
    shared_snapshot::persist_snapshot(runtime, snapshot, saved_unix_ms, "NLS", debug);
 }
 
-pub(super) fn persist_snapshot_if_dirty(
+pub(crate) fn persist_snapshot_if_dirty(
    runtime: &mut PersistState,
    snapshot: &NlsSnapshot,
    saved_unix_ms: u64,
@@ -88,7 +88,7 @@ fn sanitize_event50_race_header(header: &mut TimingHeader) -> bool {
    true
 }
 
-pub(super) fn restore_snapshot_from_disk(
+pub(crate) fn restore_snapshot_from_disk(
    runtime: &mut PersistState,
    header: &mut TimingHeader,
    entries: &mut Vec<TimingEntry>,

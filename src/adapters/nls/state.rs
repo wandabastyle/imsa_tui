@@ -7,16 +7,16 @@ use std::{
 
 use crate::{
     adapters::nls::{
-        countdown::{now_millis, now_unix_ms, refresh_header_time_to_go, CountdownState},
+        countdown::{now_unix_ms, refresh_header_time_to_go, CountdownState},
         protocol::{refresh_active_event_id, should_emit_connected_status_on_update},
         schedule::determine_active_nuerburgring_event_id,
         snapshot::{
             derive_session_id, meaningful_snapshot_fingerprint, nls_snapshot_path,
-            persist_snapshot, persist_snapshot_if_dirty, restore_snapshot_from_disk, NlsSnapshot,
+            persist_snapshot, restore_snapshot_from_disk, NlsSnapshot,
         },
     },
     timing::{TimingEntry, TimingHeader, TimingMessage},
-    timing_persist::{debounce_elapsed, log_series_debug, PersistState, SeriesDebugOutput},
+    timing_persist::{debounce_elapsed, PersistState, SeriesDebugOutput},
 };
 
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
@@ -38,6 +38,7 @@ pub struct NlsWorkerContext {
 }
 
 impl NlsWorkerContext {
+    #[must_use]
     pub fn new(
         tx: &Sender<TimingMessage>,
         source_id: u64,
@@ -226,6 +227,7 @@ pub fn update_timing_state(
 }
 
 /// Build HTTP client for website data fetching.
+#[must_use]
 pub fn build_website_client() -> Option<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))

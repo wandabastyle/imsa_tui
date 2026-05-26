@@ -657,7 +657,7 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
          .and_then(|item| item.manufacturer.clone())
          .unwrap_or_else(|| "-".to_string());
 
-      let position = row.overall_finished_at.unwrap_or((idx + 1) as u32);
+      let position = row.overall_finished_at.unwrap_or(u32::try_from(idx + 1).expect("position should fit in u32"));
       let class_rank = row
          .finished_at
          .map_or_else(|| "-".to_string(), |rank| rank.to_string());
@@ -1056,14 +1056,16 @@ fn apply_session_clock(state: &mut WecLiveState, payload: &Value) -> bool {
       &mut state.header.day_time,
       map_str(map, "tsNow").map(|raw| compact_iso_timestamp(&raw)),
    );
-   if let Some(ms) = map_i64(map, "elapsedTimeMillisNow") {
-      if ms >= 0 {
-         changed |= set_header_text(
-            &mut state.header.time_to_go,
-            Some(format_clock_ms(ms as u64)),
-         );
-      }
-   }
+    if let Some(ms) = map_i64(map, "elapsedTimeMillisNow") {
+        if ms >= 0 {
+            #[expect(clippy::cast_sign_loss)]
+            let ms_u64 = ms as u64;
+            changed |= set_header_text(
+               &mut state.header.time_to_go,
+               Some(format_clock_ms(ms_u64)),
+            );
+         }
+    }
    changed
 }
 
@@ -1235,11 +1237,12 @@ fn snapshot_from_live_state(state: &WecLiveState) -> Option<(TimingHeader, Vec<T
       .map(|row| row_to_timing_entry(state, row))
       .collect();
    entries.sort_by_key(|entry| (entry.position, entry.car_number.clone()));
-   for (idx, entry) in entries.iter_mut().enumerate() {
-      if entry.position == 0 {
-         entry.position = (idx + 1) as u32;
-      }
-   }
+    for (idx, entry) in entries.iter_mut().enumerate() {
+       if entry.position == 0 {
+          // Safe: idx represents a position which should reasonably fit in u32
+          entry.position = u32::try_from(idx + 1).expect("position should fit in u32");
+       }
+    }
    if entries.is_empty() {
       return None;
    }
@@ -1414,6 +1417,8 @@ fn format_lap_time_ms(ms: i64) -> String {
    if ms <= 0 {
       return "-".to_string();
    }
+   // Safe: ms is checked to be > 0 above
+   #[allow(clippy::cast_sign_loss)]
    let total_ms = ms as u64;
    let minutes = total_ms / 60_000;
    let seconds = (total_ms % 60_000) / 1000;
@@ -1425,6 +1430,8 @@ fn format_sector_time_ms(ms: i64) -> String {
    if ms <= 0 {
       return "-".to_string();
    }
+   // Safe: ms is checked to be > 0 above
+   #[allow(clippy::cast_sign_loss)]
    let total_ms = ms as u64;
    if total_ms >= 60_000 {
       let minutes = total_ms / 60_000;

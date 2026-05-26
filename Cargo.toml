@@ -7,6 +7,10 @@ name = "imsa_tui"
 version = "0.7.0"
 edition = "2021"
 description = "A terminal user interface for timing data"
+license = "MIT"
+repository = "https://github.com/yourusername/imsa_tui"
+keywords = ["timing", "racing", "motorsport", "tui"]
+categories = ["command-line-utilities"]
 
 [features]
 default = ["embed-ui"]

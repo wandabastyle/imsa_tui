@@ -6,14 +6,14 @@ use std::time::{
 use crate::timing::TimingHeader;
 
 #[derive(Debug, Clone)]
-pub(super) struct CountdownState {
-   pub(super) end_time_raw:    u64,
-   pub(super) time_state_raw:  String,
-   pub(super) received_at_ms:  u64,
-   pub(super) is_race_session: bool,
+pub struct CountdownState {
+	pub end_time_raw:    u64,
+	pub time_state_raw:  String,
+	pub received_at_ms:  u64,
+	pub is_race_session: bool,
 }
 
-pub(super) fn now_millis() -> u128 {
+pub(crate) fn now_millis() -> u128 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .expect("system time before unix epoch")
@@ -23,7 +23,7 @@ pub(super) fn now_millis() -> u128 {
 /// Returns current time as u64 milliseconds since UNIX epoch.
 /// Safe conversion from u128 - timestamps won't exceed u64 range until year 584
 /// billion.
-pub(super) fn now_unix_ms() -> u64 {
+pub(crate) fn now_unix_ms() -> u64 {
    u64::try_from(now_millis()).unwrap_or(u64::MAX)
 }
 
@@ -35,7 +35,7 @@ fn format_duration_ms(ms: u64) -> String {
    format!("{h:02}:{m:02}:{s:02}")
 }
 
-pub(super) fn current_time_to_end(
+pub(crate) fn current_time_to_end(
    header: &TimingHeader,
    end_time_raw: u64,
    time_state_raw: &str,
@@ -50,7 +50,7 @@ pub(super) fn current_time_to_end(
    )
 }
 
-pub(super) fn current_time_to_end_at(
+pub(crate) fn current_time_to_end_at(
    _header: &TimingHeader,
    end_time_raw: u64,
    time_state_raw: &str,
@@ -71,7 +71,7 @@ pub(super) fn current_time_to_end_at(
    format_duration_ms(remaining_ms)
 }
 
-pub(super) fn refresh_header_time_to_go(
+pub(crate) fn refresh_header_time_to_go(
    header: &mut TimingHeader,
    countdown: Option<&CountdownState>,
 ) {
@@ -101,7 +101,7 @@ fn is_unknown_time_to_go(value: &str) -> bool {
    trimmed.is_empty() || trimmed == "-"
 }
 
-pub(super) fn should_promote_to_checkered_with_inputs(
+pub(crate) fn should_promote_to_checkered_with_inputs(
    flag: &str,
    time_to_go: &str,
    is_race_session: bool,
@@ -115,6 +115,6 @@ pub(super) fn should_promote_to_checkered_with_inputs(
    (is_zero_time_to_go(time_to_go) || is_unknown_time_to_go(time_to_go)) && is_race_session
 }
 
-pub(super) fn should_promote_to_checkered(header: &TimingHeader, is_race_session: bool) -> bool {
+pub(crate) fn should_promote_to_checkered(header: &TimingHeader, is_race_session: bool) -> bool {
    should_promote_to_checkered_with_inputs(&header.flag, &header.time_to_go, is_race_session)
 }

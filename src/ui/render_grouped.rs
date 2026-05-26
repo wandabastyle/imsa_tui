@@ -4,12 +4,11 @@ use ratatui::{
     Frame,
 };
 
-use super::{
-    render_utils::visible_slice,
-    table::{build_table, TableRenderCtx, TableWidthBaselines},
-    RenderCtx,
-};
 use crate::timing::TimingEntry;
+use crate::ui::{
+    render::RenderCtx,
+    table::{build_table, TableRenderCtx},
+};
 
 pub fn render_grouped(
     f: &mut Frame<'_>,
@@ -88,13 +87,19 @@ fn create_group_layout(
     let constraints: Vec<Constraint> = visible_groups
         .iter()
         .map(|(_, entries)| {
+            // Safe: entry counts are small enough for f64 precision
+            #[expect(clippy::cast_precision_loss)]
             let ratio = if total_cars > 0 {
-                entries.len() as f64 / total_cars as f64
+                (entries.len() as f64) / (total_cars as f64)
             } else {
-                1.0 / visible_groups.len() as f64
+                1.0 / (visible_groups.len() as f64)
             };
-            let min_rows = minimum_rows_per_group.clamp(3, entries.len() as u16);
-            let target_rows = (ratio * area.height as f64).round() as u16;
+            let min_rows = minimum_rows_per_group.clamp(3, u16::try_from(entries.len()).unwrap_or(u16::MAX));
+            // Safe: height is typically within u16 range for terminal
+            // Safe: ratio is between 0 and 1, and area.height is bounded
+            #[expect(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_sign_loss)]
+            let target_rows = (ratio * (area.height as f64)).round() as u16;
             Constraint::Length(target_rows.clamp(min_rows, area.height))
         })
         .collect();
@@ -103,6 +108,7 @@ fn create_group_layout(
         .direction(Direction::Vertical)
         .constraints(constraints)
         .split(area)
+        .to_vec()
 }
 
 fn calculate_global_offset(

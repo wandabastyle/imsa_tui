@@ -4,12 +4,12 @@ use ratatui::{
     Frame,
 };
 
-use super::{
-    render_utils::visible_slice,
-    table::{build_table, TableRenderCtx, TableWidthBaselines},
-    RenderCtx,
-};
 use crate::timing::TimingEntry;
+use crate::ui::{
+    render::RenderCtx,
+    render_utils::visible_slice,
+    table::{build_table, TableRenderCtx},
+};
 
 pub fn render_overall(
     f: &mut Frame<'_>,

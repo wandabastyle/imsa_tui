@@ -60,11 +60,14 @@ impl ImsaColumnWidths {
          return None;
       }
 
-      let pos = entries
-         .iter()
-         .map(|entry| entry.position.to_string().chars().count())
-         .max()
-         .unwrap_or(1) as u16;
+      let pos = u16::try_from(
+         entries
+            .iter()
+            .map(|entry| entry.position.to_string().chars().count())
+            .max()
+            .unwrap_or(1),
+      )
+      .expect("position char count should fit in u16");
 
       Some(Self {
          pos,
@@ -199,7 +202,8 @@ pub fn calculate_imsa_widths(
 
    let mut widths = target.to_array();
    let minimums = ImsaColumnWidths::header_minimums().to_array();
-   let gutters = (IMSA_COLUMN_COUNT.saturating_sub(1)) as u16;
+   let gutters = u16::try_from(IMSA_COLUMN_COUNT.saturating_sub(1))
+      .expect("gutters should fit in u16");
    let available_width = terminal_width.saturating_sub(gutters);
    let total_width: u16 = widths.iter().sum();
 

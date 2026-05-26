@@ -90,26 +90,34 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
          1 => {
             let secs = parts[0].parse::<f64>().ok()?;
             // Safe: secs * 100.0 produces centisecs, well within u64 range for valid times
-            Some((secs * 100.0).round() as u64)
+            #[expect(clippy::cast_possible_truncation)]
+            Some(u64::try_from((secs * 100.0).round() as i64).expect("centisecs fits in u64"))
          },
          2 => {
             let mins: u64 = parts[0].parse().ok()?;
             let secs: f64 = parts[1].parse().ok()?;
-            Some(mins * 6000 + (secs * 100.0).round() as u64)
+            #[expect(clippy::cast_possible_truncation)]
+            let centis = (secs * 100.0).round() as i64;
+            Some(mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
          },
          3 => {
             let hours: u64 = parts[0].parse().ok()?;
             let mins: u64 = parts[1].parse().ok()?;
             let secs: f64 = parts[2].parse().ok()?;
-            Some(hours * 360_000 + mins * 6000 + (secs * 100.0).round() as u64)
+            #[expect(clippy::cast_possible_truncation)]
+            let centis = (secs * 100.0).round() as i64;
+            Some(hours * 360_000 + mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
          },
          _ => None,
       }
    }
 
+   #[expect(clippy::cast_precision_loss)]
    fn format_centisecs(cs: u64) -> String {
       let hours = cs / 360_000;
       let mins = (cs % 360_000) / 6000;
+      // Safe: cs % 6000 is at most 5999, well within f64 precision
+      #[expect(clippy::cast_precision_loss)]
       let secs = (cs % 6000) as f64 / 100.0;
       if hours > 0 {
          format!("{hours}:{mins:02}:{secs:05.2}")
@@ -175,6 +183,7 @@ fn pit_flag_from_inout_state(inout_state: &str) -> String {
    "-".to_string()
 }
 
+#[must_use]
 pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
    let car_number = parse_u32_field(v, "STNR")?.to_string();
    let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
@@ -288,7 +297,7 @@ fn session_text(raw: &str) -> String {
    }
 }
 
-pub(super) fn parse_ws_message(
+pub(crate) fn parse_ws_message(
    text: &str,
    header: &mut TimingHeader,
    termine_event_name: Option<&str>,
@@ -399,14 +408,14 @@ pub fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration)
    let _ = stream.set_read_timeout(Some(timeout));
 }
 
-pub(super) const fn should_emit_connected_status_on_update(
+pub(crate) const fn should_emit_connected_status_on_update(
    header_changed: bool,
    connected_status_already_sent: bool,
 ) -> bool {
    !header_changed && !connected_status_already_sent
 }
 
-pub(super) fn refresh_active_event_id(
+pub(crate) fn refresh_active_event_id(
 	active_event_id: &mut String,
 	refresh_result: Result<&str, String>,
 ) -> Option<String> {
@@ -428,7 +437,7 @@ pub(super) fn refresh_active_event_id(
 	}
 }
 
-pub(super) fn is_retriable_timeout(err: &WsError) -> bool {
+pub(crate) fn is_retriable_timeout(err: &WsError) -> bool {
    matches!(
        err,
        WsError::Io(io_err)

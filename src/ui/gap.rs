@@ -48,6 +48,8 @@ fn anchor_gap_value(anchor: &GapAnchorInfo, column: GapColumn) -> &str {
    }
 }
 
+#[expect(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_precision_loss)]
 fn parse_best_lap_time(raw: &str) -> Option<i64> {
    let trimmed = raw.trim();
    if trimmed.is_empty() || trimmed == "-" {
@@ -60,12 +62,18 @@ fn parse_best_lap_time(raw: &str) -> Option<i64> {
       return None;
    }
    let normalized = trimmed.replace(',', ".");
+   #[expect(clippy::cast_possible_truncation)]
+   #[expect(clippy::cast_precision_loss)]
    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
       let secs = right.parse::<f64>().ok()?;
       let mins = left.parse::<u64>().ok()?;
-      ((mins as f64 * 60.0 + secs) * 1000.0).round() as i64
+      // Safe: calculation produces milliseconds for reasonable lap times
+      // u64 to f64 is safe here as lap times are small values
+      i64::try_from(((mins as f64 * 60.0 + secs) * 1000.0).round() as i128)
+         .ok()?
    } else {
-      (normalized.parse::<f64>().ok()? * 1000.0).round() as i64
+      i64::try_from((normalized.parse::<f64>().ok()? * 1000.0).round() as i128)
+         .ok()?
    };
    Some(total_ms)
 }
@@ -92,6 +100,7 @@ fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool
    true
 }
 
+#[expect(clippy::cast_possible_truncation)]
 fn parse_gap_value(raw: &str) -> Option<GapValue> {
    let trimmed = raw.trim();
    if trimmed.is_empty()
@@ -121,20 +130,28 @@ fn parse_gap_value(raw: &str) -> Option<GapValue> {
       return None;
    }
 
+   #[expect(clippy::cast_possible_truncation)]
    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
       let secs = right.parse::<f64>().ok()?;
       let mins = left.parse::<u64>().ok()?;
-      ((mins as f64 * 60.0 + secs) * 1000.0).round() as i64
+      // Safe: calculation produces milliseconds for reasonable gap times
+      // Safe: mins are small for typical gap times
+      #[expect(clippy::cast_precision_loss)]
+      let calc = ((mins as f64 * 60.0 + secs) * 1000.0).round() as i128;
+      i64::try_from(calc).ok()?
    } else {
-      (normalized.parse::<f64>().ok()? * 1000.0).round() as i64
+      i64::try_from((normalized.parse::<f64>().ok()? * 1000.0).round() as i128)
+         .ok()?
    };
    Some(GapValue::TimeMs(total_ms))
 }
 
+#[expect(clippy::cast_precision_loss)]
 fn format_time_delta(ms: i64) -> String {
    let sign = if ms >= 0 { '+' } else { '-' };
    let abs_ms = ms.unsigned_abs();
    let minutes = abs_ms / 60_000;
+   // Safe: abs_ms % 60_000 is at most 59999, well within f64 precision
    let secs = (abs_ms % 60_000) as f64 / 1000.0;
    if minutes > 0 {
       format!("{sign}{minutes}:{secs:06.3}")

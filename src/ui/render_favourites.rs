@@ -4,14 +4,13 @@ use ratatui::{
     Frame,
 };
 
-use super::{
-    render_utils::visible_slice,
-    table::{build_table, TableRenderCtx, TableWidthBaselines},
-    RenderCtx,
-};
 use crate::{
     favourites,
-    timing::{Series, TimingEntry},
+    timing::TimingEntry,
+    ui::{
+        render::RenderCtx,
+        table::{build_table, TableRenderCtx},
+    },
 };
 
 pub fn render_favourites(

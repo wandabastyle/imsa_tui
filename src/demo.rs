@@ -18,6 +18,7 @@ use crate::timing::{
    TimingHeader,
 };
 
+#[must_use]
 pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    match series {
       Series::Imsa => (imsa_header(), imsa_entries()),
@@ -28,10 +29,11 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    }
 }
 
+#[must_use]
 pub fn demo_snapshot_at(
-   series: Series,
-   seed: u64,
-   elapsed_secs: u64,
+	series: Series,
+	seed: u64,
+	elapsed_secs: u64,
 ) -> (TimingHeader, Vec<TimingEntry>) {
    let (mut header, mut entries) = demo_snapshot(series);
 
@@ -107,10 +109,12 @@ fn update_demo_entry_gaps(entry: &mut TimingEntry, elapsed_secs: u64, seed: u64,
       return;
    }
 
-   let movement =
-      (((elapsed_secs / 8) + seed + u64::try_from(idx).unwrap_or(0)) % 30) as f32 / 10.0;
    // Safe: idx is typically under 100, well within f32 range
-   let base = idx as f32 * 2.3;
+    #[expect(clippy::cast_precision_loss)]
+    let movement =
+       (((elapsed_secs / 8) + seed + u64::try_from(idx).unwrap_or(0)) % 30) as f32 / 10.0;
+    #[expect(clippy::cast_precision_loss)]
+    let base = idx as f32 * 2.3;
    let gap = base + movement;
    let gap_text = format!("+{gap:.3}");
    entry.gap_overall = gap_text.clone();
@@ -158,10 +162,13 @@ fn apply_demo_pit_state(
    }
 }
 
+#[expect(clippy::cast_precision_loss)]
 fn demo_nls_sector_5_time(lane: u64, elapsed_secs: u64) -> String {
-   // lane % 17 produces values 0-16, which fits in u16 safely
+   // lane % 17 produces values 0-16, well within f32 precision
+   #[expect(clippy::cast_precision_loss)]
    let base_secs = 92.0_f32 + (lane % 17) as f32 * 0.7;
-   // elapsed_secs % 19 produces values 0-18, which fits in u16 safely
+   // elapsed_secs % 19 produces values 0-18, well within f32 precision
+   #[expect(clippy::cast_precision_loss)]
    let wobble = (elapsed_secs % 19) as f32 * 0.031;
    format!("{:.3}", base_secs + wobble)
 }

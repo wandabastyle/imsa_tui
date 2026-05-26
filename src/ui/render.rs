@@ -67,7 +67,6 @@ use super::{
 };
 use crate::{
     adapters::nls::liveticker::LivetickerEntry,
-    favourites,
     timing::{
         Series,
         TimingEntry,

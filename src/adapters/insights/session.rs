@@ -422,10 +422,13 @@ const fn epoch_seconds_to_yyyymmdd(epoch_seconds: i64) -> i32 {
    year * 10000 + month * 100 + day
 }
 
+// Date calculation constants are bounded and mathematically safe
+#[expect(clippy::cast_possible_truncation)]
 const fn yyyymmdd_to_epoch_days(value: i32) -> i32 {
    let year = value / 10_000;
    let month = (value / 100) % 100;
    let day = value % 100;
+   // Safe: dates are within reasonable range (-146097 to +146097 days)
    days_from_civil(year, month, day) as i32
 }
 
@@ -440,6 +443,9 @@ const fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
    let d = doy - (153 * mp + 2) / 5 + 1;
    let m = mp + if mp < 10 { 3 } else { -9 };
    let year = y + if m <= 2 { 1 } else { 0 };
+   // Safe: m is always in range 1-12 and d in 1-31 from this algorithm
+   // Safe: year is bounded by the algorithm to reasonable values
+   #[expect(clippy::cast_possible_truncation)]
    (year as i32, m as i32, d as i32)
 }
 

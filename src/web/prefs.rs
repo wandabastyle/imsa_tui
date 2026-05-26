@@ -32,6 +32,7 @@ pub struct Preferences {
    pub selected_series: Series,
 }
 
+#[must_use]
 pub fn load_preferences(profile_id: &str) -> Preferences {
    let Some(path) = preferences_path(profile_id) else {
       return Preferences::default();

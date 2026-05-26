@@ -54,6 +54,7 @@ pub struct ActiveLivetickerFeed {
    pub rx:   Receiver<LivetickerWorkerMessage>,
 }
 
+#[must_use]
 pub fn start_liveticker_feed(kind: LivetickerFeedKind) -> ActiveLivetickerFeed {
    let (stop_tx, stop_rx) = mpsc::channel::<()>();
    let (tx, rx) = mpsc::channel::<LivetickerWorkerMessage>();
@@ -149,6 +150,7 @@ fn fetch_liveticker_entries(client: &Client, url: &str) -> Result<Vec<Liveticker
    Ok(parse_liveticker_entries(&body))
 }
 
+#[must_use]
 pub fn parse_liveticker_entries(raw: &str) -> Vec<LivetickerEntry> {
    let mut lines = extract_lines_from_table(raw);
    if lines.is_empty() {
