@@ -98,8 +98,12 @@ Agents and subagents must read lint/typecheck output completely before making an
 - No eslint config file (like `.eslintrc.js` or `eslint.config.js`)
 
 **Rust lint rules:** From `[lints.clippy]` section in `Cargo.toml`
-- `all`, `cargo`, `nursery`, `pedantic` = `warn`
-- `multiple_crate_versions` = `allow` (transitive deps ecosystem issue)
+- `all`, `cargo`, `pedantic` = `warn`
+- `nursery` = `allow` (too noisy/low-value for this application)
+- `multiple_crate_versions` = `allow` (transitive dependencies ecosystem noise)
+- `must_use_candidate` = `warn`
+- `return_self_not_must_use` = `warn`
+- `too_many_lines`, `missing_panics_doc`, `module_name_repetitions`, `similar_names` = `allow`
 - Run with: `cargo clippy --all-targets --no-default-features -- -D warnings`
 
 ## SKILLS
