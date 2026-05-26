@@ -84,49 +84,46 @@ fn sum_sector_times(time1: &str, time2: &str) -> String {
       return "-".to_string();
    }
 
-   fn parse_time_to_centisecs(s: &str) -> Option<u64> {
-      let parts: Vec<&str> = s.split(':').collect();
-      match parts.len() {
-         1 => {
-            let secs = parts[0].parse::<f64>().ok()?;
-            // Safe: secs * 100.0 produces centisecs, well within u64 range for valid times
-            #[expect(clippy::cast_possible_truncation)]
-            Some(u64::try_from((secs * 100.0).round() as i64).expect("centisecs fits in u64"))
-         },
-         2 => {
-            let mins: u64 = parts[0].parse().ok()?;
-            let secs: f64 = parts[1].parse().ok()?;
-            #[expect(clippy::cast_possible_truncation)]
-            let centis = (secs * 100.0).round() as i64;
-            Some(mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
-         },
-         3 => {
-            let hours: u64 = parts[0].parse().ok()?;
-            let mins: u64 = parts[1].parse().ok()?;
-            let secs: f64 = parts[2].parse().ok()?;
-            #[expect(clippy::cast_possible_truncation)]
-            let centis = (secs * 100.0).round() as i64;
-            Some(hours * 360_000 + mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
-         },
-         _ => None,
-      }
-   }
+    fn parse_time_to_centisecs(s: &str) -> Option<u64> {
+       let parts: Vec<&str> = s.split(':').collect();
+       match parts.len() {
+          1 => {
+             let secs = parts[0].parse::<f64>().ok()?;
+             // Safe: secs * 100.0 produces centisecs, well within u64 range for valid times (< 24h)
+             let centis = (secs * 100.0).round() as i64;
+             Some(u64::try_from(centis).expect("centisecs fits in u64"))
+          },
+          2 => {
+             let mins: u64 = parts[0].parse().ok()?;
+             let secs: f64 = parts[1].parse().ok()?;
+             let centis = (secs * 100.0).round() as i64;
+             Some(mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
+          },
+          3 => {
+             let hours: u64 = parts[0].parse().ok()?;
+             let mins: u64 = parts[1].parse().ok()?;
+             let secs: f64 = parts[2].parse().ok()?;
+             let centis = (secs * 100.0).round() as i64;
+             Some(hours * 360_000 + mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
+          },
+          _ => None,
+       }
+    }
 
-   #[expect(clippy::cast_precision_loss)]
-   fn format_centisecs(cs: u64) -> String {
-      let hours = cs / 360_000;
-      let mins = (cs % 360_000) / 6000;
-      // Safe: cs % 6000 is at most 5999, well within f64 precision
-      #[expect(clippy::cast_precision_loss)]
-      let secs = (cs % 6000) as f64 / 100.0;
-      if hours > 0 {
-         format!("{hours}:{mins:02}:{secs:05.2}")
-      } else if mins > 0 {
-         format!("{mins}:{secs:05.2}")
-      } else {
-         format!("{secs:05.2}")
-      }
-   }
+    fn format_centisecs(cs: u64) -> String {
+       let hours = cs / 360_000;
+       let mins = (cs % 360_000) / 6000;
+       // Safe: cs % 6000 is at most 5999, well within f64 precision for centisecond display
+       let secs_remainder = u32::try_from(cs % 6000).unwrap_or(5999);
+       let secs = f64::from(secs_remainder) / 100.0;
+       if hours > 0 {
+          format!("{hours}:{mins:02}:{secs:05.2}")
+       } else if mins > 0 {
+          format!("{mins}:{secs:05.2}")
+       } else {
+          format!("{secs:05.2}")
+       }
+    }
 
    let Some(t1) = parse_time_to_centisecs(time1) else {
       return time1.to_string();

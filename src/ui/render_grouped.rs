@@ -87,19 +87,18 @@ fn create_group_layout(
     let constraints: Vec<Constraint> = visible_groups
         .iter()
         .map(|(_, entries)| {
-            // Safe: entry counts are small enough for f64 precision
-            #[expect(clippy::cast_precision_loss)]
+            // Safe: entry counts are small enough for f64 precision (car counts are typically < 100)
             let ratio = if total_cars > 0 {
                 (entries.len() as f64) / (total_cars as f64)
             } else {
                 1.0 / (visible_groups.len() as f64)
             };
             let min_rows = minimum_rows_per_group.clamp(3, u16::try_from(entries.len()).unwrap_or(u16::MAX));
-            // Safe: height is typically within u16 range for terminal
-            // Safe: ratio is between 0 and 1, and area.height is bounded
-            #[expect(clippy::cast_possible_truncation)]
-            #[expect(clippy::cast_sign_loss)]
-            let target_rows = (ratio * (area.height as f64)).round() as u16;
+            // Safe: height is typically within u16 range for terminal (ratatui uses u16)
+            // Safe: ratio is between 0 and 1, and area.height is bounded by u16::MAX
+            let target_rows = u16::try_from(
+                (ratio * f64::from(area.height)).round() as i64
+            ).unwrap_or(area.height);
             Constraint::Length(target_rows.clamp(min_rows, area.height))
         })
         .collect();

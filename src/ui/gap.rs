@@ -48,35 +48,33 @@ fn anchor_gap_value(anchor: &GapAnchorInfo, column: GapColumn) -> &str {
    }
 }
 
-#[expect(clippy::cast_possible_truncation)]
-#[expect(clippy::cast_precision_loss)]
 fn parse_best_lap_time(raw: &str) -> Option<i64> {
-   let trimmed = raw.trim();
-   if trimmed.is_empty() || trimmed == "-" {
-      return None;
-   }
-   if !trimmed
-      .chars()
-      .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.' || ch == ',')
-   {
-      return None;
-   }
-   let normalized = trimmed.replace(',', ".");
-   #[expect(clippy::cast_possible_truncation)]
-   #[expect(clippy::cast_precision_loss)]
-   let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
-      let secs = right.parse::<f64>().ok()?;
-      let mins = left.parse::<u64>().ok()?;
-      // Safe: calculation produces milliseconds for reasonable lap times
-      // u64 to f64 is safe here as lap times are small values
-      i64::try_from(((mins as f64 * 60.0 + secs) * 1000.0).round() as i128)
-         .ok()?
-   } else {
-      i64::try_from((normalized.parse::<f64>().ok()? * 1000.0).round() as i128)
-         .ok()?
-   };
-   Some(total_ms)
-}
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "-" {
+       return None;
+    }
+    if !trimmed
+       .chars()
+       .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.' || ch == ',')
+    {
+       return None;
+    }
+    let normalized = trimmed.replace(',', ".");
+    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
+       let secs = right.parse::<f64>().ok()?;
+       let mins = left.parse::<u64>().ok()?;
+       // Safe: calculation produces milliseconds for reasonable lap times
+       // Safe: minutes/seconds for laps are small values (well within i64 range)
+       let millis_f64 = (mins as f64).mul_add(60.0, secs) * 1000.0;
+       let millis_i128 = millis_f64.round() as i128;
+       i64::try_from(millis_i128).ok()?
+    } else {
+       let millis_f64 = normalized.parse::<f64>().ok()? * 1000.0;
+       let millis_i128 = millis_f64.round() as i128;
+       i64::try_from(millis_i128).ok()?
+    };
+    Some(total_ms)
+ }
 
 fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool {
    let raw = session_type_raw.trim().to_ascii_uppercase();
@@ -100,65 +98,64 @@ fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool
    true
 }
 
-#[expect(clippy::cast_possible_truncation)]
 fn parse_gap_value(raw: &str) -> Option<GapValue> {
-   let trimmed = raw.trim();
-   if trimmed.is_empty()
-      || trimmed == "-"
-      || trimmed.eq_ignore_ascii_case("leader")
-      || trimmed.to_ascii_uppercase().starts_with("----LAP")
-   {
-      return None;
-   }
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+       || trimmed == "-"
+       || trimmed.eq_ignore_ascii_case("leader")
+       || trimmed.to_ascii_uppercase().starts_with("----LAP")
+    {
+       return None;
+    }
 
-   let upper = trimmed.to_ascii_uppercase();
-   if upper.contains("LAP") {
-      let token = trimmed.split_whitespace().find(|part| {
-         let cleaned = part.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
-         !cleaned.is_empty() && cleaned.chars().any(|ch| ch.is_ascii_digit())
-      })?;
-      let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
-      let laps = cleaned.parse::<i32>().ok()?;
-      return Some(GapValue::Laps(laps));
-   }
+    let upper = trimmed.to_ascii_uppercase();
+    if upper.contains("LAP") {
+       let token = trimmed.split_whitespace().find(|part| {
+          let cleaned = part.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
+          !cleaned.is_empty() && cleaned.chars().any(|ch| ch.is_ascii_digit())
+       })?;
+       let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
+       let laps = cleaned.parse::<i32>().ok()?;
+       return Some(GapValue::Laps(laps));
+    }
 
-   let normalized = trimmed.trim_start_matches('+');
-   if !normalized
-      .chars()
-      .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.')
-   {
-      return None;
-   }
+    let normalized = trimmed.trim_start_matches('+');
+    if !normalized
+       .chars()
+       .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.')
+    {
+       return None;
+    }
 
-   #[expect(clippy::cast_possible_truncation)]
-   let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
-      let secs = right.parse::<f64>().ok()?;
-      let mins = left.parse::<u64>().ok()?;
-      // Safe: calculation produces milliseconds for reasonable gap times
-      // Safe: mins are small for typical gap times
-      #[expect(clippy::cast_precision_loss)]
-      let calc = ((mins as f64 * 60.0 + secs) * 1000.0).round() as i128;
-      i64::try_from(calc).ok()?
-   } else {
-      i64::try_from((normalized.parse::<f64>().ok()? * 1000.0).round() as i128)
-         .ok()?
-   };
-   Some(GapValue::TimeMs(total_ms))
-}
+    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
+       let secs = right.parse::<f64>().ok()?;
+       let mins = left.parse::<u64>().ok()?;
+       // Safe: calculation produces milliseconds for reasonable gap times
+       // Safe: minutes/seconds for gaps are small values (well within i64 range)
+       let millis_f64 = (mins as f64).mul_add(60.0, secs) * 1000.0;
+       let millis_i128 = millis_f64.round() as i128;
+       i64::try_from(millis_i128).ok()?
+    } else {
+       let millis_f64 = normalized.parse::<f64>().ok()? * 1000.0;
+       let millis_i128 = millis_f64.round() as i128;
+       i64::try_from(millis_i128).ok()?
+    };
+    Some(GapValue::TimeMs(total_ms))
+ }
 
-#[expect(clippy::cast_precision_loss)]
 fn format_time_delta(ms: i64) -> String {
-   let sign = if ms >= 0 { '+' } else { '-' };
-   let abs_ms = ms.unsigned_abs();
-   let minutes = abs_ms / 60_000;
-   // Safe: abs_ms % 60_000 is at most 59999, well within f64 precision
-   let secs = (abs_ms % 60_000) as f64 / 1000.0;
-   if minutes > 0 {
-      format!("{sign}{minutes}:{secs:06.3}")
-   } else {
-      format!("{sign}{secs:.3}")
-   }
-}
+    let sign = if ms >= 0 { '+' } else { '-' };
+    let abs_ms = ms.unsigned_abs();
+    let minutes = abs_ms / 60_000;
+    // Safe: remainder is at most 59999, well within f64 precision for milliseconds display
+    let remainder = abs_ms % 60_000;
+    let secs = f64::from(u32::try_from(remainder).unwrap_or(59999)) / 1000.0;
+    if minutes > 0 {
+       format!("{sign}{minutes}:{secs:06.3}")
+    } else {
+       format!("{sign}{secs:.3}")
+    }
+ }
 
 fn format_lap_delta(laps: i32) -> String {
    let sign = if laps >= 0 { '+' } else { '-' };

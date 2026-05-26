@@ -1058,8 +1058,7 @@ fn apply_session_clock(state: &mut WecLiveState, payload: &Value) -> bool {
    );
     if let Some(ms) = map_i64(map, "elapsedTimeMillisNow") {
         if ms >= 0 {
-            #[expect(clippy::cast_sign_loss)]
-            let ms_u64 = ms as u64;
+            let ms_u64 = u64::try_from(ms).unwrap_or(0);
             changed |= set_header_text(
                &mut state.header.time_to_go,
                Some(format_clock_ms(ms_u64)),
@@ -1414,35 +1413,33 @@ fn format_gap(gap_ms: Option<i64>, gap_laps: Option<i64>) -> Option<String> {
 }
 
 fn format_lap_time_ms(ms: i64) -> String {
-   if ms <= 0 {
-      return "-".to_string();
-   }
-   // Safe: ms is checked to be > 0 above
-   #[allow(clippy::cast_sign_loss)]
-   let total_ms = ms as u64;
-   let minutes = total_ms / 60_000;
-   let seconds = (total_ms % 60_000) / 1000;
-   let millis = total_ms % 1000;
-   format!("{minutes}:{seconds:02}.{millis:03}")
-}
+    if ms <= 0 {
+       return "-".to_string();
+    }
+    // Safe: ms is checked to be > 0 above
+    let total_ms = u64::try_from(ms).expect("ms is positive");
+    let minutes = total_ms / 60_000;
+    let seconds = (total_ms % 60_000) / 1000;
+    let millis = total_ms % 1000;
+    format!("{minutes}:{seconds:02}.{millis:03}")
+ }
 
 fn format_sector_time_ms(ms: i64) -> String {
-   if ms <= 0 {
-      return "-".to_string();
-   }
-   // Safe: ms is checked to be > 0 above
-   #[allow(clippy::cast_sign_loss)]
-   let total_ms = ms as u64;
-   if total_ms >= 60_000 {
-      let minutes = total_ms / 60_000;
-      let seconds = (total_ms % 60_000) / 1000;
-      let millis = total_ms % 1000;
-      return format!("{minutes}:{seconds:02}.{millis:03}");
-   }
-   let seconds = total_ms / 1000;
-   let millis = total_ms % 1000;
-   format!("{seconds}.{millis:03}")
-}
+    if ms <= 0 {
+       return "-".to_string();
+    }
+    // Safe: ms is checked to be > 0 above
+    let total_ms = u64::try_from(ms).expect("ms is positive");
+    if total_ms >= 60_000 {
+       let minutes = total_ms / 60_000;
+       let seconds = (total_ms % 60_000) / 1000;
+       let millis = total_ms % 1000;
+       return format!("{minutes}:{seconds:02}.{millis:03}");
+    }
+    let seconds = total_ms / 1000;
+    let millis = total_ms % 1000;
+    format!("{seconds}.{millis:03}")
+ }
 
 fn normalize_driver_name(raw: &str) -> String {
    raw.split_whitespace()

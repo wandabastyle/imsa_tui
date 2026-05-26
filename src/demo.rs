@@ -109,12 +109,11 @@ fn update_demo_entry_gaps(entry: &mut TimingEntry, elapsed_secs: u64, seed: u64,
       return;
    }
 
-   // Safe: idx is typically under 100, well within f32 range
-    #[expect(clippy::cast_precision_loss)]
-    let movement =
-       (((elapsed_secs / 8) + seed + u64::try_from(idx).unwrap_or(0)) % 30) as f32 / 10.0;
-    #[expect(clippy::cast_precision_loss)]
-    let base = idx as f32 * 2.3;
+    // Safe: idx is typically under 100, well within f32 precision
+     let idx_u16 = u16::try_from(idx).unwrap_or(0);
+     let movement =
+        (((elapsed_secs / 8) + seed + u64::from(idx_u16)) % 30) as f32 / 10.0;
+     let base = f32::from(idx_u16) * 2.3;
    let gap = base + movement;
    let gap_text = format!("+{gap:.3}");
    entry.gap_overall = gap_text.clone();
@@ -162,16 +161,15 @@ fn apply_demo_pit_state(
    }
 }
 
-#[expect(clippy::cast_precision_loss)]
 fn demo_nls_sector_5_time(lane: u64, elapsed_secs: u64) -> String {
-   // lane % 17 produces values 0-16, well within f32 precision
-   #[expect(clippy::cast_precision_loss)]
-   let base_secs = 92.0_f32 + (lane % 17) as f32 * 0.7;
-   // elapsed_secs % 19 produces values 0-18, well within f32 precision
-   #[expect(clippy::cast_precision_loss)]
-   let wobble = (elapsed_secs % 19) as f32 * 0.031;
-   format!("{:.3}", base_secs + wobble)
-}
+    // lane % 17 produces values 0-16, well within f32 precision
+    let lane_component = u16::try_from(lane % 17).unwrap_or(0);
+    let base_secs = 92.0_f32 + f32::from(lane_component) * 0.7;
+    // elapsed_secs % 19 produces values 0-18, well within f32 precision
+    let elapsed_component = u16::try_from(elapsed_secs % 19).unwrap_or(0);
+    let wobble = f32::from(elapsed_component) * 0.031;
+    format!("{:.3}", base_secs + wobble)
+ }
 
 fn stable_lane_seed(seed: u64, stable_id: &str, row_idx: u64) -> u64 {
    let mut hasher = DefaultHasher::new();
