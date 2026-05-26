@@ -58,15 +58,22 @@ struct AuthRuntimeOptions {
    cookie_secure: bool,
 }
 
+/// Run the web server with the specified run mode.
+///
+/// Initializes the Axum router with all routes and middleware, binds to the
+/// configured address, and starts the server.
+///
+/// # Errors
+/// Returns an error if the server cannot bind to the address or if
+/// initialization fails.
 pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
    let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
    let bind_port = env::var("PORT")
       .ok()
       .and_then(|value| value.parse::<u16>().ok())
       .unwrap_or(8080);
-   let static_root = env::var("WEB_DIST_DIR")
-      .map(PathBuf::from)
-      .unwrap_or_else(|_| PathBuf::from("web/build"));
+   let static_root =
+      env::var("WEB_DIST_DIR").map_or_else(|_| PathBuf::from("web/build"), PathBuf::from);
    cleanup_legacy_config_artifacts();
    cleanup_stale_profile_artifacts();
    let resolved_auth = resolve_auth();
@@ -168,7 +175,7 @@ pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
 
    if mode == RunMode::DaemonChild {
       write_runtime_info(&runtime_info)?;
-      write_pid(runtime_info.pid as i32)?;
+      write_pid(runtime_info.pid)?;
    }
 
    let shutdown = async move {
@@ -215,10 +222,10 @@ fn resolve_static_config(root_dir: PathBuf) -> StaticConfig {
 }
 
 fn resolve_auth_options() -> AuthRuntimeOptions {
-   let cookie_secure = match env::var("WEBUI_COOKIE_SECURE") {
-      Ok(value) => parse_boolish(&value).unwrap_or(false),
-      Err(_) => env_flag("WEBUI_AUTO_FUNNEL", true),
-   };
+   let cookie_secure = env::var("WEBUI_COOKIE_SECURE").map_or_else(
+      |_| env_flag("WEBUI_AUTO_FUNNEL", true),
+      |value| parse_boolish(&value).unwrap_or(false),
+   );
 
    AuthRuntimeOptions { cookie_secure }
 }
@@ -234,10 +241,10 @@ fn print_startup_info(
    match state {
       PasswordState::Loaded => println!("web auth enabled (loaded saved access code)."),
       PasswordState::GeneratedPersisted => {
-         println!("web auth enabled (generated and saved new access code).")
+         println!("web auth enabled (generated and saved new access code).");
       },
       PasswordState::GeneratedEphemeral => {
-         println!("web auth enabled (generated access code but could not save).")
+         println!("web auth enabled (generated access code but could not save).");
       },
    }
    if let Some(access_code) = one_time_access_code {

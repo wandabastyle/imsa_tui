@@ -32,6 +32,7 @@ pub struct Preferences {
    pub selected_series: Series,
 }
 
+#[must_use]
 pub fn load_preferences(profile_id: &str) -> Preferences {
    let Some(path) = preferences_path(profile_id) else {
       return Preferences::default();
@@ -43,6 +44,11 @@ pub fn load_preferences(profile_id: &str) -> Preferences {
    toml::from_str::<Preferences>(&text).unwrap_or_default()
 }
 
+/// Save user preferences for a profile.
+///
+/// # Errors
+/// Returns an error if the config directory cannot be resolved, created, or
+/// written to.
 pub fn save_preferences(profile_id: &str, preferences: &Preferences) -> Result<(), String> {
    let Some(path) = preferences_path(profile_id) else {
       return Err("unable to resolve config directory".to_string());
@@ -57,13 +63,17 @@ pub fn save_preferences(profile_id: &str, preferences: &Preferences) -> Result<(
    fs::write(path, encoded).map_err(|e| format!("write preferences failed: {e}"))
 }
 
+/// Reset user preferences for a profile to defaults.
+///
+/// # Errors
+/// Returns an error if the preferences file cannot be removed.
 pub fn reset_preferences(profile_id: &str) -> Result<Preferences, String> {
    let Some(path) = preferences_path(profile_id) else {
       return Err("unable to resolve config directory".to_string());
    };
 
    match fs::remove_file(path) {
-      Ok(_) => {},
+      Ok(()) => {},
       Err(err) if err.kind() == ErrorKind::NotFound => {},
       Err(err) => return Err(format!("reset preferences failed: {err}")),
    }
@@ -71,6 +81,10 @@ pub fn reset_preferences(profile_id: &str) -> Result<Preferences, String> {
    Ok(Preferences::default())
 }
 
+/// Cleanup stale profile files using the default retention period.
+///
+/// # Errors
+/// Returns an error if the profile directory cannot be resolved or read.
 pub fn cleanup_stale_profiles_default() -> Result<usize, String> {
    cleanup_stale_profiles(PROFILE_RETENTION_DAYS_DEFAULT)
 }

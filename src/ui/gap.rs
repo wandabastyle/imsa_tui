@@ -1,7 +1,7 @@
 use crate::timing::TimingEntry;
 
 #[derive(Clone)]
-pub(crate) struct GapAnchorInfo {
+pub struct GapAnchorInfo {
    stable_id:         String,
    laps:              String,
    gap_overall:       String,
@@ -22,7 +22,7 @@ enum GapValue {
    Laps(i32),
 }
 
-pub(crate) fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
+pub fn gap_anchor_from_entry(entry: &TimingEntry) -> GapAnchorInfo {
    GapAnchorInfo {
       stable_id:         entry.stable_id.clone(),
       laps:              entry.laps.clone(),
@@ -48,6 +48,68 @@ fn anchor_gap_value(anchor: &GapAnchorInfo, column: GapColumn) -> &str {
    }
 }
 
+fn parse_decimal_millis(raw: &str) -> Option<i64> {
+   let (whole, frac) = raw.split_once('.').unwrap_or((raw, ""));
+   if whole.is_empty() || !whole.chars().all(|ch| ch.is_ascii_digit()) {
+      return None;
+   }
+   if !frac.chars().all(|ch| ch.is_ascii_digit()) {
+      return None;
+   }
+
+   let whole_secs = whole.parse::<u64>().ok()?;
+   let mut frac_chars = frac.chars();
+   let d1 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+   let d2 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+   let d3 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+   let d4 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+
+   let mut frac_ms = d1 * 100 + d2 * 10 + d3;
+   if d4 >= 5 {
+      frac_ms += 1;
+   }
+
+   let mut seconds_ms = whole_secs.checked_mul(1000)?;
+   if frac_ms >= 1000 {
+      seconds_ms = seconds_ms.checked_add(1000)?;
+      frac_ms -= 1000;
+   }
+
+   let total_ms = seconds_ms.checked_add(u64::from(frac_ms))?;
+   i64::try_from(total_ms).ok()
+}
+
+fn parse_duration_millis(raw: &str) -> Option<i64> {
+   let normalized = raw.trim().replace(',', ".");
+   if normalized.is_empty() {
+      return None;
+   }
+
+   if let Some((left, right)) = normalized.rsplit_once(':') {
+      if left.is_empty() || !left.chars().all(|ch| ch.is_ascii_digit()) {
+         return None;
+      }
+      let minutes = left.parse::<u64>().ok()?;
+      let seconds_ms = parse_decimal_millis(right)?;
+      let minutes_ms = i64::try_from(minutes).ok()?.checked_mul(60_000)?;
+      minutes_ms.checked_add(seconds_ms)
+   } else {
+      parse_decimal_millis(&normalized)
+   }
+}
+
 fn parse_best_lap_time(raw: &str) -> Option<i64> {
    let trimmed = raw.trim();
    if trimmed.is_empty() || trimmed == "-" {
@@ -59,15 +121,7 @@ fn parse_best_lap_time(raw: &str) -> Option<i64> {
    {
       return None;
    }
-   let normalized = trimmed.replace(',', ".");
-   let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
-      let secs = right.parse::<f64>().ok()?;
-      let mins = left.parse::<u64>().ok()?;
-      ((mins as f64 * 60.0 + secs) * 1000.0).round() as i64
-   } else {
-      (normalized.parse::<f64>().ok()? * 1000.0).round() as i64
-   };
-   Some(total_ms)
+   parse_duration_millis(trimmed)
 }
 
 fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool {
@@ -121,13 +175,7 @@ fn parse_gap_value(raw: &str) -> Option<GapValue> {
       return None;
    }
 
-   let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
-      let secs = right.parse::<f64>().ok()?;
-      let mins = left.parse::<u64>().ok()?;
-      ((mins as f64 * 60.0 + secs) * 1000.0).round() as i64
-   } else {
-      (normalized.parse::<f64>().ok()? * 1000.0).round() as i64
-   };
+   let total_ms = parse_duration_millis(normalized)?;
    Some(GapValue::TimeMs(total_ms))
 }
 
@@ -135,7 +183,10 @@ fn format_time_delta(ms: i64) -> String {
    let sign = if ms >= 0 { '+' } else { '-' };
    let abs_ms = ms.unsigned_abs();
    let minutes = abs_ms / 60_000;
-   let secs = (abs_ms % 60_000) as f64 / 1000.0;
+   // Safe: remainder is at most 59999, well within f64 precision for milliseconds
+   // display
+   let remainder = abs_ms % 60_000;
+   let secs = f64::from(u32::try_from(remainder).unwrap_or(59999)) / 1000.0;
    if minutes > 0 {
       format!("{sign}{minutes}:{secs:06.3}")
    } else {
@@ -153,7 +204,7 @@ fn format_lap_delta(laps: i32) -> String {
    }
 }
 
-pub(crate) fn relative_gap_overall_text(
+pub fn relative_gap_overall_text(
    entry: &TimingEntry,
    raw_value: &str,
    anchor: Option<&GapAnchorInfo>,
@@ -170,7 +221,7 @@ pub(crate) fn relative_gap_overall_text(
    )
 }
 
-pub(crate) fn relative_gap_class_text(
+pub fn relative_gap_class_text(
    entry: &TimingEntry,
    raw_value: &str,
    anchor: Option<&GapAnchorInfo>,
@@ -187,7 +238,7 @@ pub(crate) fn relative_gap_class_text(
    )
 }
 
-pub(crate) fn relative_gap_next_in_class_text(
+pub fn relative_gap_next_in_class_text(
    entry: &TimingEntry,
    raw_value: &str,
    anchor: Option<&GapAnchorInfo>,

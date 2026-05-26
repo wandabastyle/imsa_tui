@@ -62,7 +62,7 @@ fn extract_cup_from_message(text: &str) -> Option<String> {
       .get("CUP")
       .or_else(|| parsed.get("EVENTNAME"))
       .and_then(|value| value.as_str())
-      .map(|value| value.to_string())
+      .map(std::string::ToString::to_string)
 }
 
 fn cup_is_dhlm(cup: &str) -> bool {
@@ -76,15 +76,22 @@ fn now_millis() -> u128 {
       .as_millis()
 }
 
-pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+/// Returns current time as u64 milliseconds since UNIX epoch.
+/// Safe conversion from u128 - timestamps won't exceed u64 range until year 584
+/// billion.
+fn now_unix_ms() -> u64 {
+   u64::try_from(now_millis()).unwrap_or(u64::MAX)
+}
+
+pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
 
 pub fn websocket_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: SeriesDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
 ) {
    let mut header = TimingHeader {
       event_name: "DHLM Live Timing".to_string(),
@@ -99,17 +106,17 @@ pub fn websocket_worker_with_debug(
       &mut persist,
       &mut header,
       &mut latest_entries,
-      &tx,
+      tx,
       source_id,
-      &debug_output,
+      debug_output,
    );
 
-   log_series_debug(&debug_output, "DHLM", "initializing");
+   log_series_debug(debug_output, "DHLM", "initializing");
 
    'outer: loop {
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_good_snapshot.as_ref() {
-            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, &debug_output);
+            persist_snapshot_if_dirty(&mut persist, snapshot, now_unix_ms(), debug_output);
          }
          break;
       }
@@ -162,21 +169,15 @@ pub fn websocket_worker_with_debug(
 
       let mut ws_cup: Option<String> = None;
       for _ in 0..5 {
-         match socket.read() {
-            Ok(Message::Text(text)) => {
-               if let Some(cup) = extract_cup_from_message(&text) {
-                  ws_cup = Some(cup);
-                  break;
-               }
-            },
-            _ => continue,
+         if let Ok(Message::Text(text)) = socket.read() {
+            if let Some(cup) = extract_cup_from_message(&text) {
+               ws_cup = Some(cup);
+               break;
+            }
          }
       }
 
-      let use_dump_mode = ws_cup
-         .as_deref()
-         .map(|cup| !cup_is_dhlm(cup))
-         .unwrap_or(false);
+      let use_dump_mode = ws_cup.as_deref().is_some_and(|cup| !cup_is_dhlm(cup));
       if use_dump_mode {
          let _ = tx.send(TimingMessage::Status {
             source_id,
@@ -185,7 +186,7 @@ pub fn websocket_worker_with_debug(
       }
 
       if use_dump_mode {
-         if let Some(lines) = load_dump_file(&dhlm_dump_path()) {
+         if let Some(lines) = load_dump_file(dhlm_dump_path().as_ref()) {
             for line in lines {
                for notice in notices_from_ws_message(&line) {
                   let _ = tx.send(TimingMessage::Notice { source_id, notice });
@@ -202,11 +203,10 @@ pub fn websocket_worker_with_debug(
 
                   let should_persist = last_good_snapshot
                      .as_ref()
-                     .map(|prev| prev.fingerprint != snapshot.fingerprint)
-                     .unwrap_or(true);
+                     .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                   if should_persist {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, &debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
                   }
                   last_good_snapshot = Some(snapshot);
                   let _ = tx.send(TimingMessage::Snapshot {
@@ -226,12 +226,7 @@ pub fn websocket_worker_with_debug(
       loop {
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_good_snapshot.as_ref() {
-               persist_snapshot_if_dirty(
-                  &mut persist,
-                  snapshot,
-                  now_millis() as u64,
-                  &debug_output,
-               );
+               persist_snapshot_if_dirty(&mut persist, snapshot, now_unix_ms(), debug_output);
             }
             break 'outer;
          }
@@ -258,12 +253,11 @@ pub fn websocket_worker_with_debug(
                let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
                let materially_changed = last_good_snapshot
                   .as_ref()
-                  .map(|prev| prev.fingerprint != snapshot.fingerprint)
-                  .unwrap_or(true);
+                  .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
                if first_real_of_session || materially_changed || session_complete {
                   if first_real_of_session || session_complete {
-                     persist_snapshot(&mut persist, &snapshot, now_millis() as u64, &debug_output);
+                     persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
                   }
                   let _ = tx.send(TimingMessage::Snapshot {
                      source_id,
@@ -291,11 +285,8 @@ pub fn websocket_worker_with_debug(
                }
             },
             Ok(Message::Close(_)) => break,
-            Err(_) => {
-               if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
-                  break 'outer;
-               }
-               continue;
+            Err(_) if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() => {
+               break 'outer;
             },
             _ => {},
          }
@@ -313,9 +304,8 @@ fn parse_timing_message(
       Err(_) => return false,
    };
 
-   let pid = match parsed.get("PID").and_then(|v| v.as_str()) {
-      Some(p) => p,
-      None => return false,
+   let Some(pid) = parsed.get("PID").and_then(|v| v.as_str()) else {
+      return false;
    };
 
    match pid {
@@ -379,8 +369,8 @@ fn parse_entry(value: &Value) -> Option<TimingEntry> {
    entry_from_value(value, "50")
 }
 
-fn load_dump_file(path: &Option<PathBuf>) -> Option<Vec<String>> {
-   let path = path.as_ref()?;
+fn load_dump_file(path: Option<&PathBuf>) -> Option<Vec<String>> {
+   let path = path?;
    let file = File::open(path).ok()?;
    let reader = BufReader::new(file);
    let mut lines = Vec::new();

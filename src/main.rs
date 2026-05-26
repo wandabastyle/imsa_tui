@@ -39,8 +39,7 @@ fn main() -> io::Result<()> {
 
    match (app_result, restore_result) {
       (Ok(()), Ok(())) => Ok(()),
-      (Err(app_err), Ok(())) => Err(app_err),
+      (Err(app_err), Ok(()) | Err(_)) => Err(app_err),
       (Ok(()), Err(restore_err)) => Err(restore_err),
-      (Err(app_err), Err(_)) => Err(app_err),
    }
 }

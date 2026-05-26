@@ -19,6 +19,7 @@ const DEFAULT_SELECTED_ROW = 0;
 const INDEX_DECREMENT = -1;
 const INDEX_INCREMENT = 1;
 
+const DEFAULT_MIN_ROWS_PER_GROUP = 5;
 const MINIMUM_LENGTH = 0;
 const ZERO_LENGTH = 0;
 const NO_MATCH = -1;
@@ -55,6 +56,7 @@ interface UseAppLogicReturn {
   shiftSelection: (delta: number) => void;
   toggleDemoMode: () => Promise<void>;
   toggleFavourite: () => Promise<void>;
+  toggleMinRows: (delta: number) => void;
 }
 
 interface UseAppLogicParams {
@@ -336,6 +338,16 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
     state.selectedRow,
   ]);
 
+  const toggleMinRows = useCallback(
+    (delta: number): void => {
+      setState((prev: AppState) => {
+        const newValue = Math.max(DEFAULT_MIN_ROWS_PER_GROUP, prev.minRowsPerGroup + delta);
+        return { ...prev, minRowsPerGroup: newValue };
+      });
+    },
+    [setState],
+  );
+
   return {
     activeEntries,
     chooseSeries,
@@ -353,6 +365,7 @@ const useAppLogic = (params: UseAppLogicParams): UseAppLogicReturn => {
     shiftSelection,
     toggleDemoMode,
     toggleFavourite,
+    toggleMinRows,
   };
 };
 
@@ -435,6 +448,7 @@ export const App = (): JSX.Element => {
         showNlsLiveticker: state.showNlsLiveticker,
         toggleDemoMode: logic.toggleDemoMode,
         toggleFavourite: logic.toggleFavourite,
+        toggleMinRows: logic.toggleMinRows,
       });
     },
     [logic, refreshNlsLiveticker, setState, state.showHelp, state.showNlsLiveticker],

@@ -124,9 +124,7 @@ pub(crate) fn resolve_live_sid_for_series(client: &Client, series_id: u64) -> Re
       let sid_series = map.get("seriesId").and_then(Value::as_u64);
       let domain = map.get("domain").and_then(Value::as_str);
       if sid_series == Some(series_id)
-         && domain
-            .map(|value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
-            .unwrap_or(true)
+         && domain.is_none_or(|value| value.eq_ignore_ascii_case(REALWORLD_DOMAIN))
       {
          if let Some(windows) = maybe_official_windows.as_ref() {
             if !official_schedule_allows_live_session(series_id, map, windows, today) {
@@ -257,7 +255,7 @@ fn extract_year_from_slug(href: &str) -> Option<i32> {
 
    for idx in 0..=(chars.len() - 4) {
       let slice = [chars[idx], chars[idx + 1], chars[idx + 2], chars[idx + 3]];
-      if slice.iter().all(|ch| ch.is_ascii_digit()) {
+      if slice.iter().all(char::is_ascii_digit) {
          let candidate = slice.iter().collect::<String>().parse::<i32>().ok();
          if candidate.is_some_and(|year| (2000..=2100).contains(&year)) {
             last_match = candidate;
@@ -391,22 +389,25 @@ fn is_within_window(today: i32, start: i32, end: i32, tolerance_days: i32) -> bo
    let today_days = yyyymmdd_to_epoch_days(today);
    let start_days = yyyymmdd_to_epoch_days(start);
    let end_days = yyyymmdd_to_epoch_days(end.max(start));
+   let tolerance_days = i64::from(tolerance_days);
    today_days >= start_days - tolerance_days && today_days <= end_days + tolerance_days
 }
 
 fn current_utc_yyyymmdd() -> i32 {
-   let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
-      Ok(duration) => duration.as_secs() as i64,
-      Err(_) => 0,
-   };
+   let now_secs = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map_or(0, |duration| {
+         i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+      });
    epoch_seconds_to_yyyymmdd(now_secs)
 }
 
 fn current_utc_iso8601() -> String {
-   let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
-      Ok(duration) => duration.as_secs() as i64,
-      Err(_) => 0,
-   };
+   let now_secs = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map_or(0, |duration| {
+         i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+      });
    let days_since_epoch = now_secs.div_euclid(86_400);
    let secs_of_day = now_secs.rem_euclid(86_400);
    let (year, month, day) = civil_from_days(days_since_epoch);
@@ -419,17 +420,18 @@ fn current_utc_iso8601() -> String {
 fn epoch_seconds_to_yyyymmdd(epoch_seconds: i64) -> i32 {
    let days_since_epoch = epoch_seconds.div_euclid(86_400);
    let (year, month, day) = civil_from_days(days_since_epoch);
-   year * 10000 + month * 100 + day
+   let value = year * 10000 + month * 100 + day;
+   i32::try_from(value).unwrap_or(i32::MAX)
 }
 
-fn yyyymmdd_to_epoch_days(value: i32) -> i32 {
+fn yyyymmdd_to_epoch_days(value: i32) -> i64 {
    let year = value / 10_000;
    let month = (value / 100) % 100;
    let day = value % 100;
-   days_from_civil(year, month, day) as i32
+   days_from_civil(year, month, day)
 }
 
-fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
+fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
    let z = days_since_epoch + 719_468;
    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
    let doe = z - era * 146_097;
@@ -439,11 +441,14 @@ fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
    let mp = (5 * doy + 2) / 153;
    let d = doy - (153 * mp + 2) / 5 + 1;
    let m = mp + if mp < 10 { 3 } else { -9 };
-   let year = y + if m <= 2 { 1 } else { 0 };
-   (year as i32, m as i32, d as i32)
+   let year = y + i64::from(m <= 2);
+   // Safe: m is always in range 1-12 and d in 1-31 from this algorithm
+   // Safe: year is bounded by the algorithm to reasonable values (year 0-4000000
+   // range) All values fit within i32 for the supported date range
+   (year, m, d)
 }
 
-fn days_from_civil(year: i32, month: i32, day: i32) -> i64 {
+const fn days_from_civil(year: i32, month: i32, day: i32) -> i64 {
    let y = year - if month <= 2 { 1 } else { 0 };
    let era = if y >= 0 { y } else { y - 399 } / 400;
    let yoe = y - era * 400;
@@ -491,8 +496,7 @@ pub(crate) fn choose_latest_finished_race_session(
          session
             .session_type
             .as_deref()
-            .map(|value| value.eq_ignore_ascii_case("Race"))
-            .unwrap_or(false)
+            .is_some_and(|value| value.eq_ignore_ascii_case("Race"))
             && session.has_result
       })
       .cloned()
@@ -580,8 +584,8 @@ mod tests {
 
       let parsed = parse_wec_official_event_windows(html).expect("parse WEC calendar");
       assert_eq!(parsed.len(), 2);
-      assert_eq!(parsed[0].start_yyyymmdd, 20260414);
-      assert_eq!(parsed[1].start_yyyymmdd, 20260419);
+      assert_eq!(parsed[0].start_yyyymmdd, 20_260_414);
+      assert_eq!(parsed[1].start_yyyymmdd, 20_260_419);
       assert!(parsed[1].label.contains("imola"));
    }
 
@@ -593,8 +597,8 @@ mod tests {
       });
       let windows = vec![OfficialEventWindow {
          label:          "official prologue imola".to_string(),
-         start_yyyymmdd: 20260414,
-         end_yyyymmdd:   20260414,
+         start_yyyymmdd: 20_260_414,
+         end_yyyymmdd:   20_260_414,
       }];
 
       let allowed = official_schedule_allows_live_session(
@@ -603,7 +607,7 @@ mod tests {
             .as_object()
             .expect("session-info object for WEC test"),
          &windows,
-         20260414,
+         20_260_414,
       );
 
       assert!(allowed);
@@ -617,8 +621,8 @@ mod tests {
       });
       let windows = vec![OfficialEventWindow {
          label:          "bapco energies 8 hours of bahrain".to_string(),
-         start_yyyymmdd: 20251108,
-         end_yyyymmdd:   20251108,
+         start_yyyymmdd: 20_251_108,
+         end_yyyymmdd:   20_251_108,
       }];
 
       let allowed = official_schedule_allows_live_session(
@@ -627,7 +631,7 @@ mod tests {
             .as_object()
             .expect("session-info object for out-of-window test"),
          &windows,
-         20260421,
+         20_260_421,
       );
 
       assert!(!allowed);
@@ -640,8 +644,8 @@ mod tests {
       });
       let windows = vec![OfficialEventWindow {
          label:          "melbourne".to_string(),
-         start_yyyymmdd: 20260306,
-         end_yyyymmdd:   20260308,
+         start_yyyymmdd: 20_260_306,
+         end_yyyymmdd:   20_260_308,
       }];
 
       let allowed = official_schedule_allows_live_session(
@@ -650,7 +654,7 @@ mod tests {
             .as_object()
             .expect("session-info object for F1 test"),
          &windows,
-         20260307,
+         20_260_307,
       );
 
       assert!(allowed);
@@ -658,8 +662,8 @@ mod tests {
 
    #[test]
    fn window_check_respects_tolerance() {
-      assert!(is_within_window(20260421, 20260419, 20260419, 2));
-      assert!(!is_within_window(20260425, 20260419, 20260419, 2));
+      assert!(is_within_window(20_260_421, 20_260_419, 20_260_419, 2));
+      assert!(!is_within_window(20_260_425, 20_260_419, 20_260_419, 2));
    }
 
    #[test]

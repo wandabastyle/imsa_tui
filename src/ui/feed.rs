@@ -21,15 +21,15 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(crate) struct ActiveFeed {
-   pub(crate) source_id: u64,
-   stop_tx:              Sender<()>,
-   debug_rx:             Option<Receiver<String>>,
+pub struct ActiveFeed {
+   pub source_id: u64,
+   stop_tx:       Sender<()>,
+   debug_rx:      Option<Receiver<String>>,
 }
 
-pub(crate) const IMSA_DEBUG_LOG_CAPACITY: usize = 150;
+pub const IMSA_DEBUG_LOG_CAPACITY: usize = 150;
 
-pub(crate) fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
+pub fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u64) -> ActiveFeed {
    let (stop_tx, stop_rx) = mpsc::channel::<()>();
    let (debug_tx, debug_rx) = mpsc::channel::<String>();
    let debug_output = SeriesDebugOutput::Channel(debug_tx);
@@ -43,21 +43,21 @@ pub(crate) fn start_feed(series: Series, tx: Sender<TimingMessage>, source_id: u
    }
 }
 
-pub(crate) fn stop_feed(feed: &mut Option<ActiveFeed>) {
+pub fn stop_feed(feed: &mut Option<ActiveFeed>) {
    if let Some(active_feed) = feed.take() {
       let _ = active_feed.stop_tx.send(());
    }
 }
 
-pub(crate) fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
+pub fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
    logs.push_back(line);
    while logs.len() > IMSA_DEBUG_LOG_CAPACITY {
       logs.pop_front();
    }
 }
 
-pub(crate) fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
-   let Some(active_feed) = feed.as_ref() else {
+pub fn drain_series_debug_logs(feed: Option<&ActiveFeed>, logs: &mut VecDeque<String>) {
+   let Some(active_feed) = feed else {
       return;
    };
    let Some(debug_rx) = active_feed.debug_rx.as_ref() else {
@@ -69,7 +69,7 @@ pub(crate) fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecD
    }
 }
 
-pub(crate) fn drain_messages(
+pub fn drain_messages(
    rx: &Receiver<TimingMessage>,
    active_source_id: u64,
    header: &mut TimingHeader,
@@ -82,10 +82,10 @@ pub(crate) fn drain_messages(
    while let Ok(msg) = rx.try_recv() {
       match msg {
          TimingMessage::Status { source_id, text } if source_id == active_source_id => {
-            *status = text
+            *status = text;
          },
          TimingMessage::Error { source_id, text } if source_id == active_source_id => {
-            *last_error = Some(text)
+            *last_error = Some(text);
          },
          TimingMessage::Snapshot {
             source_id,
@@ -93,37 +93,39 @@ pub(crate) fn drain_messages(
             entries: new_entries,
          } if source_id == active_source_id => {
             if new_header.event_name != "-" {
-               header.event_name = new_header.event_name;
+               header.event_name.clone_from(&new_header.event_name);
             }
             if new_header.session_name != "-" {
-               header.session_name = new_header.session_name;
+               header.session_name.clone_from(&new_header.session_name);
             }
             if !new_header.session_type_raw.trim().is_empty() && new_header.session_type_raw != "-"
             {
-               header.session_type_raw = new_header.session_type_raw;
+               header
+                  .session_type_raw
+                  .clone_from(&new_header.session_type_raw);
             }
             if new_header.track_name != "-" {
-               header.track_name = new_header.track_name;
+               header.track_name.clone_from(&new_header.track_name);
             }
             if new_header.day_time != "-" {
-               header.day_time = new_header.day_time;
+               header.day_time.clone_from(&new_header.day_time);
             }
             if new_header.flag != "-" {
-               header.flag = new_header.flag;
+               header.flag.clone_from(&new_header.flag);
             }
             if new_header.time_to_go != "-" {
-               header.time_to_go = new_header.time_to_go;
+               header.time_to_go.clone_from(&new_header.time_to_go);
             }
             if !new_header.event_id.is_empty() {
-               header.event_id = new_header.event_id;
+               header.event_id.clone_from(&new_header.event_id);
             }
-            *entries = new_entries;
-            *status = "Live timing connected".to_string();
+            entries.clone_from(&new_entries);
+            status.clone_from(&"Live timing connected".to_string());
             *last_error = None;
             *last_update = Some(Instant::now());
          },
          TimingMessage::Notice { source_id, notice } if source_id == active_source_id => {
-            notices.push(notice)
+            notices.push(notice);
          },
          _ => {},
       }

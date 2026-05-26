@@ -150,6 +150,7 @@ interface MainKeydownHandlers {
   showNlsLiveticker: boolean;
   toggleDemoMode: () => Promise<void>;
   toggleFavourite: () => Promise<void>;
+  toggleMinRows: (delta: number) => void;
 }
 
 export const handleMainKeydown = (
@@ -168,6 +169,7 @@ export const handleMainKeydown = (
     showNlsLiveticker,
     toggleDemoMode,
     toggleFavourite,
+    toggleMinRows,
   } = handlers;
 
   switch (event.key) {
@@ -313,6 +315,16 @@ export const handleMainKeydown = (
         showMessages: !prev.showMessages,
         showNlsLiveticker: false,
       }));
+      event.preventDefault();
+      break;
+    }
+    case '-': {
+      toggleMinRows(INDEX_DECREMENT);
+      event.preventDefault();
+      break;
+    }
+    case '+': {
+      toggleMinRows(INDEX_INCREMENT);
       event.preventDefault();
       break;
     }

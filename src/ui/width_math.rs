@@ -1,26 +1,28 @@
 use crate::timing::TimingEntry;
 
-pub(crate) fn max_text_width<F>(entries: &[TimingEntry], accessor: F) -> u16
+pub fn max_text_width<F>(entries: &[TimingEntry], accessor: F) -> u16
 where
    F: Fn(&TimingEntry) -> &str,
 {
-   entries
+   let max_len = entries
       .iter()
       .map(|entry| accessor(entry).chars().count())
       .max()
-      .unwrap_or(1) as u16
+      .unwrap_or(1);
+   u16::try_from(max_len).unwrap_or(u16::MAX)
 }
 
-pub(crate) fn distribute_extra_space<const N: usize>(widths: &mut [u16; N], mut extra: u16) {
+pub fn distribute_extra_space<const N: usize>(widths: &mut [u16; N], mut extra: u16) {
    if extra == 0 {
       return;
    }
-   let total: u32 = widths.iter().map(|w| *w as u32).sum();
+   let total: u32 = widths.iter().map(|w| u32::from(*w)).sum();
    if total == 0 {
       return;
    }
    for width in widths.iter_mut() {
-      let share = ((extra as u32 * *width as u32) / total) as u16;
+      let share_u32 = (u32::from(extra) * u32::from(*width)) / total;
+      let share = u16::try_from(share_u32).unwrap_or(u16::MAX);
       *width = width.saturating_add(share);
       extra = extra.saturating_sub(share);
    }
@@ -32,7 +34,7 @@ pub(crate) fn distribute_extra_space<const N: usize>(widths: &mut [u16; N], mut 
    }
 }
 
-pub(crate) fn reduce_widths_in_order<const N: usize>(
+pub fn reduce_widths_in_order<const N: usize>(
    widths: &mut [u16; N],
    minimums: &[u16; N],
    mut deficit: u16,

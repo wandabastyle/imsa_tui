@@ -18,6 +18,7 @@ use crate::timing::{
    TimingHeader,
 };
 
+#[must_use]
 pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    match series {
       Series::Imsa => (imsa_header(), imsa_entries()),
@@ -28,6 +29,7 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
    }
 }
 
+#[must_use]
 pub fn demo_snapshot_at(
    series: Series,
    seed: u64,
@@ -35,11 +37,25 @@ pub fn demo_snapshot_at(
 ) -> (TimingHeader, Vec<TimingEntry>) {
    let (mut header, mut entries) = demo_snapshot(series);
 
-   let flag_names = ["Green", "Yellow", "Red", "White", "Checkered"];
-   let flag_idx =
-      ((elapsed_secs / 45) as usize + (seed as usize % flag_names.len())) % flag_names.len();
-   header.flag = flag_names[flag_idx].to_string();
+   header.flag = calculate_demo_flag(seed, elapsed_secs);
+   update_demo_time_to_go(&mut header, series, elapsed_secs, seed);
+   mutate_demo_entries(series, &mut entries, seed, elapsed_secs);
 
+   (header, entries)
+}
+
+fn calculate_demo_flag(seed: u64, elapsed_secs: u64) -> String {
+   const FLAG_NAMES: &[&str] = &["Green", "Yellow", "Red", "White", "Checkered"];
+   // Safe: FLAG_NAMES has 5 elements, and usize result is bounded by modulo
+   // arithmetic
+   let flag_idx = usize::try_from((elapsed_secs / 45) % FLAG_NAMES.len() as u64)
+      .unwrap_or(0)
+      .wrapping_add(usize::try_from(seed % FLAG_NAMES.len() as u64).unwrap_or(0))
+      % FLAG_NAMES.len();
+   FLAG_NAMES[flag_idx].to_string()
+}
+
+fn update_demo_time_to_go(header: &mut TimingHeader, series: Series, elapsed_secs: u64, seed: u64) {
    match series {
       Series::F1 => {
          let base_lap = 34_u64;
@@ -48,42 +64,56 @@ pub fn demo_snapshot_at(
          header.time_to_go = format!("Lap {lap}/57");
       },
       _ => {
-         let hours = 6_u64.saturating_sub((elapsed_secs / 600).min(6));
-         let mins = (45_u64 + ((elapsed_secs / 17) % 15)) % 60;
-         let secs = (12_u64 + ((elapsed_secs + seed) % 48)) % 60;
-         header.time_to_go = format!("{hours:02}:{mins:02}:{secs:02}");
+         header.time_to_go = format_demo_countdown(elapsed_secs, seed);
       },
    }
+}
 
+fn format_demo_countdown(elapsed_secs: u64, seed: u64) -> String {
+   let hours = 6_u64.saturating_sub((elapsed_secs / 600).min(6));
+   let mins = (45_u64 + ((elapsed_secs / 17) % 15)) % 60;
+   let secs = (12_u64 + ((elapsed_secs + seed) % 48)) % 60;
+   format!("{hours:02}:{mins:02}:{secs:02}")
+}
+
+fn mutate_demo_entries(series: Series, entries: &mut [TimingEntry], seed: u64, elapsed_secs: u64) {
    for (idx, entry) in entries.iter_mut().enumerate() {
-      if let Some(base_laps) = parse_laps(&entry.laps) {
-         let pace = if idx == 0 { 22 } else { 24 + (idx as u64 % 4) };
-         entry.laps = base_laps.saturating_add(elapsed_secs / pace).to_string();
-      }
-
+      update_demo_entry_laps(entry, elapsed_secs, idx);
       apply_demo_pit_state(series, entry, seed, elapsed_secs, idx as u64);
+      update_demo_entry_gaps(entry, elapsed_secs, seed, idx);
+   }
+}
 
-      if idx == 0 {
-         entry.gap_overall = "-".to_string();
-         entry.gap_class = "-".to_string();
-         entry.gap_next_in_class = "-".to_string();
-         continue;
-      }
+fn update_demo_entry_laps(entry: &mut TimingEntry, elapsed_secs: u64, idx: usize) {
+   if let Some(base_laps) = parse_laps(&entry.laps) {
+      let pace = if idx == 0 { 22 } else { 24 + (idx as u64 % 4) };
+      entry.laps = base_laps.saturating_add(elapsed_secs / pace).to_string();
+   }
+}
 
-      let movement = (((elapsed_secs / 8) + seed + idx as u64) % 30) as f32 / 10.0;
-      let base = idx as f32 * 2.3;
-      let gap = base + movement;
-      let gap_text = format!("+{gap:.3}");
-      entry.gap_overall = gap_text.clone();
-      entry.gap_class = gap_text;
-      entry.gap_next_in_class = format!("+{:.3}", 1.1 + movement / 2.0);
+fn update_demo_entry_gaps(entry: &mut TimingEntry, elapsed_secs: u64, seed: u64, idx: usize) {
+   if idx == 0 {
+      entry.gap_overall = "-".to_string();
+      entry.gap_class = "-".to_string();
+      entry.gap_next_in_class = "-".to_string();
+      return;
    }
 
-   (header, entries)
+   // Safe: idx is typically under 100, well within f32 precision
+   let idx_u16 = u16::try_from(idx).unwrap_or(0);
+   let movement_raw =
+      u16::try_from(((elapsed_secs / 8) + seed + u64::from(idx_u16)) % 30).unwrap_or(0);
+   let movement = f32::from(movement_raw) / 10.0;
+   let base = f32::from(idx_u16) * 2.3;
+   let gap = base + movement;
+   let gap_text = format!("+{gap:.3}");
+   entry.gap_overall.clone_from(&gap_text);
+   entry.gap_class = gap_text;
+   entry.gap_next_in_class = format!("+{:.3}", 1.1 + movement / 2.0);
 }
 
 fn parse_laps(raw: &str) -> Option<u64> {
-   let digits: String = raw.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+   let digits: String = raw.chars().take_while(char::is_ascii_digit).collect();
    if digits.is_empty() {
       return None;
    }
@@ -123,8 +153,12 @@ fn apply_demo_pit_state(
 }
 
 fn demo_nls_sector_5_time(lane: u64, elapsed_secs: u64) -> String {
-   let base_secs = 92.0 + ((lane % 17) as f32) * 0.7;
-   let wobble = ((elapsed_secs % 19) as f32) * 0.031;
+   // lane % 17 produces values 0-16, well within f32 precision
+   let lane_component = u16::try_from(lane % 17).unwrap_or(0);
+   let base_secs = 92.0_f32 + f32::from(lane_component) * 0.7;
+   // elapsed_secs % 19 produces values 0-18, well within f32 precision
+   let elapsed_component = u16::try_from(elapsed_secs % 19).unwrap_or(0);
+   let wobble = f32::from(elapsed_component) * 0.031;
    format!("{:.3}", base_secs + wobble)
 }
 
@@ -140,13 +174,16 @@ fn parse_stop_count(raw: &str) -> Option<u64> {
    raw.trim().parse::<u64>().ok()
 }
 
-pub fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
+pub fn seed_demo_favourites<S: std::hash::BuildHasher>(
+   series: Series,
+   favourites: &mut HashSet<String, S>,
+) {
    for stable_id in demo_favourite_ids(series) {
       favourites.insert(format!("{}|{}", series.as_key_prefix(), stable_id));
    }
 }
 
-fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
+const fn demo_favourite_ids(series: Series) -> &'static [&'static str] {
    match series {
       Series::Imsa => &["imsa:7", "imsa:31", "imsa:77"],
       Series::Nls => &["nls:911", "nls:27", "nls:18"],
@@ -421,6 +458,21 @@ fn f1_entries() -> Vec<TimingEntry> {
 }
 
 fn imsa_entries() -> Vec<TimingEntry> {
+   let mut entries = imsa_gtp_entries();
+   entries.append(&mut imsa_lmp2_entries());
+   entries.append(&mut imsa_gtd_pro_entries());
+   entries.append(&mut imsa_gtd_entries());
+   entries
+}
+
+fn imsa_gtp_entries() -> Vec<TimingEntry> {
+   [imsa_gtp_entries_top3(), imsa_gtp_entries_bottom2()]
+      .into_iter()
+      .flatten()
+      .collect()
+}
+
+fn imsa_gtp_entries_top3() -> Vec<TimingEntry> {
    vec![
       entry!(
          1,
@@ -482,6 +534,11 @@ fn imsa_entries() -> Vec<TimingEntry> {
          "R. van der Zande",
          "imsa:01",
       ),
+   ]
+}
+
+fn imsa_gtp_entries_bottom2() -> Vec<TimingEntry> {
+   vec![
       entry!(
          4,
          "24",
@@ -522,6 +579,11 @@ fn imsa_entries() -> Vec<TimingEntry> {
          "R. Taylor",
          "imsa:10",
       ),
+   ]
+}
+
+fn imsa_lmp2_entries() -> Vec<TimingEntry> {
+   vec![
       entry!(
          6,
          "52",
@@ -582,6 +644,11 @@ fn imsa_entries() -> Vec<TimingEntry> {
          "M. Beche",
          "imsa:11",
       ),
+   ]
+}
+
+fn imsa_gtd_pro_entries() -> Vec<TimingEntry> {
+   vec![
       entry!(
          9,
          "77",
@@ -642,6 +709,11 @@ fn imsa_entries() -> Vec<TimingEntry> {
          "A. Pier Guidi",
          "imsa:62",
       ),
+   ]
+}
+
+fn imsa_gtd_entries() -> Vec<TimingEntry> {
+   vec![
       entry!(
          12,
          "27",
@@ -710,6 +782,21 @@ fn dhlm_entries() -> Vec<TimingEntry> {
 }
 
 fn nls_entries() -> Vec<TimingEntry> {
+   let mut entries = nls_sp9_entries();
+   entries.append(&mut nls_sp10_entries());
+   entries.append(&mut nls_vt2_entries());
+   entries.append(&mut nls_cup2_entries());
+   entries.append(&mut nls_sp8t_entries());
+   entries
+}
+
+fn nls_sp9_entries() -> Vec<TimingEntry> {
+   let mut entries = nls_sp9_entries_top3();
+   entries.append(&mut nls_sp9_entries_bottom2());
+   entries
+}
+
+fn nls_sp9_entries_top3() -> Vec<TimingEntry> {
    vec![
       entry!(
          1,
@@ -771,6 +858,11 @@ fn nls_entries() -> Vec<TimingEntry> {
          "-",
          "nls:98",
       ),
+   ]
+}
+
+fn nls_sp9_entries_bottom2() -> Vec<TimingEntry> {
+   vec![
       entry!(
          4,
          "54",
@@ -811,6 +903,11 @@ fn nls_entries() -> Vec<TimingEntry> {
          "-",
          "nls:44",
       ),
+   ]
+}
+
+fn nls_sp10_entries() -> Vec<TimingEntry> {
+   vec![
       entry!(
          6,
          "27",
@@ -851,6 +948,11 @@ fn nls_entries() -> Vec<TimingEntry> {
          "-",
          "nls:160",
       ),
+   ]
+}
+
+fn nls_vt2_entries() -> Vec<TimingEntry> {
+   vec![
       entry!(
          8,
          "50",
@@ -891,6 +993,11 @@ fn nls_entries() -> Vec<TimingEntry> {
          "-",
          "nls:500",
       ),
+   ]
+}
+
+fn nls_cup2_entries() -> Vec<TimingEntry> {
+   vec![
       entry!(
          10,
          "18",
@@ -931,27 +1038,30 @@ fn nls_entries() -> Vec<TimingEntry> {
          "-",
          "nls:970",
       ),
-      entry!(
-         12,
-         "608",
-         "SP8T",
-         "1",
-         "N. Verdonck",
-         "Toyota Supra GT4 EVO2",
-         "Teichmann Racing With Very Long Team Name",
-         "19",
-         "+3 Laps",
-         "-",
-         "-",
-         "8:49.312",
-         "8:44.762",
-         "-",
-         "-",
-         "-",
-         "-",
-         "nls:608",
-      ),
    ]
+}
+
+fn nls_sp8t_entries() -> Vec<TimingEntry> {
+   vec![entry!(
+      12,
+      "608",
+      "SP8T",
+      "1",
+      "N. Verdonck",
+      "Toyota Supra GT4 EVO2",
+      "Teichmann Racing With Very Long Team Name",
+      "19",
+      "+3 Laps",
+      "-",
+      "-",
+      "8:49.312",
+      "8:44.762",
+      "-",
+      "-",
+      "-",
+      "-",
+      "nls:608",
+   )]
 }
 
 #[cfg(test)]

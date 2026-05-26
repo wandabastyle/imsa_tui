@@ -6,7 +6,7 @@ use tungstenite::Error as WsError;
 
 use super::{
    countdown::{
-      now_millis,
+      now_unix_ms,
       refresh_header_time_to_go,
       CountdownState,
    },
@@ -22,7 +22,7 @@ use crate::timing::{
 };
 
 fn get_str<'a>(obj: &'a Value, key: &str) -> Option<&'a str> {
-   obj.get(key).and_then(|x| x.as_str())
+   obj.get(key).and_then(serde_json::Value::as_str)
 }
 
 fn first_non_empty<'a>(obj: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -34,12 +34,13 @@ fn first_non_empty<'a>(obj: &'a Value, keys: &[&str]) -> Option<&'a str> {
 }
 
 fn parse_u32_field(obj: &Value, key: &str) -> Option<u32> {
-   if let Some(s) = get_str(obj, key) {
-      return s.trim().parse::<u32>().ok();
-   }
-   obj.get(key)
-      .and_then(|x| x.as_u64())
-      .and_then(|n| u32::try_from(n).ok())
+   get_str(obj, key)
+      .and_then(|s| s.trim().parse::<u32>().ok())
+      .or_else(|| {
+         obj.get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+      })
 }
 
 fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
@@ -50,7 +51,7 @@ fn non_empty_field(obj: &Value, key: &str) -> Option<String> {
       }
    }
 
-   if let Some(n) = obj.get(key).and_then(|x| x.as_u64()) {
+   if let Some(n) = obj.get(key).and_then(serde_json::Value::as_u64) {
       return Some(n.to_string());
    }
 
@@ -78,53 +79,74 @@ fn raw_sector_field(v: &Value, sector_no: usize) -> String {
    "-".to_string()
 }
 
+fn parse_seconds_centis(secs_text: &str) -> Option<u64> {
+   let trimmed = secs_text.trim();
+   if trimmed.is_empty() {
+      return None;
+   }
+   let (whole_text, frac_text) = trimmed.split_once('.').unwrap_or((trimmed, ""));
+   let whole = whole_text.parse::<u64>().ok()?;
+   let mut frac_digits = frac_text.chars().filter(char::is_ascii_digit);
+   let d1 = frac_digits.next().and_then(|d| d.to_digit(10)).unwrap_or(0);
+   let d2 = frac_digits.next().and_then(|d| d.to_digit(10)).unwrap_or(0);
+   let d3 = frac_digits.next().and_then(|d| d.to_digit(10)).unwrap_or(0);
+   let mut centis = whole
+      .saturating_mul(100)
+      .saturating_add(u64::from(d1 * 10 + d2));
+   if d3 >= 5 {
+      centis = centis.saturating_add(1);
+   }
+   Some(centis)
+}
+
+fn parse_time_to_centisecs(s: &str) -> Option<u64> {
+   let parts: Vec<&str> = s.split(':').collect();
+   match parts.len() {
+      1 => parse_seconds_centis(parts[0]),
+      2 => {
+         let mins: u64 = parts[0].parse().ok()?;
+         let centis = parse_seconds_centis(parts[1])?;
+         Some(mins.saturating_mul(6000).saturating_add(centis))
+      },
+      3 => {
+         let hours: u64 = parts[0].parse().ok()?;
+         let mins: u64 = parts[1].parse().ok()?;
+         let centis = parse_seconds_centis(parts[2])?;
+         Some(
+            hours
+               .saturating_mul(360_000)
+               .saturating_add(mins.saturating_mul(6000))
+               .saturating_add(centis),
+         )
+      },
+      _ => None,
+   }
+}
+
+fn format_centisecs(cs: u64) -> String {
+   let hours = cs / 360_000;
+   let mins = (cs % 360_000) / 6000;
+   let secs_remainder = u32::try_from(cs % 6000).unwrap_or(5999);
+   let secs = f64::from(secs_remainder) / 100.0;
+   if hours > 0 {
+      format!("{hours}:{mins:02}:{secs:05.2}")
+   } else if mins > 0 {
+      format!("{mins}:{secs:05.2}")
+   } else {
+      format!("{secs:05.2}")
+   }
+}
+
 fn sum_sector_times(time1: &str, time2: &str) -> String {
    if time1 == "-" || time2 == "-" {
       return "-".to_string();
    }
 
-   fn parse_time_to_centisecs(s: &str) -> Option<u64> {
-      let parts: Vec<&str> = s.split(':').collect();
-      match parts.len() {
-         1 => {
-            let secs = parts[0].parse::<f64>().ok()?;
-            Some((secs * 100.0) as u64)
-         },
-         2 => {
-            let mins: u64 = parts[0].parse().ok()?;
-            let secs: f64 = parts[1].parse().ok()?;
-            Some(mins * 6000 + (secs * 100.0) as u64)
-         },
-         3 => {
-            let hours: u64 = parts[0].parse().ok()?;
-            let mins: u64 = parts[1].parse().ok()?;
-            let secs: f64 = parts[2].parse().ok()?;
-            Some(hours * 360000 + mins * 6000 + (secs * 100.0) as u64)
-         },
-         _ => None,
-      }
-   }
-
-   fn format_centisecs(cs: u64) -> String {
-      let hours = cs / 360000;
-      let mins = (cs % 360000) / 6000;
-      let secs = (cs % 6000) as f64 / 100.0;
-      if hours > 0 {
-         format!("{}:{:02}:{:05.2}", hours, mins, secs)
-      } else if mins > 0 {
-         format!("{}:{:05.2}", mins, secs)
-      } else {
-         format!("{:05.2}", secs)
-      }
-   }
-
-   let t1 = match parse_time_to_centisecs(time1) {
-      Some(v) => v,
-      None => return time1.to_string(),
+   let Some(t1) = parse_time_to_centisecs(time1) else {
+      return time1.to_string();
    };
-   let t2 = match parse_time_to_centisecs(time2) {
-      Some(v) => v,
-      None => return time1.to_string(),
+   let Some(t2) = parse_time_to_centisecs(time2) else {
+      return time1.to_string();
    };
    let sum = t1.saturating_add(t2);
    format_centisecs(sum)
@@ -175,6 +197,7 @@ fn pit_flag_from_inout_state(inout_state: &str) -> String {
    "-".to_string()
 }
 
+#[must_use]
 pub fn entry_from_value(v: &Value, event_id: &str) -> Option<TimingEntry> {
    let car_number = parse_u32_field(v, "STNR")?.to_string();
    let class_name = get_str(v, "CLASSNAME").unwrap_or("-").to_string();
@@ -288,7 +311,7 @@ fn session_text(raw: &str) -> String {
    }
 }
 
-pub(super) fn parse_ws_message(
+pub(crate) fn parse_ws_message(
    text: &str,
    header: &mut TimingHeader,
    termine_event_name: Option<&str>,
@@ -315,9 +338,7 @@ pub(super) fn parse_ws_message(
          }
 
          let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
-         let cup_is_dhlm = ws_cup
-            .map(|name| name.to_ascii_lowercase().contains("dhlm"))
-            .unwrap_or(false);
+         let cup_is_dhlm = ws_cup.is_some_and(|name| name.to_ascii_lowercase().contains("dhlm"));
 
          if cup_is_dhlm {
             header.event_name = ws_cup.unwrap().to_string();
@@ -368,9 +389,7 @@ pub(super) fn parse_ws_message(
          }
 
          let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
-         let cup_is_dhlm = ws_cup
-            .map(|name| name.to_ascii_lowercase().contains("dhlm"))
-            .unwrap_or(false);
+         let cup_is_dhlm = ws_cup.is_some_and(|name| name.to_ascii_lowercase().contains("dhlm"));
 
          if cup_is_dhlm {
             header.event_name = ws_cup.unwrap().to_string();
@@ -387,41 +406,40 @@ pub(super) fn parse_ws_message(
          *countdown = Some(CountdownState {
             end_time_raw,
             time_state_raw: time_state_raw.to_string(),
-            received_at_ms: now_millis() as u64,
+            received_at_ms: now_unix_ms(),
             is_race_session: *is_race_session,
          });
 
          refresh_header_time_to_go(header, countdown.as_ref());
          Some((None, true))
       },
-      "LTS_TIMESYNC" => None,
       _ => None,
    }
 }
 
 #[cfg(test)]
-pub(super) fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
+pub fn set_tcp_read_timeout(stream: &mut std::net::TcpStream, timeout: Duration) {
    let _ = stream.set_read_timeout(Some(timeout));
 }
 
-pub(super) fn should_emit_connected_status_on_update(
+pub(crate) const fn should_emit_connected_status_on_update(
    header_changed: bool,
    connected_status_already_sent: bool,
 ) -> bool {
    !header_changed && !connected_status_already_sent
 }
 
-pub(super) fn refresh_active_event_id(
-   active_event_id: &mut &'static str,
-   refresh_result: Result<&'static str, String>,
+pub(crate) fn refresh_active_event_id(
+   active_event_id: &mut String,
+   refresh_result: Result<&str, String>,
 ) -> Option<String> {
    match refresh_result {
       Ok(event_id) => {
-         if *active_event_id != event_id {
-            *active_event_id = event_id;
-            Some(format!("NLS switching to eventId {event_id}"))
-         } else {
+         if *active_event_id == event_id {
             None
+         } else {
+            *active_event_id = event_id.to_string();
+            Some(format!("NLS switching to eventId {event_id}"))
          }
       },
       Err(err) => {
@@ -433,7 +451,7 @@ pub(super) fn refresh_active_event_id(
    }
 }
 
-pub(super) fn is_retriable_timeout(err: &WsError) -> bool {
+pub(crate) fn is_retriable_timeout(err: &WsError) -> bool {
    matches!(
        err,
        WsError::Io(io_err)

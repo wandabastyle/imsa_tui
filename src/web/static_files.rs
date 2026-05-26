@@ -36,7 +36,8 @@ static EMBEDDED_WEB_DIST: include_dir::Dir<'_> =
    include_dir::include_dir!("$CARGO_MANIFEST_DIR/web/build");
 
 impl StaticConfig {
-   pub fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
+   #[must_use]
+   pub const fn new(root_dir: PathBuf, prefer_embedded: bool) -> Self {
       Self {
          root_dir,
          source: select_source(prefer_embedded),
@@ -79,9 +80,8 @@ pub async fn asset_or_index(config: StaticConfig, request_path: &str) -> impl In
 }
 
 async fn serve_file_or_404(path: PathBuf) -> Response {
-   let data = match tokio::fs::read(&path).await {
-      Ok(data) => data,
-      Err(_) => return StatusCode::NOT_FOUND.into_response(),
+   let Ok(data) = tokio::fs::read(&path).await else {
+      return StatusCode::NOT_FOUND.into_response();
    };
 
    let mime = mime_guess::from_path(&path).first_or_octet_stream();
@@ -134,7 +134,7 @@ fn serve_embedded_or_404(path: &str) -> Response {
    response
 }
 
-fn select_source(prefer_embedded: bool) -> StaticSource {
+const fn select_source(prefer_embedded: bool) -> StaticSource {
    #[cfg(feature = "embed-ui")]
    {
       if prefer_embedded {

@@ -64,8 +64,8 @@ const RESULTS_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceResults_JSON
 const RESULTS_CALLBACK: &str = "jsonpRaceResults";
 const RACE_DATA_URL: &str = "https://dcqsrdkhg933g.cloudfront.net/RaceData_JSONP.json";
 const RACE_DATA_CALLBACK: &str = "jsonpRaceData";
-pub const POLL_INTERVAL: Duration = Duration::from_millis(5000);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
+pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 const WAITING_NEXT_SESSION_STATUS: &str = "Waiting for next session feed";
 
 pub type ImsaDebugOutput = SeriesDebugOutput;
@@ -125,15 +125,15 @@ impl ImsaRuntimeState {
    }
 }
 
-pub fn polling_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   polling_worker_with_debug(tx, source_id, stop_rx, ImsaDebugOutput::Silent)
+pub fn polling_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   polling_worker_with_debug(tx, source_id, stop_rx, &ImsaDebugOutput::Silent);
 }
 
 pub fn polling_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: ImsaDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &ImsaDebugOutput,
 ) {
    let client = match Client::builder()
       .timeout(Duration::from_secs(12))
@@ -152,8 +152,8 @@ pub fn polling_worker_with_debug(
       },
    };
 
-   let mut runtime = ImsaRuntimeState::new(debug_output);
-   restore_snapshot_from_disk(&mut runtime, &tx, source_id);
+   let mut runtime = ImsaRuntimeState::new(debug_output.clone());
+   restore_snapshot_from_disk(&mut runtime, tx, source_id);
    let _ = tx.send(TimingMessage::Status {
       source_id,
       text: "[SNAPSHOT] Restored from saved data".to_string(),
@@ -179,7 +179,7 @@ pub fn polling_worker_with_debug(
          now_millis(),
       ) {
          Ok(fetched) => {
-            handle_fetched_snapshot(&tx, source_id, &mut runtime, fetched);
+            handle_fetched_snapshot(tx, source_id, &mut runtime, fetched);
          },
          Err(err) => {
             let _ = tx.send(TimingMessage::Error {
@@ -219,21 +219,21 @@ fn handle_fetched_snapshot(
       &fetched.entries,
    );
    if runtime.last_classification != Some(classification) {
-      let message = match runtime.last_classification {
-         Some(previous) => {
+      let message = runtime.last_classification.map_or_else(
+         || {
+            format!(
+               "IMSA payload classified as {}.",
+               payload_classification_label(classification)
+            )
+         },
+         |previous| {
             format!(
                "IMSA payload classification changed: {} -> {}.",
                payload_classification_label(previous),
                payload_classification_label(classification)
             )
          },
-         None => {
-            format!(
-               "IMSA payload classified as {}.",
-               payload_classification_label(classification)
-            )
-         },
-      };
+      );
       log_debug(&runtime.debug_output, message);
    }
    runtime.last_classification = Some(classification);
@@ -268,9 +268,8 @@ fn handle_fetched_snapshot(
    };
 
    let first_real_of_session = session_id.is_some() && session_id != runtime.last_session_id;
-   let materially_changed = previous_snapshot
-      .map(|prev| prev.fingerprint != snapshot.fingerprint)
-      .unwrap_or(true);
+   let materially_changed =
+      previous_snapshot.is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
 
    runtime.last_good_live_snapshot = Some(snapshot.clone());
    runtime.last_session_id = session_id;
@@ -330,9 +329,7 @@ fn classify_payload(
 }
 
 fn has_meaningful_results_rows(results_root: &Value) -> bool {
-   extract_results_rows(results_root)
-      .map(|rows| rows.iter().any(row_looks_meaningful))
-      .unwrap_or(false)
+   extract_results_rows(results_root).is_some_and(|rows| rows.iter().any(row_looks_meaningful))
 }
 
 fn extract_results_rows(results_root: &Value) -> Option<&[Value]> {
@@ -369,8 +366,7 @@ fn race_data_looks_shell_only(race_data_root: &Value) -> bool {
 
 fn value_looks_real(value: &Value) -> bool {
    match value {
-      Value::Null => false,
-      Value::Bool(_) => false,
+      Value::Null | Value::Bool(_) => false,
       Value::Number(number) => {
          number
             .as_i64()
@@ -416,7 +412,7 @@ fn is_session_complete(race_data_root: &Value, header: &TimingHeader) -> bool {
    false
 }
 
-fn payload_classification_label(classification: PayloadClassification) -> &'static str {
+const fn payload_classification_label(classification: PayloadClassification) -> &'static str {
    match classification {
       PayloadClassification::Placeholder => "placeholder",
       PayloadClassification::Real => "real",
@@ -448,11 +444,11 @@ fn dirty_transition_reason(
       .entries
       .first()
       .map(|entry| entry.stable_id.as_str());
-   let next_leader = next_entries.first().map(|entry| entry.stable_id.as_str());
-   if previous_leader != next_leader {
+   let new_leader = next_entries.first().map(|entry| entry.stable_id.as_str());
+   if previous_leader != new_leader {
       let previous_text = previous_leader.unwrap_or("-");
-      let next_text = next_leader.unwrap_or("-");
-      return format!("leader changed {previous_text} -> {next_text}");
+      let new_text = new_leader.unwrap_or("-");
+      return format!("leader changed {previous_text} -> {new_text}");
    }
 
    if previous.header.flag != next_header.flag {
@@ -472,6 +468,7 @@ fn dirty_transition_reason(
    "classification/timing fields updated".to_string()
 }
 
+#[must_use]
 pub fn normalize_class_name(name: &str) -> String {
    normalize_class_name_impl(name)
 }

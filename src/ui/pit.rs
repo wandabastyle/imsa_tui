@@ -26,14 +26,14 @@ enum PitHighlightPhase {
 }
 
 #[derive(Clone)]
-pub(crate) struct PitTracker {
+pub struct PitTracker {
    in_pit:    bool,
    in_until:  Option<Instant>,
    out_until: Option<Instant>,
 }
 
 impl PitTracker {
-   fn new() -> Self {
+   const fn new() -> Self {
       Self {
          in_pit:    false,
          in_until:  None,
@@ -76,7 +76,7 @@ fn pit_phase_style(phase: PitHighlightPhase) -> Option<Style> {
    }
 }
 
-pub(crate) fn refresh_pit_trackers(
+pub fn refresh_pit_trackers(
    trackers: &mut HashMap<String, PitTracker>,
    entries: &[TimingEntry],
    active_series: Series,
@@ -111,7 +111,7 @@ pub(crate) fn refresh_pit_trackers(
    }
 }
 
-pub(crate) fn pit_style_for_entry(
+pub fn pit_style_for_entry(
    trackers: &HashMap<String, PitTracker>,
    entry: &TimingEntry,
    now: Instant,
@@ -129,12 +129,12 @@ fn pit_phase_for_entry(
    };
 
    if tracker.in_pit {
-      if tracker.in_until.map(|until| now <= until).unwrap_or(false) {
+      if tracker.in_until.is_some_and(|until| now <= until) {
          PitHighlightPhase::In
       } else {
          PitHighlightPhase::Pit
       }
-   } else if tracker.out_until.map(|until| now <= until).unwrap_or(false) {
+   } else if tracker.out_until.is_some_and(|until| now <= until) {
       PitHighlightPhase::Out
    } else {
       PitHighlightPhase::None

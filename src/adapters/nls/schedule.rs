@@ -3,24 +3,24 @@ use reqwest::{
    Url,
 };
 
-const DEFAULT_NLS_EVENT_ID: &str = "20";
-pub(super) const N24_EVENT_ID: &str = "50";
+pub(crate) const DEFAULT_NLS_EVENT_ID: &str = "20";
+pub(crate) const N24_EVENT_ID: &str = "50";
 const NLS_HOME_URL: &str = "https://www.nuerburgring-langstrecken-serie.de/language/de/startseite/";
 const N24_TERMINE_URL: &str = "https://www.24h-rennen.de/termine/";
-pub(super) const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
+pub(crate) const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct CalendarDate {
-   pub(super) year:  i32,
-   pub(super) month: u32,
-   pub(super) day:   u32,
+pub(crate) struct CalendarDate {
+   pub(crate) year:  i32,
+   pub(crate) month: u32,
+   pub(crate) day:   u32,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct TermineScheduleEntry {
-   pub(super) start: CalendarDate,
-   pub(super) end:   CalendarDate,
-   pub(super) title: String,
+pub(crate) struct TermineScheduleEntry {
+   pub(crate) start: CalendarDate,
+   pub(crate) end:   CalendarDate,
+   pub(crate) title: String,
 }
 
 fn strip_tags(raw: &str) -> String {
@@ -84,7 +84,7 @@ fn resolve_url(base: &str, href: &str) -> Option<String> {
    base_url.join(href).ok().map(|url| url.to_string())
 }
 
-pub(super) fn discover_termine_url_from_homepage_html(homepage_html: &str) -> Option<String> {
+pub(crate) fn discover_termine_url_from_homepage_html(homepage_html: &str) -> Option<String> {
    let mut generic_candidate: Option<String> = None;
 
    for (tag, label) in find_anchor_elements(homepage_html) {
@@ -172,7 +172,7 @@ fn extract_table_cells(row_html: &str) -> Vec<String> {
    cells
 }
 
-pub(super) fn parse_termine_entries(html: &str) -> Vec<TermineScheduleEntry> {
+pub(crate) fn parse_termine_entries(html: &str) -> Vec<TermineScheduleEntry> {
    let mut entries = Vec::new();
    let mut offset = 0;
 
@@ -218,7 +218,7 @@ pub(super) fn parse_termine_entries(html: &str) -> Vec<TermineScheduleEntry> {
    entries
 }
 
-pub(super) fn select_active_termine_event_title(
+pub(crate) fn select_active_termine_event_title(
    entries: &[TermineScheduleEntry],
    today: CalendarDate,
 ) -> Option<String> {
@@ -244,7 +244,7 @@ pub(super) fn select_active_termine_event_title(
       .map(|entry| entry.title.clone())
 }
 
-pub(super) fn fetch_termine_event_name(client: &Client) -> Result<String, String> {
+pub(crate) fn fetch_termine_event_name(client: &Client) -> Result<String, String> {
    let termine_url = discover_termine_url(client)?;
    let response = client
       .get(&termine_url)
@@ -296,10 +296,10 @@ fn parse_event_name_from_homepage(html: &str) -> Option<String> {
       return None;
    }
 
-   Some(format!("{} - {}", nls_code, race_title))
+   Some(format!("{nls_code} - {race_title}"))
 }
 
-pub(super) fn fetch_homepage_event_name(client: &Client) -> Option<String> {
+pub(crate) fn fetch_homepage_event_name(client: &Client) -> Option<String> {
    let response = client.get(NLS_HOME_URL).send().ok()?;
    let html = response.text().ok()?;
    parse_event_name_from_homepage(&html)
@@ -314,7 +314,7 @@ fn decode_basic_html_entities(raw: &str) -> String {
       .replace("&amp;", "&")
 }
 
-pub(super) fn html_to_text_lines(html: &str) -> Vec<String> {
+pub(crate) fn html_to_text_lines(html: &str) -> Vec<String> {
    let mut text = String::with_capacity(html.len());
    let mut in_tag = false;
 
@@ -341,11 +341,11 @@ pub(super) fn html_to_text_lines(html: &str) -> Vec<String> {
       .collect()
 }
 
-fn is_leap_year(year: i32) -> bool {
+const fn is_leap_year(year: i32) -> bool {
    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
-fn days_in_month(year: i32, month: u32) -> Option<u32> {
+const fn days_in_month(year: i32, month: u32) -> Option<u32> {
    match month {
       1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
       4 | 6 | 9 | 11 => Some(30),
@@ -356,7 +356,7 @@ fn days_in_month(year: i32, month: u32) -> Option<u32> {
 }
 
 fn parse_u32_fragment(raw: &str) -> Option<u32> {
-   let digits: String = raw.chars().filter(|ch| ch.is_ascii_digit()).collect();
+   let digits: String = raw.chars().filter(char::is_ascii_digit).collect();
    if digits.is_empty() {
       None
    } else {
@@ -364,7 +364,7 @@ fn parse_u32_fragment(raw: &str) -> Option<u32> {
    }
 }
 
-pub(super) fn parse_german_date_range(raw: &str) -> Option<(CalendarDate, CalendarDate)> {
+pub(crate) fn parse_german_date_range(raw: &str) -> Option<(CalendarDate, CalendarDate)> {
    let normalized = normalize_spaces(&raw.replace(['–', '—', '−'], "-"));
    let (left, right) = normalized.split_once('-')?;
 
@@ -393,7 +393,7 @@ pub(super) fn parse_german_date_range(raw: &str) -> Option<(CalendarDate, Calend
    ))
 }
 
-pub(super) fn extract_date_range_for_event_title(
+pub(crate) fn extract_date_range_for_event_title(
    lines: &[String],
    target_event_title: &str,
    year: i32,
@@ -419,7 +419,7 @@ pub(super) fn extract_date_range_for_event_title(
    None
 }
 
-pub(super) fn title_matches_24h_qualifiers(title: &str) -> bool {
+pub(crate) fn title_matches_24h_qualifiers(title: &str) -> bool {
    let normalized = title.to_ascii_lowercase();
    normalized.contains("24h") && normalized.contains("qualifier")
 }
@@ -464,11 +464,11 @@ fn date_within_range(today: CalendarDate, range: Option<(CalendarDate, CalendarD
 fn local_today() -> Option<CalendarDate> {
    let mut timestamp: libc::time_t = 0;
    unsafe {
-      if libc::time(&mut timestamp) < 0 {
+      if libc::time(&raw mut timestamp) < 0 {
          return None;
       }
       let mut local_tm: libc::tm = std::mem::zeroed();
-      if libc::localtime_r(&timestamp, &mut local_tm).is_null() {
+      if libc::localtime_r(&raw const timestamp, &raw mut local_tm).is_null() {
          return None;
       }
       Some(CalendarDate {
@@ -479,7 +479,7 @@ fn local_today() -> Option<CalendarDate> {
    }
 }
 
-pub(super) fn determine_active_nuerburgring_event_id(
+pub(crate) fn determine_active_nuerburgring_event_id(
    client: &Client,
 ) -> Result<&'static str, String> {
    let today = local_today().ok_or_else(|| "failed to resolve local date".to_string())?;

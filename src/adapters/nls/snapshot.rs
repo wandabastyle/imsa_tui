@@ -19,17 +19,17 @@ use crate::{
    },
 };
 
-pub(super) type NlsSnapshot = shared_snapshot::Snapshot;
+pub(crate) type NlsSnapshot = shared_snapshot::Snapshot;
 
-pub(super) fn derive_session_id(header: &TimingHeader) -> Option<String> {
+pub(crate) fn derive_session_id(header: &TimingHeader) -> Option<String> {
    derive_session_identifier(header)
 }
 
-pub(super) fn nls_snapshot_path() -> Option<std::path::PathBuf> {
+pub(crate) fn nls_snapshot_path() -> Option<std::path::PathBuf> {
    shared_snapshot::snapshot_path("nls_snapshot.json")
 }
 
-pub(super) fn meaningful_snapshot_fingerprint(
+pub(crate) fn meaningful_snapshot_fingerprint(
    header: &TimingHeader,
    entries: &[TimingEntry],
 ) -> u64 {
@@ -39,7 +39,7 @@ pub(super) fn meaningful_snapshot_fingerprint(
    })
 }
 
-pub(super) fn persist_snapshot(
+pub(crate) fn persist_snapshot(
    runtime: &mut PersistState,
    snapshot: &NlsSnapshot,
    saved_unix_ms: u64,
@@ -48,7 +48,7 @@ pub(super) fn persist_snapshot(
    shared_snapshot::persist_snapshot(runtime, snapshot, saved_unix_ms, "NLS", debug);
 }
 
-pub(super) fn persist_snapshot_if_dirty(
+pub(crate) fn persist_snapshot_if_dirty(
    runtime: &mut PersistState,
    snapshot: &NlsSnapshot,
    saved_unix_ms: u64,
@@ -57,7 +57,7 @@ pub(super) fn persist_snapshot_if_dirty(
    shared_snapshot::persist_snapshot_if_dirty(runtime, snapshot, saved_unix_ms, "NLS", debug);
 }
 
-/// Checks if time_to_go matches near-zero patterns ("00:00:01", "00:00:00",
+/// Checks if `time_to_go` matches near-zero patterns ("00:00:01", "00:00:00",
 /// "0:00", "0:00:00", or "0")
 fn is_near_zero_time_to_go(value: &str) -> bool {
    let trimmed = value.trim();
@@ -65,7 +65,7 @@ fn is_near_zero_time_to_go(value: &str) -> bool {
 }
 
 /// Sanitizes the header for event 50 (24h) race sessions with stale near-zero
-/// time_to_go values. Returns true if sanitization was applied.
+/// `time_to_go` values. Returns true if sanitization was applied.
 fn sanitize_event50_race_header(header: &mut TimingHeader) -> bool {
    // Check if this is event 50 (24h) and a race session
    if header.event_id != "50" || header.session_type_raw != "R" {
@@ -88,7 +88,7 @@ fn sanitize_event50_race_header(header: &mut TimingHeader) -> bool {
    true
 }
 
-pub(super) fn restore_snapshot_from_disk(
+pub(crate) fn restore_snapshot_from_disk(
    runtime: &mut PersistState,
    header: &mut TimingHeader,
    entries: &mut Vec<TimingEntry>,
@@ -105,8 +105,8 @@ pub(super) fn restore_snapshot_from_disk(
    runtime.dirty_since_last_save = false;
 
    // Restore header and entries
-   *header = saved.header;
-   *entries = saved.entries.clone();
+   header.clone_from(&saved.header);
+   entries.clone_from(&saved.entries);
 
    // Sanitize restored snapshot for event 50 race sessions with stale near-zero
    // time_to_go

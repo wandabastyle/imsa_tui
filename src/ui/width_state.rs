@@ -21,7 +21,7 @@ use crate::timing::{
 };
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SeriesWidthBaselines {
+pub struct SeriesWidthBaselines {
    persisted: PersistedSeriesWidthBaselines,
    dirty:     bool,
 }
@@ -36,7 +36,7 @@ struct PersistedSeriesWidthBaselines {
 }
 
 impl SeriesWidthBaselines {
-   pub(crate) fn load() -> Self {
+   pub fn load() -> Self {
       let Some(path) = width_baselines_path() else {
          return Self::default();
       };
@@ -52,7 +52,7 @@ impl SeriesWidthBaselines {
       }
    }
 
-   pub(crate) fn table_baselines(&self, active_series: Series) -> TableWidthBaselines<'_> {
+   pub const fn table_baselines(&self, active_series: Series) -> TableWidthBaselines<'_> {
       let active_nls = match active_series {
          Series::Nls => self.persisted.nls.as_ref(),
          Series::Dhlm => self.persisted.dhlm.as_ref(),
@@ -66,7 +66,7 @@ impl SeriesWidthBaselines {
       }
    }
 
-   pub(crate) fn capture_if_missing(&mut self, series: Series, entries: &[TimingEntry]) {
+   pub fn capture_if_missing(&mut self, series: Series, entries: &[TimingEntry]) {
       if entries.is_empty() {
          return;
       }
@@ -119,7 +119,7 @@ impl SeriesWidthBaselines {
       }
    }
 
-   pub(crate) fn persist_if_dirty(&mut self) {
+   pub fn persist_if_dirty(&mut self) {
       if !self.dirty {
          return;
       }

@@ -4,8 +4,13 @@ resolver = "2"
 
 [package]
 name = "imsa_tui"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
+description = "A terminal user interface for timing data"
+license = "MIT"
+repository = "https://github.com/yourusername/imsa_tui"
+keywords = ["timing", "racing", "motorsport", "tui"]
+categories = ["command-line-utilities"]
 
 [features]
 default = ["embed-ui"]
@@ -41,3 +46,24 @@ strip = true
 
 [profile.release.package.imsa_tui]
 opt-level = 3
+
+[lints.clippy]
+all      = { level = "warn", priority = -1 }
+cargo    = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Too noisy / low-value for this application.
+nursery = { level = "allow", priority = -1 }
+
+# Ecosystem noise from transitive dependencies.
+multiple_crate_versions = { level = "allow", priority = 1 }
+
+# Useful API-contract lints.
+must_use_candidate = "warn"
+return_self_not_must_use = "warn"
+
+# Relax noisy pedantic lints globally.
+too_many_lines = { level = "allow", priority = 1 }
+missing_panics_doc = { level = "allow", priority = 1 }
+module_name_repetitions = { level = "allow", priority = 1 }
+similar_names = { level = "allow", priority = 1 }

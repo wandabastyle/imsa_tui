@@ -15,15 +15,29 @@ use crate::timing::{
    TimingClassColor,
 };
 
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-   let t = t.clamp(0.0, 1.0);
-   ((a as f32) + ((b as f32) - (a as f32)) * t).round() as u8
+const FLAG_TRANSITION_MS: u128 = 450;
+
+fn lerp_u8(a: u8, b: u8, elapsed_ms: u128, duration_ms: u128) -> u8 {
+   if duration_ms == 0 {
+      return b;
+   }
+   let numerator = elapsed_ms.min(duration_ms);
+   let denom = i128::try_from(duration_ms).unwrap_or(i128::MAX);
+   let numer = i128::try_from(numerator).unwrap_or(denom);
+   let a_i = i128::from(a);
+   let diff = i128::from(b) - a_i;
+   let blended = a_i + ((diff * numer + (denom / 2)) / denom);
+   u8::try_from(blended.clamp(i128::from(u8::MIN), i128::from(u8::MAX))).unwrap_or(u8::MAX)
 }
 
-fn lerp_color(a: Color, b: Color, t: f32) -> Color {
+fn lerp_color(a: Color, b: Color, elapsed_ms: u128, duration_ms: u128) -> Color {
    match (a, b) {
       (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) => {
-         Color::Rgb(lerp_u8(ar, br, t), lerp_u8(ag, bg, t), lerp_u8(ab, bb, t))
+         Color::Rgb(
+            lerp_u8(ar, br, elapsed_ms, duration_ms),
+            lerp_u8(ag, bg, elapsed_ms, duration_ms),
+            lerp_u8(ab, bb, elapsed_ms, duration_ms),
+         )
       },
       _ => b,
    }
@@ -31,7 +45,7 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 
 fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
    match flag.trim().to_ascii_lowercase().as_str() {
-      "green" | "normal" => {
+      "green" | "normal" | "-" | "" => {
          (
             "Green".to_string(),
             Color::Rgb(0, 153, 68),
@@ -63,14 +77,6 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
             false,
          )
       },
-      "-" | "" => {
-         (
-            "Green".to_string(),
-            Color::Rgb(0, 153, 68),
-            Color::Black,
-            false,
-         )
-      },
       other => {
          (
             other.to_string(),
@@ -82,24 +88,29 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
    }
 }
 
-pub(crate) fn animated_flag_theme(
+pub fn animated_flag_theme(
    flag: &str,
    previous_flag: &str,
    transition_started_at: Instant,
 ) -> (String, Style, Style) {
-   let (flag_text, target_bg, target_fg, _) = base_flag_colors(flag);
+   let (flag_text, target_background, target_foreground, _) = base_flag_colors(flag);
    let (_, previous_bg, ..) = base_flag_colors(previous_flag);
 
-   let transition_t = (transition_started_at.elapsed().as_millis() as f32 / 450.0).clamp(0.0, 1.0);
-   let bg = lerp_color(previous_bg, target_bg, transition_t);
+   let elapsed_ms = transition_started_at.elapsed().as_millis();
+   let bg = lerp_color(
+      previous_bg,
+      target_background,
+      elapsed_ms,
+      FLAG_TRANSITION_MS,
+   );
 
-   let header_style = Style::default().fg(target_fg).bg(bg);
+   let header_style = Style::default().fg(target_foreground).bg(bg);
    let flag_span_style = header_style.add_modifier(Modifier::BOLD);
 
    (flag_text, flag_span_style, header_style)
 }
 
-pub(crate) fn class_style(
+pub fn class_style(
    class_name: &str,
    active_series: Series,
    class_colors: &BTreeMap<String, TimingClassColor>,
@@ -224,7 +235,7 @@ fn class_style_wec_static(class_key: &str) -> Style {
    }
 }
 
-pub(crate) fn class_display_name(name: &str) -> String {
+pub fn class_display_name(name: &str) -> String {
    canonicalize_class_name(name)
 }
 

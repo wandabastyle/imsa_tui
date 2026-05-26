@@ -8,6 +8,7 @@ use std::{
       hash_map::DefaultHasher,
       HashMap,
    },
+   fmt::Write,
    fs,
    hash::{
       Hash,
@@ -109,6 +110,7 @@ struct LoginAttemptState {
 }
 
 impl WebAuthConfig {
+   #[must_use]
    pub fn new(access_code_hash: String, cookie_secure: bool) -> Self {
       Self {
          access_code_hash,
@@ -126,9 +128,13 @@ impl WebAuthConfig {
    fn create_session(&self) -> Option<String> {
       let expires_at = now_unix_secs().saturating_add(self.session_ttl_secs);
       let token = generate_password(48);
-      let mut guard = self.sessions.write().ok()?;
+      let Ok(mut guard) = self.sessions.write() else {
+         return None;
+      };
       guard.insert(token.clone(), expires_at);
-      Some(token)
+      let result = Some(token);
+      drop(guard);
+      result
    }
 
    fn validate_headers(&self, headers: &HeaderMap) -> bool {
@@ -136,14 +142,15 @@ impl WebAuthConfig {
          return false;
       };
       let now = now_unix_secs();
-      let mut guard = match self.sessions.write() {
-         Ok(g) => g,
-         Err(_) => return false,
+      let Ok(mut guard) = self.sessions.write() else {
+         return false;
       };
 
       guard.retain(|_, expires| *expires > now);
 
-      matches!(guard.get(token), Some(expires) if *expires > now)
+      let result = matches!(guard.get(token), Some(expires) if *expires > now);
+      drop(guard);
+      result
    }
 
    fn revoke_from_headers(&self, headers: &HeaderMap) -> bool {
@@ -158,9 +165,8 @@ impl WebAuthConfig {
 
    fn check_login_allowed(&self, key: &str) -> Result<(), u64> {
       let now = now_unix_secs();
-      let mut guard = match self.login_attempts.write() {
-         Ok(g) => g,
-         Err(_) => return Err(self.login_block_secs),
+      let Ok(mut guard) = self.login_attempts.write() else {
+         return Err(self.login_block_secs);
       };
 
       guard.retain(|_, state| {
@@ -170,7 +176,9 @@ impl WebAuthConfig {
 
       let state = guard.entry(key.to_string()).or_default();
       if state.blocked_until > now {
-         return Err(state.blocked_until.saturating_sub(now));
+         let blocked_for = state.blocked_until.saturating_sub(now);
+         drop(guard);
+         return Err(blocked_for);
       }
 
       if now.saturating_sub(state.window_start) > self.login_window_secs {
@@ -214,7 +222,7 @@ impl WebAuthConfig {
    fn build_cookie(&self, name: &str, value: &str, max_age: Option<u64>) -> String {
       let mut cookie = format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax");
       if let Some(max_age) = max_age {
-         cookie.push_str(&format!("; Max-Age={max_age}"));
+         let _ = write!(cookie, "; Max-Age={max_age}");
       }
       if self.cookie_secure {
          cookie.push_str("; Secure");
@@ -380,22 +388,20 @@ fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u6
    response
 }
 
+#[must_use]
 pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    if rotate {
       let generated = generate_password(24);
-      let hash = match hash_access_code(&generated) {
-         Ok(value) => value,
-         Err(_) => {
-            return ResolvedAccessCode {
-               access_code_hash:     String::new(),
-               one_time_access_code: Some(generated),
-               state:                PasswordState::GeneratedEphemeral,
-            }
-         },
+      let Ok(hash) = hash_access_code(&generated) else {
+         return ResolvedAccessCode {
+            access_code_hash:     String::new(),
+            one_time_access_code: Some(generated),
+            state:                PasswordState::GeneratedEphemeral,
+         };
       };
 
       return match save_stored_auth(&hash) {
-         Ok(_) => {
+         Ok(()) => {
             ResolvedAccessCode {
                access_code_hash:     hash,
                one_time_access_code: Some(generated),
@@ -425,19 +431,16 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    }
 
    let generated = generate_password(24);
-   let hash = match hash_access_code(&generated) {
-      Ok(value) => value,
-      Err(_) => {
-         return ResolvedAccessCode {
-            access_code_hash:     String::new(),
-            one_time_access_code: Some(generated),
-            state:                PasswordState::GeneratedEphemeral,
-         }
-      },
+   let Ok(hash) = hash_access_code(&generated) else {
+      return ResolvedAccessCode {
+         access_code_hash:     String::new(),
+         one_time_access_code: Some(generated),
+         state:                PasswordState::GeneratedEphemeral,
+      };
    };
 
    match save_stored_auth(&hash) {
-      Ok(_) => {
+      Ok(()) => {
          ResolvedAccessCode {
             access_code_hash:     hash,
             one_time_access_code: Some(generated),
@@ -454,6 +457,12 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    }
 }
 
+/// Hash an access code using Argon2.
+///
+/// Generates a random salt and hashes the provided access code.
+///
+/// # Errors
+/// Returns an error if salt generation fails or if password hashing fails.
 pub fn hash_access_code(access_code: &str) -> Result<String, String> {
    let mut rng = rand::rng();
    let salt_bytes: [u8; 16] = rng.random();
@@ -473,6 +482,7 @@ fn verify_access_code(access_code: &str, access_code_hash: &str) -> Result<bool,
       .is_ok())
 }
 
+#[must_use]
 pub fn stored_auth_path() -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().join("web_auth.toml"))
@@ -545,8 +555,7 @@ fn login_attempt_key(headers: &HeaderMap) -> String {
 fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|d| d.as_secs())
-      .unwrap_or(0)
+      .map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]

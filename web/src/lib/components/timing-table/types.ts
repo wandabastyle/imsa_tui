@@ -20,6 +20,26 @@ export interface TimingTableProps {
   isGroupedMode?: boolean;
   markedStableId?: string | null;
   loading?: boolean;
+  minRowsPerGroup?: number;
+  setMinRowsPerGroup?: (value: number) => void;
+}
+
+export interface GroupedTableProps {
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  groupedSections: GroupSection[];
+  columns: string[];
+  selectedRow: number;
+  series: Series;
+  classColors: Record<string, TimingClassColor | undefined>;
+  gapAnchor: GapAnchorInfo | null;
+  pitTrackers: Map<string, PitTracker>;
+  favourites: Set<string>;
+  markedStableId: string | null;
+  title: string;
+  loading: boolean;
+  viewportHeight: number | null;
+  rowHeight: number | null;
+  minRowsPerGroup: number;
 }
 
 export interface PitTracker {

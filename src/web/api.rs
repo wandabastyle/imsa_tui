@@ -69,9 +69,8 @@ pub async fn get_snapshot(
       }
    }
 
-   match state.snapshot_response_for(series) {
-      Some(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
-      None => {
+   state.snapshot_response_for(series).map_or_else(
+      || {
          (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -80,7 +79,8 @@ pub async fn get_snapshot(
          )
             .into_response()
       },
-   }
+      |snapshot| (StatusCode::OK, Json(snapshot)).into_response(),
+   )
 }
 
 pub async fn get_demo_state(State(state): State<WebAppState>, headers: HeaderMap) -> Response {
@@ -213,7 +213,7 @@ fn from_api_preferences(value: Preferences) -> prefs::Preferences {
    }
 }
 
-fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
+const fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
    match value {
       crate::timing::Series::Imsa => web_shared::Series::Imsa,
       crate::timing::Series::Nls => web_shared::Series::Nls,
@@ -223,7 +223,7 @@ fn to_api_series(value: crate::timing::Series) -> web_shared::Series {
    }
 }
 
-fn from_api_series(value: web_shared::Series) -> crate::timing::Series {
+const fn from_api_series(value: web_shared::Series) -> crate::timing::Series {
    match value {
       web_shared::Series::Imsa => crate::timing::Series::Imsa,
       web_shared::Series::Nls => crate::timing::Series::Nls,
@@ -256,14 +256,14 @@ fn profile_context(
    state: &WebAppState,
    headers: &axum::http::HeaderMap,
 ) -> (String, Option<String>) {
-   let mut create_reason = "missing_cookie";
-
-   if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
+   let create_reason = if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
       if valid_profile_id(profile_id) {
          return (profile_id.to_string(), None);
       }
-      create_reason = "invalid_cookie";
-   }
+      "invalid_cookie"
+   } else {
+      "missing_cookie"
+   };
 
    let generated = generate_profile_id();
    let cookie = build_profile_cookie(state.profile_cookie_secure(), &generated);
@@ -295,8 +295,7 @@ fn profile_hint(profile_id: &str) -> String {
 fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|d| d.as_secs())
-      .unwrap_or(0)
+      .map_or(0, |d| d.as_secs())
 }
 
 fn with_profile_cookie(cookie: Option<String>, mut response: Response) -> Response {

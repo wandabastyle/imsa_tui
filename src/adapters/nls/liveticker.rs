@@ -22,7 +22,7 @@ pub enum LivetickerFeedKind {
 }
 
 impl LivetickerFeedKind {
-   fn url(self) -> &'static str {
+   const fn url(self) -> &'static str {
       match self {
             Self::Nls => "https://www.nuerburgring-langstrecken-serie.de/wp-content/themes/pofo-child/liveticker.php",
             Self::N24 => "https://www.24h-rennen.de/liveticker.php",
@@ -54,6 +54,7 @@ pub struct ActiveLivetickerFeed {
    pub rx:   Receiver<LivetickerWorkerMessage>,
 }
 
+#[must_use]
 pub fn start_liveticker_feed(kind: LivetickerFeedKind) -> ActiveLivetickerFeed {
    let (stop_tx, stop_rx) = mpsc::channel::<()>();
    let (tx, rx) = mpsc::channel::<LivetickerWorkerMessage>();
@@ -86,7 +87,7 @@ pub fn start_liveticker_feed(kind: LivetickerFeedKind) -> ActiveLivetickerFeed {
             Ok(latest_entries) => {
                let merged_entries = merge_entries(&latest_entries, &cached_entries);
                if merged_entries != cached_entries {
-                  cached_entries = merged_entries.clone();
+                  cached_entries.clone_from(&merged_entries);
                   let _ = tx.send(LivetickerWorkerMessage::Snapshot {
                      entries: merged_entries,
                   });
@@ -149,6 +150,7 @@ fn fetch_liveticker_entries(client: &Client, url: &str) -> Result<Vec<Liveticker
    Ok(parse_liveticker_entries(&body))
 }
 
+#[must_use]
 pub fn parse_liveticker_entries(raw: &str) -> Vec<LivetickerEntry> {
    let mut lines = extract_lines_from_table(raw);
    if lines.is_empty() {
@@ -394,7 +396,7 @@ fn parse_header_line(line: &str) -> Option<(String, String, String)> {
 
    Some((
       day.to_string(),
-      format!("{:02}:{minute}", hour_num),
+      format!("{hour_num:02}:{minute}"),
       inline_message,
    ))
 }

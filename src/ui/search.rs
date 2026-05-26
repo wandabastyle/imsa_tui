@@ -1,11 +1,11 @@
 use crate::timing::TimingEntry;
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SearchState {
-   pub(crate) query:         String,
-   pub(crate) matches:       Vec<usize>,
-   pub(crate) current_match: usize,
-   pub(crate) input_active:  bool,
+pub struct SearchState {
+   pub query:         String,
+   pub matches:       Vec<usize>,
+   pub current_match: usize,
+   pub input_active:  bool,
 }
 
 fn entry_matches_search(entry: &TimingEntry, query: &str) -> bool {
@@ -25,7 +25,7 @@ fn entry_matches_search(entry: &TimingEntry, query: &str) -> bool {
       || entry.team.to_ascii_lowercase().contains(&needle)
 }
 
-pub(crate) fn refresh_search_matches(search: &mut SearchState, view_entries: &[&TimingEntry]) {
+pub fn refresh_search_matches(search: &mut SearchState, view_entries: &[&TimingEntry]) {
    if search.query.trim().is_empty() {
       search.matches.clear();
       search.current_match = 0;

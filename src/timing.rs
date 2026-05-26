@@ -23,33 +23,30 @@ pub enum Series {
 }
 
 impl Series {
-   pub const fn all() -> [Series; 5] {
-      [
-         Series::Dhlm,
-         Series::F1,
-         Series::Imsa,
-         Series::Nls,
-         Series::Wec,
-      ]
+   #[must_use]
+   pub const fn all() -> [Self; 5] {
+      [Self::Dhlm, Self::F1, Self::Imsa, Self::Nls, Self::Wec]
    }
 
-   pub fn label(self) -> &'static str {
+   #[must_use]
+   pub const fn label(self) -> &'static str {
       match self {
-         Series::Dhlm => "DHLM",
-         Series::Imsa => "IMSA",
-         Series::Nls => "NLS",
-         Series::F1 => "F1",
-         Series::Wec => "WEC",
+         Self::Dhlm => "DHLM",
+         Self::Imsa => "IMSA",
+         Self::Nls => "NLS",
+         Self::F1 => "F1",
+         Self::Wec => "WEC",
       }
    }
 
-   pub fn as_key_prefix(self) -> &'static str {
+   #[must_use]
+   pub const fn as_key_prefix(self) -> &'static str {
       match self {
-         Series::Dhlm => "dhlm",
-         Series::Imsa => "imsa",
-         Series::Nls => "nls",
-         Series::F1 => "f1",
-         Series::Wec => "wec",
+         Self::Dhlm => "dhlm",
+         Self::Imsa => "imsa",
+         Self::Nls => "nls",
+         Self::F1 => "f1",
+         Self::Wec => "wec",
       }
    }
 }
@@ -90,6 +87,7 @@ pub struct TimingClassColor {
    pub color: String,
 }
 
+#[must_use]
 pub fn canonicalize_class_name(value: &str) -> String {
    let trimmed = value.trim();
    if trimmed.is_empty() || trimmed == "-" {

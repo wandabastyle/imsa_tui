@@ -34,6 +34,14 @@ pub enum RunMode {
    Logs { lines: usize },
 }
 
+/// Parse command-line arguments into a `RunMode`.
+///
+/// Supports `--daemon`, `--run-daemon`, `--stop`, `--status`, `--restart`,
+/// `--logs`, and `--lines` flags.
+///
+/// # Errors
+/// Returns an error if an unknown argument is provided or if required values
+/// are missing.
 pub fn parse_mode() -> Result<RunMode, Box<dyn std::error::Error>> {
    let args: Vec<String> = env::args().skip(1).collect();
    let mut selected: Option<RunMode> = None;
@@ -80,6 +88,13 @@ pub fn parse_mode() -> Result<RunMode, Box<dyn std::error::Error>> {
    Ok(mode)
 }
 
+/// Handle lifecycle commands like stop, status, and restart.
+///
+/// Processes `RunMode` variants that represent lifecycle operations.
+///
+/// # Errors
+/// Returns an error if daemon control operations fail (e.g., cannot stop or
+/// restart the daemon).
 pub fn handle_lifecycle_mode(mode: RunMode) -> Result<bool, Box<dyn std::error::Error>> {
    match mode {
       RunMode::Stop => {

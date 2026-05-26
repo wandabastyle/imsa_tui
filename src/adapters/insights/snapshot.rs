@@ -36,12 +36,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct Snapshot<Extra = ()> {
-   pub(crate) header:      TimingHeader,
-   pub(crate) entries:     Vec<TimingEntry>,
-   pub(crate) session_id:  Option<String>,
-   pub(crate) fingerprint: u64,
-   pub(crate) extra:       Extra,
+pub struct Snapshot<Extra = ()> {
+   pub header:      TimingHeader,
+   pub entries:     Vec<TimingEntry>,
+   pub session_id:  Option<String>,
+   pub fingerprint: u64,
+   pub extra:       Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,6 +165,7 @@ pub(crate) fn restore_snapshot_from_disk<Extra: Clone + Default + DeserializeOwn
 pub(crate) fn now_unix_ms() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|duration| duration.as_millis() as u64)
-      .unwrap_or(0)
+      .map_or(0, |duration| {
+         u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+      })
 }

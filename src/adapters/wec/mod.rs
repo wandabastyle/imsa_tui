@@ -68,7 +68,7 @@ const NEGOTIATE_URL: &str =
 const ORIGIN_URL: &str = "https://insights.griiip.com";
 const LIVE_BASE_URL: &str = "https://insights.griiip.com/live";
 const RECONNECT_DELAY: Duration = Duration::from_secs(4);
-const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_secs(180);
+const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 const SIGNALR_RS: char = '\u{1e}';
 const WEC_SIGNALR_CHANNELS: &[&str; 8] = &[
    "session-info",
@@ -190,15 +190,15 @@ struct WecCarState {
    sector_laps:       [Option<u32>; 3],
 }
 
-pub fn websocket_worker(tx: Sender<TimingMessage>, source_id: u64, stop_rx: Receiver<()>) {
-   websocket_worker_with_debug(tx, source_id, stop_rx, SeriesDebugOutput::Silent)
+pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
+   websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
 
 pub fn websocket_worker_with_debug(
-   tx: Sender<TimingMessage>,
+   tx: &Sender<TimingMessage>,
    source_id: u64,
-   stop_rx: Receiver<()>,
-   debug_output: SeriesDebugOutput,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
 ) {
    let client = match Client::builder().timeout(Duration::from_secs(12)).build() {
       Ok(client) => client,
@@ -213,7 +213,7 @@ pub fn websocket_worker_with_debug(
 
    let mut persist = PersistState::new(snapshot_path("wec_snapshot.json"));
    let mut last_snapshot =
-      restore_snapshot_from_disk(&mut persist, &tx, source_id, "WEC", &debug_output);
+      restore_snapshot_from_disk(&mut persist, tx, source_id, "WEC", debug_output);
    if last_snapshot.is_some() {
       let _ = tx.send(TimingMessage::Status {
          source_id,
@@ -229,7 +229,7 @@ pub fn websocket_worker_with_debug(
       if stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = last_snapshot.as_ref() {
             if persist.dirty_since_last_save {
-               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", &debug_output);
+               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", debug_output);
             }
          }
          break;
@@ -249,17 +249,17 @@ pub fn websocket_worker_with_debug(
             match fetch_latest_finished_race_snapshot(&client) {
                Ok(snapshot) => {
                   emit_snapshot(
-                     (&tx, source_id),
+                     (tx, source_id),
                      snapshot.header,
                      snapshot.entries,
                      &mut persist,
                      &mut last_snapshot,
                      &mut last_session_id,
-                     &debug_output,
+                     debug_output,
                   );
                   if !fallback_detail_logged {
                      log_series_debug(
-                        &debug_output,
+                        debug_output,
                         "WEC",
                         format!(
                            "No active FIA WEC live session; showing latest finished race results \
@@ -406,13 +406,13 @@ pub fn websocket_worker_with_debug(
          });
       } else if let Some((header, entries)) = snapshot_from_live_state(&live_state) {
          emit_snapshot(
-            (&tx, source_id),
+            (tx, source_id),
             header,
             entries,
             &mut persist,
             &mut last_snapshot,
             &mut last_session_id,
-            &debug_output,
+            debug_output,
          );
       }
 
@@ -425,7 +425,7 @@ pub fn websocket_worker_with_debug(
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_snapshot.as_ref() {
                if persist.dirty_since_last_save {
-                  persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", &debug_output);
+                  persist_snapshot(&mut persist, snapshot, now_unix_ms(), "WEC", debug_output);
                }
             }
             break 'outer;
@@ -456,13 +456,13 @@ pub fn websocket_worker_with_debug(
                   if apply_signalr_arguments(&mut live_state, &target, &arguments) {
                      if let Some((header, entries)) = snapshot_from_live_state(&live_state) {
                         emit_snapshot(
-                           (&tx, source_id),
+                           (tx, source_id),
                            header,
                            entries,
                            &mut persist,
                            &mut last_snapshot,
                            &mut last_session_id,
-                           &debug_output,
+                           debug_output,
                         );
                      }
                   }
@@ -641,15 +641,12 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
 
       let class_name = participant
          .and_then(|item| item.class_id.as_deref())
-         .map(format_wec_class_name)
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), format_wec_class_name);
 
       let driver_name = participant
          .and_then(|item| item.drivers.first())
          .and_then(|driver| driver.display_name.as_deref())
-         .map(normalize_driver_name)
-         .filter(|value| !value.trim().is_empty())
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), normalize_driver_name);
 
       let team_name = participant
          .and_then(|item| item.team_name.clone())
@@ -660,16 +657,17 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
          .and_then(|item| item.manufacturer.clone())
          .unwrap_or_else(|| "-".to_string());
 
-      let position = row.overall_finished_at.unwrap_or((idx + 1) as u32);
+      let position = row
+         .overall_finished_at
+         .unwrap_or(u32::try_from(idx + 1).expect("position should fit in u32"));
       let class_rank = row
          .finished_at
-         .map(|rank| rank.to_string())
-         .unwrap_or_else(|| "-".to_string());
+         .map_or_else(|| "-".to_string(), |rank| rank.to_string());
 
-      let stable_id = if car_number != "-" {
-         format!("wec:{car_number}")
-      } else {
+      let stable_id = if car_number == "-" {
          format!("wec:participant:{}", row.session_participant_id)
+      } else {
+         format!("wec:{car_number}")
       };
 
       entries.push(TimingEntry {
@@ -682,8 +680,7 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
          team: team_name,
          laps: row
             .number_of_laps_completed
-            .map(|laps| laps.to_string())
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), |laps| laps.to_string()),
          gap_overall: format_gap(row.overall_gap_from_first, row.overall_gap_from_first_laps)
             .unwrap_or_else(|| "-".to_string()),
          gap_class: "-".to_string(),
@@ -692,20 +689,16 @@ fn fetch_latest_finished_race_snapshot(client: &Client) -> Result<WecSnapshot, S
          last_lap: "-".to_string(),
          best_lap: row
             .best_lap_time
-            .map(format_lap_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_lap_time_ms),
          sector_1: row
             .best_sector_1_ms
-            .map(format_sector_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_sector_time_ms),
          sector_2: row
             .best_sector_2_ms
-            .map(format_sector_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_sector_time_ms),
          sector_3: row
             .best_sector_3_ms
-            .map(format_sector_time_ms)
-            .unwrap_or_else(|| "-".to_string()),
+            .map_or_else(|| "-".to_string(), format_sector_time_ms),
          sector_4: "-".to_string(),
          sector_5: "-".to_string(),
          best_lap_no: "-".to_string(),
@@ -776,8 +769,7 @@ fn choose_latest_finished_race_session(sessions: &[MetaSessionItem]) -> Option<M
          session
             .session_type
             .as_deref()
-            .map(|value| value.eq_ignore_ascii_case("Race"))
-            .unwrap_or(false)
+            .is_some_and(|value| value.eq_ignore_ascii_case("Race"))
             && session.has_result
             && !session.is_running
       })
@@ -815,11 +807,9 @@ fn negotiate(client: &Client) -> Result<NegotiateResponse, String> {
 }
 
 fn websocket_url_from_negotiate(base_url: &str, token: &str) -> String {
-   let mut ws_url = if let Some(rest) = base_url.strip_prefix("https://") {
-      format!("wss://{rest}")
-   } else {
-      base_url.to_string()
-   };
+   let mut ws_url = base_url
+      .strip_prefix("https://")
+      .map_or_else(|| base_url.to_string(), |rest| format!("wss://{rest}"));
    let separator = if ws_url.contains('?') { '&' } else { '?' };
    ws_url.push(separator);
    ws_url.push_str("access_token=");
@@ -886,9 +876,8 @@ fn read_signalr_text(
             .map_err(|err| format!("WEC ping/pong handling failed: {err}"))?;
          Ok(None)
       },
-      Ok(Message::Pong(_)) => Ok(None),
+      Ok(Message::Pong(_) | Message::Frame(_)) => Ok(None),
       Ok(Message::Close(_)) => Ok(Some(format!("{{\"type\":7}}{SIGNALR_RS}"))),
-      Ok(Message::Frame(_)) => Ok(None),
       Err(WsError::Io(err))
          if err.kind() == std::io::ErrorKind::WouldBlock
             || err.kind() == std::io::ErrorKind::TimedOut =>
@@ -1003,11 +992,9 @@ fn payload_rows(payload: &Value) -> Vec<&Value> {
    match payload {
       Value::Array(rows) => rows.iter().collect(),
       Value::Object(map) => {
-         if let Some(items) = map.get("items").and_then(Value::as_array) {
-            items.iter().collect()
-         } else {
-            vec![payload]
-         }
+         map.get("items")
+            .and_then(Value::as_array)
+            .map_or_else(|| vec![payload], |items| items.iter().collect())
       },
       _ => Vec::new(),
    }
@@ -1073,10 +1060,8 @@ fn apply_session_clock(state: &mut WecLiveState, payload: &Value) -> bool {
    );
    if let Some(ms) = map_i64(map, "elapsedTimeMillisNow") {
       if ms >= 0 {
-         changed |= set_header_text(
-            &mut state.header.time_to_go,
-            Some(format_clock_ms(ms as u64)),
-         );
+         let ms_u64 = u64::try_from(ms).unwrap_or(0);
+         changed |= set_header_text(&mut state.header.time_to_go, Some(format_clock_ms(ms_u64)));
       }
    }
    changed
@@ -1252,7 +1237,8 @@ fn snapshot_from_live_state(state: &WecLiveState) -> Option<(TimingHeader, Vec<T
    entries.sort_by_key(|entry| (entry.position, entry.car_number.clone()));
    for (idx, entry) in entries.iter_mut().enumerate() {
       if entry.position == 0 {
-         entry.position = (idx + 1) as u32;
+         // Safe: idx represents a position which should reasonably fit in u32
+         entry.position = u32::try_from(idx + 1).expect("position should fit in u32");
       }
    }
    if entries.is_empty() {
@@ -1300,53 +1286,45 @@ fn row_to_timing_entry(state: &WecLiveState, row: WecCarState) -> TimingEntry {
       class_name,
       class_rank: row
          .class_rank
-         .map(|rank| rank.to_string())
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), |rank| rank.to_string()),
       driver: row.driver.unwrap_or_else(|| "-".to_string()),
       vehicle: row.vehicle.unwrap_or_else(|| "-".to_string()),
       team: row.team.unwrap_or_else(|| "-".to_string()),
       laps: row
          .laps
-         .map(|lap| lap.to_string())
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), |lap| lap.to_string()),
       gap_overall: row.gap_overall.unwrap_or_else(|| "-".to_string()),
       gap_class: "-".to_string(),
       gap_next_in_class: row.gap_next_in_class.unwrap_or_else(|| "-".to_string()),
       last_lap: row
          .last_lap_ms
-         .map(format_lap_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_lap_time_ms),
       best_lap: row
          .best_lap_ms
-         .map(format_lap_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_lap_time_ms),
       sector_1: row
          .sector_times
          .first()
          .copied()
          .flatten()
-         .map(format_sector_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_sector_time_ms),
       sector_2: row
          .sector_times
          .get(1)
          .copied()
          .flatten()
-         .map(format_sector_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_sector_time_ms),
       sector_3: row
          .sector_times
          .get(2)
          .copied()
          .flatten()
-         .map(format_sector_time_ms)
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), format_sector_time_ms),
       sector_4: "-".to_string(),
       sector_5: "-".to_string(),
       best_lap_no: row
          .best_lap_no
-         .map(|lap| lap.to_string())
-         .unwrap_or_else(|| "-".to_string()),
+         .map_or_else(|| "-".to_string(), |lap| lap.to_string()),
       pit: if row.pit.unwrap_or(false) {
          "Yes".to_string()
       } else {
@@ -1437,7 +1415,8 @@ fn format_lap_time_ms(ms: i64) -> String {
    if ms <= 0 {
       return "-".to_string();
    }
-   let total_ms = ms as u64;
+   // Safe: ms is checked to be > 0 above
+   let total_ms = u64::try_from(ms).expect("ms is positive");
    let minutes = total_ms / 60_000;
    let seconds = (total_ms % 60_000) / 1000;
    let millis = total_ms % 1000;
@@ -1448,7 +1427,8 @@ fn format_sector_time_ms(ms: i64) -> String {
    if ms <= 0 {
       return "-".to_string();
    }
-   let total_ms = ms as u64;
+   // Safe: ms is checked to be > 0 above
+   let total_ms = u64::try_from(ms).expect("ms is positive");
    if total_ms >= 60_000 {
       let minutes = total_ms / 60_000;
       let seconds = (total_ms % 60_000) / 1000;
@@ -1473,8 +1453,7 @@ fn normalize_driver_name_token(token: &str) -> String {
    }
    let letters: String = token.chars().filter(|ch| ch.is_alphabetic()).collect();
    let needs_normalization = !letters.is_empty()
-      && (letters.chars().all(|ch| ch.is_uppercase())
-         || letters.chars().all(|ch| ch.is_lowercase()));
+      && (letters.chars().all(char::is_uppercase) || letters.chars().all(char::is_lowercase));
    if !needs_normalization {
       return token.to_string();
    }
@@ -1483,11 +1462,11 @@ fn normalize_driver_name_token(token: &str) -> String {
    let mut seen_alpha = false;
    for ch in token.chars() {
       if ch.is_alphabetic() {
-         if !seen_alpha {
+         if seen_alpha {
+            out.extend(ch.to_lowercase());
+         } else {
             out.extend(ch.to_uppercase());
             seen_alpha = true;
-         } else {
-            out.extend(ch.to_lowercase());
          }
       } else {
          seen_alpha = false;
@@ -1673,8 +1652,7 @@ fn emit_snapshot(
    let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
    let materially_changed = last_snapshot
       .as_ref()
-      .map(|prev| prev.fingerprint != snapshot.fingerprint)
-      .unwrap_or(true);
+      .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
    if materially_changed {
       persist.dirty_since_last_save = true;
    }

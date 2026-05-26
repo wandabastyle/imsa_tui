@@ -51,9 +51,11 @@ use super::{
    },
    gap::gap_anchor_from_entry,
    grouping::{
+      group_start_row,
       grouped_entries,
       next_view_mode,
       selected_series_index,
+      step_group_selection,
       view_entries_for_mode,
       ViewMode,
    },
@@ -146,8 +148,7 @@ const DISMISSED_NOTICE_MAX_PER_SERIES: usize = 500;
 fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|duration| duration.as_secs())
-      .unwrap_or(0)
+      .map_or(0, |duration| duration.as_secs())
 }
 
 fn parse_notice_time_seconds(raw: &str) -> Option<u32> {
@@ -324,7 +325,6 @@ fn normalized_notice_text_for_dismissal_key(text: &str) -> String {
             normalized.push(chars[idx]);
             idx += 1;
          }
-         continue;
       }
    }
 
@@ -404,7 +404,9 @@ fn persist_dismissed_notice_keys(
    last_error: &mut Option<String>,
 ) {
    prune_dismissed_notice_keys(dismissed_notice_keys, now_unix_secs());
-   config.dismissed_notice_keys = dismissed_notice_keys.clone();
+   config
+      .dismissed_notice_keys
+      .clone_from(dismissed_notice_keys);
    if let Err(err) = save_config(config) {
       *last_error = Some(err);
    }
@@ -434,8 +436,13 @@ fn step_selection(current: usize, len: usize, delta: isize) -> usize {
    if len == 0 {
       return 0;
    }
-   let max = (len - 1) as isize;
-   ((current as isize + delta).clamp(0, max)) as usize
+   // Safe: len > 0, so len - 1 fits in isize for reasonable lengths
+   let max = isize::try_from(len - 1).expect("len should fit in isize");
+   // Safe: current is clamped between 0 and max, both non-negative
+   (isize::try_from(current).expect("current should fit in isize") + delta)
+      .clamp(0, max)
+      .try_into()
+      .expect("clamped value should fit in usize")
 }
 
 fn series_log_prefix(series: Series) -> String {
@@ -555,10 +562,15 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
 
    ctx.config.selected_series = *ctx.active_series;
    if let Err(err) = save_config(ctx.config) {
-      *ctx.last_error = Some(err);
+      ctx.last_error.clone_from(&Some(err));
    }
 }
 
+/// Run the TUI application with the terminal backend.
+///
+/// # Errors
+/// Returns an IO error if terminal operations fail or if there are errors
+/// initializing the application.
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
    let (tx, rx) = mpsc::channel::<TimingMessage>();
    let tick_rate = Duration::from_millis(250);
@@ -685,7 +697,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             .selected_idx
             .min(notices.len().saturating_sub(1));
       }
-      drain_series_debug_logs(&feed, &mut imsa_debug_logs);
+      drain_series_debug_logs(feed.as_ref(), &mut imsa_debug_logs);
 
       if let Some(liveticker_feed) = nls_liveticker_feed.as_ref() {
          while let Ok(message) = liveticker_feed.rx.try_recv() {
@@ -814,6 +826,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             transition_from_flag: &transition_from_flag,
             transition_started_at,
             debug_log_capacity: IMSA_DEBUG_LOG_CAPACITY,
+            config: &config,
          };
          draw_frame(f, &render_ctx);
       })?;
@@ -1151,20 +1164,40 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                   gap_anchor_stable_id = None;
                },
                KeyCode::Down | KeyCode::Char('j') if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), 1);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, 1)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), 1)
+                  };
                },
                KeyCode::Up | KeyCode::Char('k') if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), -1);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, -1)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), -1)
+                  };
                },
                KeyCode::PageDown if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), 10);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, 10)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), 10)
+                  };
                },
                KeyCode::PageUp if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), -10);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, -10)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), -10)
+                  };
                },
                KeyCode::Home if !show_help => selected_row = 0,
                KeyCode::End if !show_help => {
-                  selected_row = current_view_entries.len().saturating_sub(1)
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     group_start_row(&current_groups, current_groups.len().saturating_sub(1))
+                  } else {
+                     current_view_entries.len().saturating_sub(1)
+                  };
                },
                KeyCode::Char(' ') if !show_help => {
                   if let Some(entry) = current_view_entries.get(selected_row) {
@@ -1174,7 +1207,23 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                      } else {
                         favourites.insert(fav_key);
                      }
-                     config.favourites = favourites.clone();
+                     config.favourites.clone_from(&favourites);
+                     if let Err(err) = save_config(&config) {
+                        last_error.clone_from(&Some(err));
+                     }
+                  }
+               },
+               KeyCode::Char('-') if !show_help && view_mode == ViewMode::Grouped => {
+                  if config.grouped_min_rows > 3 {
+                     config.grouped_min_rows -= 1;
+                     if let Err(err) = save_config(&config) {
+                        last_error = Some(err);
+                     }
+                  }
+               },
+               KeyCode::Char('+') if !show_help && view_mode == ViewMode::Grouped => {
+                  if config.grouped_min_rows < 20 {
+                     config.grouped_min_rows += 1;
                      if let Err(err) = save_config(&config) {
                         last_error = Some(err);
                      }

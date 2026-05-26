@@ -30,11 +30,11 @@ pub fn spawn_series_worker(
 ) {
    thread::spawn(move || {
       match series {
-         Series::Imsa => polling_worker_with_debug(worker_tx, source_id, stop_rx, debug_output),
-         Series::Nls => nls_worker(worker_tx, source_id, stop_rx, debug_output),
-         Series::Dhlm => dhlm_worker(worker_tx, source_id, stop_rx, debug_output),
-         Series::F1 => f1_worker(worker_tx, source_id, stop_rx, debug_output),
-         Series::Wec => wec_websocket_worker(worker_tx, source_id, stop_rx, debug_output),
+         Series::Imsa => polling_worker_with_debug(&worker_tx, source_id, &stop_rx, &debug_output),
+         Series::Nls => nls_worker(&worker_tx, source_id, &stop_rx, &debug_output),
+         Series::Dhlm => dhlm_worker(&worker_tx, source_id, &stop_rx, &debug_output),
+         Series::F1 => f1_worker(&worker_tx, source_id, &stop_rx, &debug_output),
+         Series::Wec => wec_websocket_worker(&worker_tx, source_id, &stop_rx, &debug_output),
       }
    });
 }
