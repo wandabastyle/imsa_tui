@@ -50,10 +50,20 @@ opt-level = 3
 [lints.clippy]
 all      = { level = "warn", priority = -1 }
 cargo    = { level = "warn", priority = -1 }
-nursery  = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-# This lint is disabled because transitive dependencies frequently require multiple versions
-# of the same crate, which is an ecosystem-wide issue that cannot be resolved by this application.
+
+# Too noisy / low-value for this application.
+nursery = { level = "allow", priority = -1 }
+
+# Ecosystem noise from transitive dependencies.
 multiple_crate_versions = { level = "allow", priority = 1 }
+
+# Useful API-contract lints.
 must_use_candidate = "warn"
 return_self_not_must_use = "warn"
+
+# Relax noisy pedantic lints globally.
+too_many_lines = { level = "allow", priority = 1 }
+missing_panics_doc = { level = "allow", priority = 1 }
+module_name_repetitions = { level = "allow", priority = 1 }
+similar_names = { level = "allow", priority = 1 }
