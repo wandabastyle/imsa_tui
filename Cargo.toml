@@ -51,3 +51,5 @@ pedantic = { level = "warn", priority = -1 }
 # This lint is disabled because transitive dependencies frequently require multiple versions
 # of the same crate, which is an ecosystem-wide issue that cannot be resolved by this application.
 multiple_crate_versions = { level = "allow", priority = 1 }
+must_use_candidate = "warn"
+return_self_not_must_use = "warn"

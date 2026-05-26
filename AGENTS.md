@@ -6,9 +6,46 @@
   - `#[allow(dead_code)]` - Dead code should be removed rather than suppressed
   - `#[allow(clippy::too_many_arguments)]` - Refactor to use context structs instead
   - Any other `#[allow(clippy::...)]` - Fix the underlying issue
-- **No attribute-based overrides**: Do not use attributes like `#[must_use]` to address `must_use_candidate` warnings. Instead, refactor code so return values are naturally consumed, or accept that these are acceptable patterns (constructors, getters, pure functions) where values inherently get used.
 
   If there's a valid reason to keep code that triggers warnings (e.g., for future use or API completeness), add a comment explaining why and fix the root cause (removing dead code, using constants/structs, or refactoring) rather than suppressing warnings.
+
+## Rust `#[must_use]` policy
+
+Use `#[must_use]` selectively when ignoring a return value would likely be a bug.
+
+Good candidates:
+- pure getters that return computed or stored values
+- boolean check helpers, such as `is_*`, `has_*`, `can_*`
+- functions returning `Option<T>`, `Result<T, E>`, or other meaningful computed values
+- conversion/formatting helpers that return a new value
+- builder-style methods returning `Self`
+- methods returning a modified/new value instead of mutating in place
+
+Avoid adding `#[must_use]` blindly to every function with a return value.
+
+Do not add it when:
+- the function exists mainly for side effects
+- ignoring the return value is a normal/valid use case
+- the annotation only adds noise to internal glue code
+
+When Clippy suggests `clippy::must_use_candidate`, prefer adding `#[must_use]` if it matches the rules above. Otherwise, allow the lint locally with a brief reason.
+
+Example:
+
+```rust
+#[must_use]
+pub fn is_finished(&self) -> bool {
+    self.finished
+}
+
+#[must_use]
+pub fn with_quality(mut self, quality: Quality) -> Self {
+    self.quality = quality;
+    self
+}
+```
+
+For builder-style methods returning `Self`, treat missing `#[must_use]` as a real issue unless there is a clear reason not to.
 
 ## RESPONSES
 
