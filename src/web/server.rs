@@ -175,7 +175,7 @@ pub async fn run(mode: RunMode) -> Result<(), Box<dyn std::error::Error>> {
 
    if mode == RunMode::DaemonChild {
       write_runtime_info(&runtime_info)?;
-      write_pid(runtime_info.pid as i32)?;
+      write_pid(runtime_info.pid)?;
    }
 
    let shutdown = async move {

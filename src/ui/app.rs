@@ -695,7 +695,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             .selected_idx
             .min(notices.len().saturating_sub(1));
       }
-      drain_series_debug_logs(&feed, &mut imsa_debug_logs);
+      drain_series_debug_logs(feed.as_ref(), &mut imsa_debug_logs);
 
       if let Some(liveticker_feed) = nls_liveticker_feed.as_ref() {
          while let Ok(message) = liveticker_feed.rx.try_recv() {

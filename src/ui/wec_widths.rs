@@ -12,6 +12,16 @@ use super::width_math::{
 use crate::timing::TimingEntry;
 
 const WEC_COLUMN_COUNT: usize = 14;
+const WEC_GUTTERS: u16 = 13;
+
+fn max_position_width(entries: &[TimingEntry]) -> u16 {
+   let max_len = entries
+      .iter()
+      .map(|entry| entry.position.to_string().chars().count())
+      .max()
+      .unwrap_or(1);
+   u16::try_from(max_len).unwrap_or(u16::MAX)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WecColumnWidths {
@@ -55,11 +65,7 @@ impl WecColumnWidths {
       if entries.is_empty() {
          return None;
       }
-      let pos = entries
-         .iter()
-         .map(|entry| entry.position.to_string().chars().count())
-         .max()
-         .unwrap_or(1) as u16;
+      let pos = max_position_width(entries);
 
       Some(Self {
          pos,
@@ -176,8 +182,7 @@ pub fn calculate_wec_widths(
 
    let mut widths = target.to_array();
    let minimums = WecColumnWidths::header_minimums().to_array();
-   let gutters = (WEC_COLUMN_COUNT.saturating_sub(1)) as u16;
-   let available_width = terminal_width.saturating_sub(gutters);
+   let available_width = terminal_width.saturating_sub(WEC_GUTTERS);
    let total_width: u16 = widths.iter().sum();
 
    if total_width < available_width {

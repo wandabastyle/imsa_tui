@@ -73,7 +73,7 @@ pub fn reset_preferences(profile_id: &str) -> Result<Preferences, String> {
    };
 
    match fs::remove_file(path) {
-      Ok(_) => {},
+      Ok(()) => {},
       Err(err) if err.kind() == ErrorKind::NotFound => {},
       Err(err) => return Err(format!("reset preferences failed: {err}")),
    }

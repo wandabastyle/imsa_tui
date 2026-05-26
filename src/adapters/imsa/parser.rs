@@ -41,7 +41,7 @@ fn fix_mojibake(s: &str) -> String {
       return s.to_string();
    };
 
-   String::from_utf8(bytes).map_or_else(|_| s.to_string(), |decoded| decoded)
+   String::from_utf8(bytes).unwrap_or_else(|_| s.to_string())
 }
 
 fn clean_string(s: &str) -> String {

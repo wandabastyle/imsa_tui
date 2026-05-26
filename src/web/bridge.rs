@@ -303,7 +303,7 @@ mod tests {
    fn shared_worker_starts_once_per_series() {
       let starts = Arc::new(AtomicUsize::new(0));
       let stops = Arc::new(AtomicUsize::new(0));
-      let spawner = counting_spawner(starts.clone(), stops.clone());
+      let spawner = counting_spawner(starts.clone(), stops);
       let state = WebAppState::new();
       let controller = FeedController::with_runtime(state, Arc::new(spawner), Arc::new(short_ttl));
 
@@ -352,9 +352,10 @@ mod tests {
    fn wait_for(condition: impl Fn() -> bool, timeout: Duration) {
       let start = Instant::now();
       while !condition() {
-         if start.elapsed() >= timeout {
-            panic!("condition not met before timeout");
-         }
+         assert!(
+            start.elapsed() < timeout,
+            "condition not met before timeout"
+         );
          thread::sleep(Duration::from_millis(10));
       }
    }

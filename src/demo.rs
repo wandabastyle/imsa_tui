@@ -31,9 +31,9 @@ pub fn demo_snapshot(series: Series) -> (TimingHeader, Vec<TimingEntry>) {
 
 #[must_use]
 pub fn demo_snapshot_at(
-	series: Series,
-	seed: u64,
-	elapsed_secs: u64,
+   series: Series,
+   seed: u64,
+   elapsed_secs: u64,
 ) -> (TimingHeader, Vec<TimingEntry>) {
    let (mut header, mut entries) = demo_snapshot(series);
 
@@ -55,12 +55,7 @@ fn calculate_demo_flag(seed: u64, elapsed_secs: u64) -> String {
    FLAG_NAMES[flag_idx].to_string()
 }
 
-fn update_demo_time_to_go(
-   header: &mut TimingHeader,
-   series: Series,
-   elapsed_secs: u64,
-   seed: u64,
-) {
+fn update_demo_time_to_go(header: &mut TimingHeader, series: Series, elapsed_secs: u64, seed: u64) {
    match series {
       Series::F1 => {
          let base_lap = 34_u64;
@@ -81,12 +76,7 @@ fn format_demo_countdown(elapsed_secs: u64, seed: u64) -> String {
    format!("{hours:02}:{mins:02}:{secs:02}")
 }
 
-fn mutate_demo_entries(
-   series: Series,
-   entries: &mut [TimingEntry],
-   seed: u64,
-   elapsed_secs: u64,
-) {
+fn mutate_demo_entries(series: Series, entries: &mut [TimingEntry], seed: u64, elapsed_secs: u64) {
    for (idx, entry) in entries.iter_mut().enumerate() {
       update_demo_entry_laps(entry, elapsed_secs, idx);
       apply_demo_pit_state(series, entry, seed, elapsed_secs, idx as u64);
@@ -109,14 +99,15 @@ fn update_demo_entry_gaps(entry: &mut TimingEntry, elapsed_secs: u64, seed: u64,
       return;
    }
 
-    // Safe: idx is typically under 100, well within f32 precision
-     let idx_u16 = u16::try_from(idx).unwrap_or(0);
-     let movement =
-        (((elapsed_secs / 8) + seed + u64::from(idx_u16)) % 30) as f32 / 10.0;
-     let base = f32::from(idx_u16) * 2.3;
+   // Safe: idx is typically under 100, well within f32 precision
+   let idx_u16 = u16::try_from(idx).unwrap_or(0);
+   let movement_raw =
+      u16::try_from(((elapsed_secs / 8) + seed + u64::from(idx_u16)) % 30).unwrap_or(0);
+   let movement = f32::from(movement_raw) / 10.0;
+   let base = f32::from(idx_u16) * 2.3;
    let gap = base + movement;
    let gap_text = format!("+{gap:.3}");
-   entry.gap_overall = gap_text.clone();
+   entry.gap_overall.clone_from(&gap_text);
    entry.gap_class = gap_text;
    entry.gap_next_in_class = format!("+{:.3}", 1.1 + movement / 2.0);
 }
@@ -162,14 +153,14 @@ fn apply_demo_pit_state(
 }
 
 fn demo_nls_sector_5_time(lane: u64, elapsed_secs: u64) -> String {
-    // lane % 17 produces values 0-16, well within f32 precision
-    let lane_component = u16::try_from(lane % 17).unwrap_or(0);
-    let base_secs = 92.0_f32 + f32::from(lane_component) * 0.7;
-    // elapsed_secs % 19 produces values 0-18, well within f32 precision
-    let elapsed_component = u16::try_from(elapsed_secs % 19).unwrap_or(0);
-    let wobble = f32::from(elapsed_component) * 0.031;
-    format!("{:.3}", base_secs + wobble)
- }
+   // lane % 17 produces values 0-16, well within f32 precision
+   let lane_component = u16::try_from(lane % 17).unwrap_or(0);
+   let base_secs = 92.0_f32 + f32::from(lane_component) * 0.7;
+   // elapsed_secs % 19 produces values 0-18, well within f32 precision
+   let elapsed_component = u16::try_from(elapsed_secs % 19).unwrap_or(0);
+   let wobble = f32::from(elapsed_component) * 0.031;
+   format!("{:.3}", base_secs + wobble)
+}
 
 fn stable_lane_seed(seed: u64, stable_id: &str, row_idx: u64) -> u64 {
    let mut hasher = DefaultHasher::new();
@@ -183,7 +174,10 @@ fn parse_stop_count(raw: &str) -> Option<u64> {
    raw.trim().parse::<u64>().ok()
 }
 
-pub fn seed_demo_favourites(series: Series, favourites: &mut HashSet<String>) {
+pub fn seed_demo_favourites<S: std::hash::BuildHasher>(
+   series: Series,
+   favourites: &mut HashSet<String, S>,
+) {
    for stable_id in demo_favourite_ids(series) {
       favourites.insert(format!("{}|{}", series.as_key_prefix(), stable_id));
    }

@@ -8,6 +8,7 @@ use std::{
       hash_map::DefaultHasher,
       HashMap,
    },
+   fmt::Write,
    fs,
    hash::{
       Hash,
@@ -109,6 +110,7 @@ struct LoginAttemptState {
 }
 
 impl WebAuthConfig {
+   #[must_use]
    pub fn new(access_code_hash: String, cookie_secure: bool) -> Self {
       Self {
          access_code_hash,
@@ -220,7 +222,7 @@ impl WebAuthConfig {
    fn build_cookie(&self, name: &str, value: &str, max_age: Option<u64>) -> String {
       let mut cookie = format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax");
       if let Some(max_age) = max_age {
-         cookie.push_str(&format!("; Max-Age={max_age}"));
+         let _ = write!(cookie, "; Max-Age={max_age}");
       }
       if self.cookie_secure {
          cookie.push_str("; Secure");
@@ -386,6 +388,7 @@ fn error_response(status: StatusCode, message: &str, retry_after_secs: Option<u6
    response
 }
 
+#[must_use]
 pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    if rotate {
       let generated = generate_password(24);
@@ -398,7 +401,7 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
       };
 
       return match save_stored_auth(&hash) {
-         Ok(_) => {
+         Ok(()) => {
             ResolvedAccessCode {
                access_code_hash:     hash,
                one_time_access_code: Some(generated),
@@ -437,7 +440,7 @@ pub fn load_or_initialize_password(rotate: bool) -> ResolvedAccessCode {
    };
 
    match save_stored_auth(&hash) {
-      Ok(_) => {
+      Ok(()) => {
          ResolvedAccessCode {
             access_code_hash:     hash,
             one_time_access_code: Some(generated),
@@ -479,6 +482,7 @@ fn verify_access_code(access_code: &str, access_code_hash: &str) -> Result<bool,
       .is_ok())
 }
 
+#[must_use]
 pub fn stored_auth_path() -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().join("web_auth.toml"))

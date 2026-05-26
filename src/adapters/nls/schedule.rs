@@ -464,11 +464,11 @@ fn date_within_range(today: CalendarDate, range: Option<(CalendarDate, CalendarD
 fn local_today() -> Option<CalendarDate> {
    let mut timestamp: libc::time_t = 0;
    unsafe {
-      if libc::time(&mut timestamp) < 0 {
+      if libc::time(&raw mut timestamp) < 0 {
          return None;
       }
       let mut local_tm: libc::tm = std::mem::zeroed();
-      if libc::localtime_r(&timestamp, &mut local_tm).is_null() {
+      if libc::localtime_r(&raw const timestamp, &raw mut local_tm).is_null() {
          return None;
       }
       Some(CalendarDate {

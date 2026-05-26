@@ -34,6 +34,7 @@ pub struct RuntimeInfo {
    pub started_unix_secs: u64,
 }
 
+#[must_use]
 pub const fn static_source_label(source: StaticSource) -> &'static str {
    match source {
       StaticSource::Disk => "disk (WEB_DIST_DIR)",
@@ -42,10 +43,12 @@ pub const fn static_source_label(source: StaticSource) -> &'static str {
    }
 }
 
+#[must_use]
 pub fn env_flag(name: &str, default: bool) -> bool {
    env::var(name).map_or(default, |value| parse_boolish(&value).unwrap_or(default))
 }
 
+#[must_use]
 pub fn parse_boolish(value: &str) -> Option<bool> {
    match value.trim().to_ascii_lowercase().as_str() {
       "1" | "true" | "on" | "yes" => Some(true),
@@ -54,6 +57,7 @@ pub fn parse_boolish(value: &str) -> Option<bool> {
    }
 }
 
+#[must_use]
 pub fn setup_tailscale_funnel(port: u16) -> Option<String> {
    let target = format!("http://127.0.0.1:{port}");
    let start = Command::new("tailscale")
@@ -131,6 +135,7 @@ pub async fn wait_for_shutdown_signal() {
    }
 }
 
+#[must_use]
 pub fn runtime_dir() -> Option<PathBuf> {
    let dirs = ProjectDirs::from("", "", "imsa_tui")?;
    Some(dirs.data_local_dir().to_path_buf())
@@ -149,7 +154,7 @@ pub fn cleanup_legacy_config_artifacts() {
    ] {
       let path = legacy_dir.join(name);
       match fs::remove_file(&path) {
-         Ok(_) => {},
+         Ok(()) => {},
          Err(err) if err.kind() == ErrorKind::NotFound => {},
          Err(err) => {
             eprintln!(
@@ -173,14 +178,17 @@ pub fn cleanup_stale_profile_artifacts() {
    }
 }
 
+#[must_use]
 pub fn pid_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.pid"))
 }
 
+#[must_use]
 pub fn info_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.info.toml"))
 }
 
+#[must_use]
 pub fn log_path() -> Option<PathBuf> {
    Some(runtime_dir()?.join("web_server.log"))
 }
@@ -190,7 +198,7 @@ pub fn log_path() -> Option<PathBuf> {
 /// # Errors
 /// Returns an error if the pid file path cannot be resolved or if writing
 /// fails.
-pub fn write_pid(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_pid(pid: u32) -> Result<(), Box<dyn std::error::Error>> {
    let path = pid_path().ok_or("unable to resolve pid path")?;
    if let Some(parent) = path.parent() {
       fs::create_dir_all(parent)?;
@@ -262,12 +270,14 @@ pub fn clear_runtime_files() -> Result<(), Box<dyn std::error::Error>> {
    Ok(())
 }
 
+#[must_use]
 pub fn now_unix_secs() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
       .map_or(0, |d| d.as_secs())
 }
 
+#[must_use]
 pub fn is_process_running(pid: i32) -> bool {
    if pid <= 0 {
       return false;

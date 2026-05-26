@@ -108,10 +108,12 @@ struct SessionDemoState {
 }
 
 impl WebAppState {
+   #[must_use]
    pub fn new() -> Self {
       Self::with_profile_cookie_secure(false)
    }
 
+   #[must_use]
    pub fn with_profile_cookie_secure(profile_cookie_secure: bool) -> Self {
       let mut snapshots = HashMap::new();
       for series in Series::all() {
@@ -139,10 +141,12 @@ impl WebAppState {
       }
    }
 
+   #[must_use]
    pub fn snapshot_for(&self, series: Series) -> Option<SeriesSnapshot> {
       self.snapshots.read().ok()?.get(&series).cloned()
    }
 
+   #[must_use]
    pub fn snapshot_response_for(&self, series: Series) -> Option<SnapshotResponse> {
       self.snapshot_for(series).map(|snapshot| {
          SnapshotResponse {
@@ -202,6 +206,7 @@ impl WebAppState {
       drop(guard);
    }
 
+   #[must_use]
    pub fn nls_liveticker_response(&self, event_id: Option<&str>) -> NlsLivetickerResponse {
       let Ok(mut guard) = self.nls_liveticker.lock() else {
          return NlsLivetickerResponse::default();
@@ -267,6 +272,7 @@ impl WebAppState {
    }
 
    /// Get the currently tracked NLS event ID
+   #[must_use]
    pub fn nls_event_id(&self) -> Option<String> {
       self.nls_event_id.read().ok()?.clone()
    }
@@ -284,6 +290,7 @@ impl WebAppState {
       }
    }
 
+   #[must_use]
    pub fn demo_state_for_session(&self, session_token: &str) -> DemoStateResponse {
       let now = now_unix_ms();
       let Ok(mut guard) = self.session_demo.write() else {
@@ -307,6 +314,7 @@ impl WebAppState {
       result
    }
 
+   #[must_use]
    pub fn set_demo_for_session(&self, session_token: &str, enabled: bool) -> DemoStateResponse {
       let now = now_unix_ms();
       let Ok(mut guard) = self.session_demo.write() else {
@@ -332,6 +340,7 @@ impl WebAppState {
       result
    }
 
+   #[must_use]
    pub fn demo_snapshot_response_for(
       &self,
       series: Series,
@@ -384,6 +393,7 @@ impl WebAppState {
       }
    }
 
+   #[must_use]
    pub fn open_live_series(&self, series: Series) -> LiveSeriesGuard {
       let controller = self
          .feed_controller
@@ -398,6 +408,7 @@ impl WebAppState {
       LiveSeriesGuard { controller, series }
    }
 
+   #[must_use]
    pub const fn profile_cookie_secure(&self) -> bool {
       self.profile_cookie_secure
    }
@@ -556,7 +567,7 @@ impl Default for WebAppState {
 fn now_unix_ms() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map_or(0, |d| d.as_millis() as u64)
+      .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn session_seed(token: &str) -> u64 {
@@ -607,12 +618,12 @@ mod tests {
          sector_1:          "30.000".to_string(),
          sector_2:          "35.000".to_string(),
          sector_3:          "39.500".to_string(),
-         sector_4:          "".to_string(),
-         sector_5:          "".to_string(),
+         sector_4:          String::new(),
+         sector_5:          String::new(),
          best_lap_no:       "5".to_string(),
          pit:               "No".to_string(),
          pit_stops:         "0".to_string(),
-         fastest_driver:    "".to_string(),
+         fastest_driver:    String::new(),
          stable_id:         "31:A".to_string(),
       }]
    }

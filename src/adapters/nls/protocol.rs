@@ -79,51 +79,68 @@ fn raw_sector_field(v: &Value, sector_no: usize) -> String {
    "-".to_string()
 }
 
+fn parse_seconds_centis(secs_text: &str) -> Option<u64> {
+   let trimmed = secs_text.trim();
+   if trimmed.is_empty() {
+      return None;
+   }
+   let (whole_text, frac_text) = trimmed.split_once('.').unwrap_or((trimmed, ""));
+   let whole = whole_text.parse::<u64>().ok()?;
+   let mut frac_digits = frac_text.chars().filter(char::is_ascii_digit);
+   let d1 = frac_digits.next().and_then(|d| d.to_digit(10)).unwrap_or(0);
+   let d2 = frac_digits.next().and_then(|d| d.to_digit(10)).unwrap_or(0);
+   let d3 = frac_digits.next().and_then(|d| d.to_digit(10)).unwrap_or(0);
+   let mut centis = whole
+      .saturating_mul(100)
+      .saturating_add(u64::from(d1 * 10 + d2));
+   if d3 >= 5 {
+      centis = centis.saturating_add(1);
+   }
+   Some(centis)
+}
+
+fn parse_time_to_centisecs(s: &str) -> Option<u64> {
+   let parts: Vec<&str> = s.split(':').collect();
+   match parts.len() {
+      1 => parse_seconds_centis(parts[0]),
+      2 => {
+         let mins: u64 = parts[0].parse().ok()?;
+         let centis = parse_seconds_centis(parts[1])?;
+         Some(mins.saturating_mul(6000).saturating_add(centis))
+      },
+      3 => {
+         let hours: u64 = parts[0].parse().ok()?;
+         let mins: u64 = parts[1].parse().ok()?;
+         let centis = parse_seconds_centis(parts[2])?;
+         Some(
+            hours
+               .saturating_mul(360_000)
+               .saturating_add(mins.saturating_mul(6000))
+               .saturating_add(centis),
+         )
+      },
+      _ => None,
+   }
+}
+
+fn format_centisecs(cs: u64) -> String {
+   let hours = cs / 360_000;
+   let mins = (cs % 360_000) / 6000;
+   let secs_remainder = u32::try_from(cs % 6000).unwrap_or(5999);
+   let secs = f64::from(secs_remainder) / 100.0;
+   if hours > 0 {
+      format!("{hours}:{mins:02}:{secs:05.2}")
+   } else if mins > 0 {
+      format!("{mins}:{secs:05.2}")
+   } else {
+      format!("{secs:05.2}")
+   }
+}
+
 fn sum_sector_times(time1: &str, time2: &str) -> String {
    if time1 == "-" || time2 == "-" {
       return "-".to_string();
    }
-
-    fn parse_time_to_centisecs(s: &str) -> Option<u64> {
-       let parts: Vec<&str> = s.split(':').collect();
-       match parts.len() {
-          1 => {
-             let secs = parts[0].parse::<f64>().ok()?;
-             // Safe: secs * 100.0 produces centisecs, well within u64 range for valid times (< 24h)
-             let centis = (secs * 100.0).round() as i64;
-             Some(u64::try_from(centis).expect("centisecs fits in u64"))
-          },
-          2 => {
-             let mins: u64 = parts[0].parse().ok()?;
-             let secs: f64 = parts[1].parse().ok()?;
-             let centis = (secs * 100.0).round() as i64;
-             Some(mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
-          },
-          3 => {
-             let hours: u64 = parts[0].parse().ok()?;
-             let mins: u64 = parts[1].parse().ok()?;
-             let secs: f64 = parts[2].parse().ok()?;
-             let centis = (secs * 100.0).round() as i64;
-             Some(hours * 360_000 + mins * 6000 + u64::try_from(centis).expect("centisecs fits in u64"))
-          },
-          _ => None,
-       }
-    }
-
-    fn format_centisecs(cs: u64) -> String {
-       let hours = cs / 360_000;
-       let mins = (cs % 360_000) / 6000;
-       // Safe: cs % 6000 is at most 5999, well within f64 precision for centisecond display
-       let secs_remainder = u32::try_from(cs % 6000).unwrap_or(5999);
-       let secs = f64::from(secs_remainder) / 100.0;
-       if hours > 0 {
-          format!("{hours}:{mins:02}:{secs:05.2}")
-       } else if mins > 0 {
-          format!("{mins}:{secs:05.2}")
-       } else {
-          format!("{secs:05.2}")
-       }
-    }
 
    let Some(t1) = parse_time_to_centisecs(time1) else {
       return time1.to_string();
@@ -372,7 +389,7 @@ pub(crate) fn parse_ws_message(
          }
 
          let ws_cup = first_non_empty(&parsed, &["CUP", "EVENTNAME"]);
-         let cup_is_dhlm = ws_cup.map_or(false, |name| name.to_ascii_lowercase().contains("dhlm"));
+         let cup_is_dhlm = ws_cup.is_some_and(|name| name.to_ascii_lowercase().contains("dhlm"));
 
          if cup_is_dhlm {
             header.event_name = ws_cup.unwrap().to_string();
@@ -396,7 +413,7 @@ pub(crate) fn parse_ws_message(
          refresh_header_time_to_go(header, countdown.as_ref());
          Some((None, true))
       },
-      "LTS_TIMESYNC" | _ => None,
+      _ => None,
    }
 }
 
@@ -413,25 +430,25 @@ pub(crate) const fn should_emit_connected_status_on_update(
 }
 
 pub(crate) fn refresh_active_event_id(
-	active_event_id: &mut String,
-	refresh_result: Result<&str, String>,
+   active_event_id: &mut String,
+   refresh_result: Result<&str, String>,
 ) -> Option<String> {
-	match refresh_result {
-		Ok(event_id) => {
-			if *active_event_id != event_id {
-				*active_event_id = event_id.to_string();
-				Some(format!("NLS switching to eventId {event_id}"))
-			} else {
-				None
-			}
-		},
-		Err(err) => {
-			Some(format!(
-				"NLS 24h schedule refresh failed ({err}); keeping eventId {}",
-				*active_event_id
-			))
-		},
-	}
+   match refresh_result {
+      Ok(event_id) => {
+         if *active_event_id == event_id {
+            None
+         } else {
+            *active_event_id = event_id.to_string();
+            Some(format!("NLS switching to eventId {event_id}"))
+         }
+      },
+      Err(err) => {
+         Some(format!(
+            "NLS 24h schedule refresh failed ({err}); keeping eventId {}",
+            *active_event_id
+         ))
+      },
+   }
 }
 
 pub(crate) fn is_retriable_timeout(err: &WsError) -> bool {

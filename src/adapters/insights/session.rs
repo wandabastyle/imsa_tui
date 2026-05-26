@@ -389,6 +389,7 @@ fn is_within_window(today: i32, start: i32, end: i32, tolerance_days: i32) -> bo
    let today_days = yyyymmdd_to_epoch_days(today);
    let start_days = yyyymmdd_to_epoch_days(start);
    let end_days = yyyymmdd_to_epoch_days(end.max(start));
+   let tolerance_days = i64::from(tolerance_days);
    today_days >= start_days - tolerance_days && today_days <= end_days + tolerance_days
 }
 
@@ -416,40 +417,36 @@ fn current_utc_iso8601() -> String {
    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
-const fn epoch_seconds_to_yyyymmdd(epoch_seconds: i64) -> i32 {
+fn epoch_seconds_to_yyyymmdd(epoch_seconds: i64) -> i32 {
    let days_since_epoch = epoch_seconds.div_euclid(86_400);
    let (year, month, day) = civil_from_days(days_since_epoch);
-   year * 10000 + month * 100 + day
+   let value = year * 10000 + month * 100 + day;
+   i32::try_from(value).unwrap_or(i32::MAX)
 }
 
-const fn yyyymmdd_to_epoch_days(value: i32) -> i32 {
-    let year = value / 10_000;
-    let month = (value / 100) % 100;
-    let day = value % 100;
-    // Safe: dates are within reasonable range (-146097 to +146097 days)
-    // Safe: the result fits in i32 for dates in the range 0001-9999
-    let days = days_from_civil(year, month, day);
-    // This truncation is safe as the civil calendar day count for reasonable dates
-    // (year 0-9999) is well within i32 range
-    days as i32
- }
+fn yyyymmdd_to_epoch_days(value: i32) -> i64 {
+   let year = value / 10_000;
+   let month = (value / 100) % 100;
+   let day = value % 100;
+   days_from_civil(year, month, day)
+}
 
-const fn civil_from_days(days_since_epoch: i64) -> (i32, i32, i32) {
-    let z = days_since_epoch + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = mp + if mp < 10 { 3 } else { -9 };
-    let year = y + if m <= 2 { 1 } else { 0 };
-    // Safe: m is always in range 1-12 and d in 1-31 from this algorithm
-    // Safe: year is bounded by the algorithm to reasonable values (year 0-4000000 range)
-    // All values fit within i32 for the supported date range
-    (year as i32, m as i32, d as i32)
- }
+fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
+   let z = days_since_epoch + 719_468;
+   let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+   let doe = z - era * 146_097;
+   let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+   let y = yoe + era * 400;
+   let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+   let mp = (5 * doy + 2) / 153;
+   let d = doy - (153 * mp + 2) / 5 + 1;
+   let m = mp + if mp < 10 { 3 } else { -9 };
+   let year = y + i64::from(m <= 2);
+   // Safe: m is always in range 1-12 and d in 1-31 from this algorithm
+   // Safe: year is bounded by the algorithm to reasonable values (year 0-4000000
+   // range) All values fit within i32 for the supported date range
+   (year, m, d)
+}
 
 const fn days_from_civil(year: i32, month: i32, day: i32) -> i64 {
    let y = year - if month <= 2 { 1 } else { 0 };

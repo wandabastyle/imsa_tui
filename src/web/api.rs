@@ -256,14 +256,14 @@ fn profile_context(
    state: &WebAppState,
    headers: &axum::http::HeaderMap,
 ) -> (String, Option<String>) {
-   let mut create_reason = "missing_cookie";
-
-   if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
+   let create_reason = if let Some(profile_id) = cookie_value(headers, PROFILE_COOKIE_NAME) {
       if valid_profile_id(profile_id) {
          return (profile_id.to_string(), None);
       }
-      create_reason = "invalid_cookie";
-   }
+      "invalid_cookie"
+   } else {
+      "missing_cookie"
+   };
 
    let generated = generate_profile_id();
    let cookie = build_profile_cookie(state.profile_cookie_secure(), &generated);

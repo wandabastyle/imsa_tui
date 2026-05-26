@@ -167,7 +167,7 @@ pub fn worker_with_debug(
 
    loop {
       if stop_rx.try_recv().is_ok() {
-         save_snapshot_if_dirty(&mut persist, &last_snapshot, debug_output);
+         save_snapshot_if_dirty(&mut persist, last_snapshot.as_ref(), debug_output);
          break;
       }
 
@@ -217,7 +217,7 @@ fn poll_f1_snapshot(
             source_id,
             text: "F1 offline: latest race results".to_string(),
          });
-         log_offline_once(offline_detail_logged, live_err, debug_output);
+         log_offline_once(offline_detail_logged, &live_err, debug_output);
          build_latest_finished_race_snapshot(client).ok()
       },
    }
@@ -225,7 +225,7 @@ fn poll_f1_snapshot(
 
 fn log_offline_once(
    offline_detail_logged: &mut bool,
-   live_err: String,
+   live_err: &str,
    debug_output: &SeriesDebugOutput,
 ) {
    if *offline_detail_logged {
@@ -235,8 +235,8 @@ fn log_offline_once(
       debug_output,
       "F1",
       format!(
-         "No active Formula 1 live session; showing latest finished race results \
-          ({live_err}) [ts={}]",
+         "No active Formula 1 live session; showing latest finished race results ({live_err}) \
+          [ts={}]",
          now_unix_ms()
       ),
    );
@@ -245,10 +245,10 @@ fn log_offline_once(
 
 fn save_snapshot_if_dirty(
    persist: &mut PersistState,
-   last_snapshot: &Option<F1Snapshot>,
+   last_snapshot: Option<&F1Snapshot>,
    debug_output: &SeriesDebugOutput,
 ) {
-   if let Some(snapshot) = last_snapshot.as_ref() {
+   if let Some(snapshot) = last_snapshot {
       if persist.dirty_since_last_save {
          persist_snapshot(persist, snapshot, now_unix_ms(), "F1", debug_output);
       }

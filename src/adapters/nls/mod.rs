@@ -10,24 +10,54 @@ pub mod state;
 pub mod websocket;
 
 pub use countdown::CountdownState;
-
 // Re-export main entry points
-pub use websocket::{websocket_worker, websocket_worker_with_debug};
+pub use websocket::{
+   websocket_worker,
+   websocket_worker_with_debug,
+};
 
 #[cfg(test)]
 mod tests {
-	use serde_json::json;
-	use std::time::Duration;
+   use std::time::Duration;
 
-	use crate::adapters::nls::{
-		countdown::{self, refresh_header_time_to_go},
-		protocol::{parse_ws_message, notices_from_ws_message, entry_from_value, set_tcp_read_timeout, should_emit_connected_status_on_update, refresh_active_event_id},
-		schedule::{parse_german_date_range, parse_termine_entries, CalendarDate, TermineScheduleEntry, N24_EVENT_ID, N24_TARGET_EVENT_TITLE, html_to_text_lines, extract_date_range_for_event_title, select_active_termine_event_title, title_matches_24h_qualifiers, discover_termine_url_from_homepage_html, DEFAULT_NLS_EVENT_ID},
-		CountdownState,
-		snapshot::{NlsSnapshot, restore_snapshot_from_disk, persist_snapshot_if_dirty},
-	};
-	use crate::timing::{TimingHeader, TimingMessage};
-	use crate::timing_persist::SeriesDebugOutput;
+   use serde_json::json;
+
+   use crate::{
+      adapters::nls::{
+         countdown::{
+            self,
+            refresh_header_time_to_go,
+         },
+         protocol::{
+            entry_from_value,
+            notices_from_ws_message,
+            parse_ws_message,
+            refresh_active_event_id,
+            set_tcp_read_timeout,
+            should_emit_connected_status_on_update,
+         },
+         schedule::{
+            discover_termine_url_from_homepage_html,
+            extract_date_range_for_event_title,
+            html_to_text_lines,
+            parse_german_date_range,
+            parse_termine_entries,
+            select_active_termine_event_title,
+            title_matches_24h_qualifiers,
+            CalendarDate,
+            TermineScheduleEntry,
+            DEFAULT_NLS_EVENT_ID,
+            N24_EVENT_ID,
+            N24_TARGET_EVENT_TITLE,
+         },
+         CountdownState,
+      },
+      timing::{
+         TimingHeader,
+         TimingMessage,
+      },
+      timing_persist::SeriesDebugOutput,
+   };
 
    #[test]
    fn current_time_to_end_at_counts_down_for_relative_mode() {
@@ -201,8 +231,10 @@ mod tests {
          Receiver,
       };
 
-      use crate::adapters::nls::snapshot::restore_snapshot_from_disk;
-      use crate::timing_persist::PersistState;
+      use crate::{
+         adapters::nls::snapshot::restore_snapshot_from_disk,
+         timing_persist::PersistState,
+      };
 
       // Create a temporary directory for the test
       let temp_dir = std::env::temp_dir();
@@ -309,8 +341,10 @@ mod tests {
          Receiver,
       };
 
-      use crate::adapters::nls::snapshot::restore_snapshot_from_disk;
-      use crate::timing_persist::PersistState;
+      use crate::{
+         adapters::nls::snapshot::restore_snapshot_from_disk,
+         timing_persist::PersistState,
+      };
 
       // Create a temporary directory for the test
       let temp_dir = std::env::temp_dir();

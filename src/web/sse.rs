@@ -44,7 +44,7 @@ pub async fn stream_series(
       if state.demo_state_for_session(&session_token).enabled {
          return stream_demo_series(&state, series, &session_token).into_response();
       }
-   };
+   }
 
    let Some(rx) = state.subscribe_series(series) else {
       return (StatusCode::NOT_FOUND, "unknown series").into_response();
@@ -59,7 +59,6 @@ pub async fn stream_series(
 
    // Clients get one immediate snapshot, then one event per worker update.
    let update_stream = BroadcastStream::new(rx).filter_map({
-      let state = state.clone();
       let live_guard = Arc::clone(&live_guard);
       move |event| {
          let _keep_alive = Arc::clone(&live_guard);

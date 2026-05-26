@@ -99,11 +99,11 @@ fn normalize_driver_name_token(token: &str) -> String {
    let mut seen_alpha = false;
    for ch in token.chars() {
       if ch.is_alphabetic() {
-         if !seen_alpha {
+         if seen_alpha {
+            out.extend(ch.to_lowercase());
+         } else {
             out.extend(ch.to_uppercase());
             seen_alpha = true;
-         } else {
-            out.extend(ch.to_lowercase());
          }
       } else {
          seen_alpha = false;

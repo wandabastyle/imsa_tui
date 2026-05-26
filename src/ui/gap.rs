@@ -48,33 +48,81 @@ fn anchor_gap_value(anchor: &GapAnchorInfo, column: GapColumn) -> &str {
    }
 }
 
+fn parse_decimal_millis(raw: &str) -> Option<i64> {
+   let (whole, frac) = raw.split_once('.').unwrap_or((raw, ""));
+   if whole.is_empty() || !whole.chars().all(|ch| ch.is_ascii_digit()) {
+      return None;
+   }
+   if !frac.chars().all(|ch| ch.is_ascii_digit()) {
+      return None;
+   }
+
+   let whole_secs = whole.parse::<u64>().ok()?;
+   let mut frac_chars = frac.chars();
+   let d1 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+   let d2 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+   let d3 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+   let d4 = frac_chars
+      .next()
+      .and_then(|ch| ch.to_digit(10))
+      .unwrap_or(0);
+
+   let mut frac_ms = d1 * 100 + d2 * 10 + d3;
+   if d4 >= 5 {
+      frac_ms += 1;
+   }
+
+   let mut seconds_ms = whole_secs.checked_mul(1000)?;
+   if frac_ms >= 1000 {
+      seconds_ms = seconds_ms.checked_add(1000)?;
+      frac_ms -= 1000;
+   }
+
+   let total_ms = seconds_ms.checked_add(u64::from(frac_ms))?;
+   i64::try_from(total_ms).ok()
+}
+
+fn parse_duration_millis(raw: &str) -> Option<i64> {
+   let normalized = raw.trim().replace(',', ".");
+   if normalized.is_empty() {
+      return None;
+   }
+
+   if let Some((left, right)) = normalized.rsplit_once(':') {
+      if left.is_empty() || !left.chars().all(|ch| ch.is_ascii_digit()) {
+         return None;
+      }
+      let minutes = left.parse::<u64>().ok()?;
+      let seconds_ms = parse_decimal_millis(right)?;
+      let minutes_ms = i64::try_from(minutes).ok()?.checked_mul(60_000)?;
+      minutes_ms.checked_add(seconds_ms)
+   } else {
+      parse_decimal_millis(&normalized)
+   }
+}
+
 fn parse_best_lap_time(raw: &str) -> Option<i64> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed == "-" {
-       return None;
-    }
-    if !trimmed
-       .chars()
-       .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.' || ch == ',')
-    {
-       return None;
-    }
-    let normalized = trimmed.replace(',', ".");
-    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
-       let secs = right.parse::<f64>().ok()?;
-       let mins = left.parse::<u64>().ok()?;
-       // Safe: calculation produces milliseconds for reasonable lap times
-       // Safe: minutes/seconds for laps are small values (well within i64 range)
-       let millis_f64 = (mins as f64).mul_add(60.0, secs) * 1000.0;
-       let millis_i128 = millis_f64.round() as i128;
-       i64::try_from(millis_i128).ok()?
-    } else {
-       let millis_f64 = normalized.parse::<f64>().ok()? * 1000.0;
-       let millis_i128 = millis_f64.round() as i128;
-       i64::try_from(millis_i128).ok()?
-    };
-    Some(total_ms)
- }
+   let trimmed = raw.trim();
+   if trimmed.is_empty() || trimmed == "-" {
+      return None;
+   }
+   if !trimmed
+      .chars()
+      .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.' || ch == ',')
+   {
+      return None;
+   }
+   parse_duration_millis(trimmed)
+}
 
 fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool {
    let raw = session_type_raw.trim().to_ascii_uppercase();
@@ -99,63 +147,52 @@ fn is_qualifying_or_practice(session_type_raw: &str, session_name: &str) -> bool
 }
 
 fn parse_gap_value(raw: &str) -> Option<GapValue> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty()
-       || trimmed == "-"
-       || trimmed.eq_ignore_ascii_case("leader")
-       || trimmed.to_ascii_uppercase().starts_with("----LAP")
-    {
-       return None;
-    }
+   let trimmed = raw.trim();
+   if trimmed.is_empty()
+      || trimmed == "-"
+      || trimmed.eq_ignore_ascii_case("leader")
+      || trimmed.to_ascii_uppercase().starts_with("----LAP")
+   {
+      return None;
+   }
 
-    let upper = trimmed.to_ascii_uppercase();
-    if upper.contains("LAP") {
-       let token = trimmed.split_whitespace().find(|part| {
-          let cleaned = part.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
-          !cleaned.is_empty() && cleaned.chars().any(|ch| ch.is_ascii_digit())
-       })?;
-       let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
-       let laps = cleaned.parse::<i32>().ok()?;
-       return Some(GapValue::Laps(laps));
-    }
+   let upper = trimmed.to_ascii_uppercase();
+   if upper.contains("LAP") {
+      let token = trimmed.split_whitespace().find(|part| {
+         let cleaned = part.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
+         !cleaned.is_empty() && cleaned.chars().any(|ch| ch.is_ascii_digit())
+      })?;
+      let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_digit() && ch != '+' && ch != '-');
+      let laps = cleaned.parse::<i32>().ok()?;
+      return Some(GapValue::Laps(laps));
+   }
 
-    let normalized = trimmed.trim_start_matches('+');
-    if !normalized
-       .chars()
-       .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.')
-    {
-       return None;
-    }
+   let normalized = trimmed.trim_start_matches('+');
+   if !normalized
+      .chars()
+      .all(|ch| ch.is_ascii_digit() || ch == ':' || ch == '.')
+   {
+      return None;
+   }
 
-    let total_ms = if let Some((left, right)) = normalized.rsplit_once(':') {
-       let secs = right.parse::<f64>().ok()?;
-       let mins = left.parse::<u64>().ok()?;
-       // Safe: calculation produces milliseconds for reasonable gap times
-       // Safe: minutes/seconds for gaps are small values (well within i64 range)
-       let millis_f64 = (mins as f64).mul_add(60.0, secs) * 1000.0;
-       let millis_i128 = millis_f64.round() as i128;
-       i64::try_from(millis_i128).ok()?
-    } else {
-       let millis_f64 = normalized.parse::<f64>().ok()? * 1000.0;
-       let millis_i128 = millis_f64.round() as i128;
-       i64::try_from(millis_i128).ok()?
-    };
-    Some(GapValue::TimeMs(total_ms))
- }
+   let total_ms = parse_duration_millis(normalized)?;
+   Some(GapValue::TimeMs(total_ms))
+}
 
 fn format_time_delta(ms: i64) -> String {
-    let sign = if ms >= 0 { '+' } else { '-' };
-    let abs_ms = ms.unsigned_abs();
-    let minutes = abs_ms / 60_000;
-    // Safe: remainder is at most 59999, well within f64 precision for milliseconds display
-    let remainder = abs_ms % 60_000;
-    let secs = f64::from(u32::try_from(remainder).unwrap_or(59999)) / 1000.0;
-    if minutes > 0 {
-       format!("{sign}{minutes}:{secs:06.3}")
-    } else {
-       format!("{sign}{secs:.3}")
-    }
- }
+   let sign = if ms >= 0 { '+' } else { '-' };
+   let abs_ms = ms.unsigned_abs();
+   let minutes = abs_ms / 60_000;
+   // Safe: remainder is at most 59999, well within f64 precision for milliseconds
+   // display
+   let remainder = abs_ms % 60_000;
+   let secs = f64::from(u32::try_from(remainder).unwrap_or(59999)) / 1000.0;
+   if minutes > 0 {
+      format!("{sign}{minutes}:{secs:06.3}")
+   } else {
+      format!("{sign}{secs:.3}")
+   }
+}
 
 fn format_lap_delta(laps: i32) -> String {
    let sign = if laps >= 0 { '+' } else { '-' };

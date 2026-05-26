@@ -169,14 +169,11 @@ pub fn websocket_worker_with_debug(
 
       let mut ws_cup: Option<String> = None;
       for _ in 0..5 {
-         match socket.read() {
-            Ok(Message::Text(text)) => {
-               if let Some(cup) = extract_cup_from_message(&text) {
-                  ws_cup = Some(cup);
-                  break;
-               }
-            },
-            _ => {},
+         if let Ok(Message::Text(text)) = socket.read() {
+            if let Some(cup) = extract_cup_from_message(&text) {
+               ws_cup = Some(cup);
+               break;
+            }
          }
       }
 
@@ -189,7 +186,7 @@ pub fn websocket_worker_with_debug(
       }
 
       if use_dump_mode {
-         if let Some(lines) = load_dump_file(&dhlm_dump_path()) {
+         if let Some(lines) = load_dump_file(dhlm_dump_path().as_ref()) {
             for line in lines {
                for notice in notices_from_ws_message(&line) {
                   let _ = tx.send(TimingMessage::Notice { source_id, notice });
@@ -288,10 +285,8 @@ pub fn websocket_worker_with_debug(
                }
             },
             Ok(Message::Close(_)) => break,
-            Err(_) => {
-               if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
-                  break 'outer;
-               }
+            Err(_) if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() => {
+               break 'outer;
             },
             _ => {},
          }
@@ -374,8 +369,8 @@ fn parse_entry(value: &Value) -> Option<TimingEntry> {
    entry_from_value(value, "50")
 }
 
-fn load_dump_file(path: &Option<PathBuf>) -> Option<Vec<String>> {
-   let path = path.as_ref()?;
+fn load_dump_file(path: Option<&PathBuf>) -> Option<Vec<String>> {
+   let path = path?;
    let file = File::open(path).ok()?;
    let reader = BufReader::new(file);
    let mut lines = Vec::new();

@@ -56,8 +56,8 @@ pub fn push_series_debug_log(logs: &mut VecDeque<String>, line: String) {
    }
 }
 
-pub fn drain_series_debug_logs(feed: &Option<ActiveFeed>, logs: &mut VecDeque<String>) {
-   let Some(active_feed) = feed.as_ref() else {
+pub fn drain_series_debug_logs(feed: Option<&ActiveFeed>, logs: &mut VecDeque<String>) {
+   let Some(active_feed) = feed else {
       return;
    };
    let Some(debug_rx) = active_feed.debug_rx.as_ref() else {

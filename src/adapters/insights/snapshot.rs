@@ -37,11 +37,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Snapshot<Extra = ()> {
-	pub header:      TimingHeader,
-	pub entries:     Vec<TimingEntry>,
-	pub session_id:  Option<String>,
-	pub fingerprint: u64,
-	pub extra:       Extra,
+   pub header:      TimingHeader,
+   pub entries:     Vec<TimingEntry>,
+   pub session_id:  Option<String>,
+   pub fingerprint: u64,
+   pub extra:       Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

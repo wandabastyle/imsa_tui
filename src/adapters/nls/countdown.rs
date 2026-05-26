@@ -7,10 +7,10 @@ use crate::timing::TimingHeader;
 
 #[derive(Debug, Clone)]
 pub struct CountdownState {
-	pub end_time_raw:    u64,
-	pub time_state_raw:  String,
-	pub received_at_ms:  u64,
-	pub is_race_session: bool,
+   pub end_time_raw:    u64,
+   pub time_state_raw:  String,
+   pub received_at_ms:  u64,
+   pub is_race_session: bool,
 }
 
 pub(crate) fn now_millis() -> u128 {
