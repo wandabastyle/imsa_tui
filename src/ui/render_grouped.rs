@@ -17,6 +17,7 @@ use ratatui::{
 use crate::{
    timing::TimingEntry,
    ui::{
+      grouping::selected_group_idx,
       render::RenderCtx,
       table::{
          build_table,
@@ -24,6 +25,11 @@ use crate::{
       },
    },
 };
+
+const GROUP_TABLE_CHROME_HEIGHT: u16 = 3;
+const GROUP_MIN_VISIBLE_CAR_ROWS: u16 = 3;
+const GROUP_TABLE_PREFERRED_MIN_HEIGHT: u16 =
+   GROUP_TABLE_CHROME_HEIGHT + GROUP_MIN_VISIBLE_CAR_ROWS;
 
 pub fn render_grouped(
    f: &mut Frame<'_>,
@@ -36,10 +42,13 @@ pub fn render_grouped(
       return;
    }
 
-   let selected_group_idx = calculate_selected_group_idx(ctx.selected_row, current_groups);
-   let minimum_rows_per_group = ctx.config.grouped_min_rows.max(3);
-   let max_visible_groups = (area.height / minimum_rows_per_group).max(1) as usize;
-   let visible_group_count = current_groups.len().min(max_visible_groups.max(1));
+   let selected_group_idx = selected_group_idx(ctx.selected_row, current_groups);
+   let minimum_rows_per_group = ctx
+      .config
+      .grouped_min_rows
+      .max(GROUP_TABLE_PREFERRED_MIN_HEIGHT);
+   let visible_group_count =
+      calculate_visible_group_count(area.height, current_groups.len(), minimum_rows_per_group);
 
    let start_group_idx = calculate_start_group_idx(
       selected_group_idx,
@@ -61,20 +70,6 @@ fn render_empty(f: &mut Frame<'_>, area: Rect) {
    f.render_widget(waiting, area);
 }
 
-fn calculate_selected_group_idx(
-   selected_row: usize,
-   current_groups: &[(String, Vec<TimingEntry>)],
-) -> usize {
-   let mut running = 0usize;
-   for (idx, (_, class_entries)) in current_groups.iter().enumerate() {
-      if selected_row < running + class_entries.len() {
-         return idx;
-      }
-      running += class_entries.len();
-   }
-   0
-}
-
 fn calculate_start_group_idx(
    selected_group_idx: usize,
    total_groups: usize,
@@ -87,6 +82,20 @@ fn calculate_start_group_idx(
    selected_group_idx
       .saturating_sub(half)
       .min(total_groups - visible_group_count)
+}
+
+fn calculate_visible_group_count(
+   area_height: u16,
+   total_groups: usize,
+   minimum_rows_per_group: u16,
+) -> usize {
+   if total_groups == 0 {
+      return 0;
+   }
+
+   let min_rows = minimum_rows_per_group.max(GROUP_TABLE_PREFERRED_MIN_HEIGHT);
+   let max_by_min = usize::from((area_height / min_rows).max(1));
+   total_groups.min(max_by_min).max(1)
 }
 
 fn create_group_layout(
@@ -102,8 +111,7 @@ fn create_group_layout(
    let constraints: Vec<Constraint> = visible_groups
       .iter()
       .map(|(_, entries)| {
-         let min_rows =
-            minimum_rows_per_group.clamp(3, u16::try_from(entries.len()).unwrap_or(u16::MAX));
+         let min_rows = group_min_height(entries.len(), minimum_rows_per_group).min(area.height);
          let target_rows =
             proportional_rows(entries.len(), total_cars, visible_groups.len(), area.height);
          Constraint::Length(target_rows.clamp(min_rows, area.height))
@@ -115,6 +123,17 @@ fn create_group_layout(
       .constraints(constraints)
       .split(area)
       .to_vec()
+}
+
+fn group_min_height(entries_len: usize, minimum_rows_per_group: u16) -> u16 {
+   let available_car_rows = u16::try_from(entries_len)
+      .unwrap_or(GROUP_MIN_VISIBLE_CAR_ROWS)
+      .clamp(1, GROUP_MIN_VISIBLE_CAR_ROWS);
+   let available_height = GROUP_TABLE_CHROME_HEIGHT + available_car_rows;
+
+   minimum_rows_per_group
+      .max(GROUP_TABLE_PREFERRED_MIN_HEIGHT)
+      .min(available_height)
 }
 
 fn proportional_rows(
@@ -155,10 +174,15 @@ fn render_visible_groups(
    global_offset: &mut usize,
 ) {
    for ((class_name, class_entries), area) in visible_groups.iter().zip(group_chunks.iter()) {
-      let local_selected = ctx
-         .selected_row
-         .saturating_sub(*global_offset)
-         .min(class_entries.len().saturating_sub(1));
+      let is_selected_group = ctx.selected_row >= *global_offset
+         && ctx.selected_row < *global_offset + class_entries.len();
+      let local_selected = if is_selected_group {
+         ctx.selected_row
+            .saturating_sub(*global_offset)
+            .min(class_entries.len().saturating_sub(1))
+      } else {
+         0
+      };
       let (visible_entries, start) = visible_slice(class_entries, local_selected, area.height);
 
       let highlight = calculate_highlight(
@@ -226,4 +250,81 @@ fn visible_slice(
    height: u16,
 ) -> (&[TimingEntry], usize) {
    visible_slice_impl(entries, local_selected, height)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn test_entry(stable_id: &str) -> TimingEntry {
+      TimingEntry {
+         stable_id: stable_id.to_string(),
+         ..TimingEntry::default()
+      }
+   }
+
+   #[test]
+   fn create_group_layout_handles_small_groups_without_panicking() {
+      let groups = vec![
+         ("GTP".to_string(), vec![test_entry("car-1")]),
+         ("GTD".to_string(), vec![
+            test_entry("car-2"),
+            test_entry("car-3"),
+         ]),
+      ];
+
+      let layout = create_group_layout(&groups, Rect::new(0, 0, 100, 8), 3);
+
+      assert_eq!(layout.len(), groups.len());
+   }
+
+   #[test]
+   fn create_group_layout_handles_zero_height_area() {
+      let groups = vec![("GTP".to_string(), vec![test_entry("car-1")])];
+
+      let layout = create_group_layout(&groups, Rect::new(0, 0, 80, 0), 3);
+
+      assert_eq!(layout.len(), groups.len());
+      assert_eq!(layout[0].height, 0);
+   }
+
+   #[test]
+   fn grouped_view_prefers_three_visible_car_rows_per_group() {
+      let area = Rect::new(0, 0, 120, 12);
+      let visible_groups = calculate_visible_group_count(area.height, 10, 3);
+
+      assert_eq!(visible_groups, 2);
+   }
+
+   #[test]
+   fn create_group_layout_keeps_each_group_usable_when_space_allows() {
+      let groups = vec![
+         ("SP-9".to_string(), vec![test_entry("car-1")]),
+         ("SP-X".to_string(), vec![test_entry("car-2")]),
+         ("SP-10".to_string(), vec![test_entry("car-3")]),
+      ];
+
+      let layout = create_group_layout(
+         &groups,
+         Rect::new(0, 0, 120, 18),
+         GROUP_TABLE_PREFERRED_MIN_HEIGHT,
+      );
+
+      assert_eq!(layout.len(), groups.len());
+      assert!(layout
+         .iter()
+         .all(|chunk| chunk.height >= GROUP_TABLE_PREFERRED_MIN_HEIGHT));
+   }
+
+   #[test]
+   fn visible_group_count_uses_requested_group_height_above_preferred_minimum() {
+      let visible_groups = calculate_visible_group_count(20, 10, 10);
+      assert_eq!(visible_groups, 2);
+   }
+
+   #[test]
+   fn visible_group_count_stays_one_when_space_is_tight() {
+      let visible_groups = calculate_visible_group_count(3, 10, 4);
+      assert_eq!(visible_groups, 1);
+   }
 }

@@ -15,7 +15,10 @@ use super::{
    },
    config::save_config,
    feed::{push_series_debug_log, stop_feed},
-   grouping::{next_view_mode, selected_series_index, view_entries_for_mode, ViewMode},
+    grouping::{
+        group_start_row, next_view_mode, selected_series_index, step_group_selection,
+        view_entries_for_mode, ViewMode,
+    },
    pit::refresh_pit_trackers,
    popups::{
        GroupPickerState, LogsPanelState, MessagesPanelState, NlsLivetickerPanelState,
@@ -387,26 +390,45 @@ pub fn handle_input(state: &mut InputState<'_>, event: Event) -> bool {
            *state.selected_row = 0;
            *state.gap_anchor_stable_id = None;
        }
-       KeyCode::Down | KeyCode::Char('j') if !*state.show_help => {
-           *state.selected_row =
-               step_selection(*state.selected_row, state.current_view_entries.len(), 1);
-       }
-       KeyCode::Up | KeyCode::Char('k') if !*state.show_help => {
-           *state.selected_row =
-               step_selection(*state.selected_row, state.current_view_entries.len(), -1);
-       }
-       KeyCode::PageDown if !*state.show_help => {
-           *state.selected_row =
-               step_selection(*state.selected_row, state.current_view_entries.len(), 10);
-       }
-       KeyCode::PageUp if !*state.show_help => {
-           *state.selected_row =
-               step_selection(*state.selected_row, state.current_view_entries.len(), -10);
-       }
-       KeyCode::Home if !*state.show_help => *state.selected_row = 0,
-       KeyCode::End if !*state.show_help => {
-           *state.selected_row = state.current_view_entries.len().saturating_sub(1);
-       }
+        KeyCode::Down | KeyCode::Char('j') if !*state.show_help => {
+            *state.selected_row = if *state.view_mode == ViewMode::Grouped {
+                step_group_selection(*state.selected_row, state.current_groups, 1)
+            } else {
+                step_selection(*state.selected_row, state.current_view_entries.len(), 1)
+            };
+        }
+        KeyCode::Up | KeyCode::Char('k') if !*state.show_help => {
+            *state.selected_row = if *state.view_mode == ViewMode::Grouped {
+                step_group_selection(*state.selected_row, state.current_groups, -1)
+            } else {
+                step_selection(*state.selected_row, state.current_view_entries.len(), -1)
+            };
+        }
+        KeyCode::PageDown if !*state.show_help => {
+            *state.selected_row = if *state.view_mode == ViewMode::Grouped {
+                step_group_selection(*state.selected_row, state.current_groups, 10)
+            } else {
+                step_selection(*state.selected_row, state.current_view_entries.len(), 10)
+            };
+        }
+        KeyCode::PageUp if !*state.show_help => {
+            *state.selected_row = if *state.view_mode == ViewMode::Grouped {
+                step_group_selection(*state.selected_row, state.current_groups, -10)
+            } else {
+                step_selection(*state.selected_row, state.current_view_entries.len(), -10)
+            };
+        }
+        KeyCode::Home if !*state.show_help => *state.selected_row = 0,
+        KeyCode::End if !*state.show_help => {
+            *state.selected_row = if *state.view_mode == ViewMode::Grouped {
+                group_start_row(
+                    state.current_groups,
+                    state.current_groups.len().saturating_sub(1),
+                )
+            } else {
+                state.current_view_entries.len().saturating_sub(1)
+            };
+        }
        KeyCode::Char(' ') if !*state.show_help => {
            if let Some(entry) = state.current_view_entries.get(*state.selected_row) {
                let fav_key = super::favourites::favourite_key(*state.active_series, &entry.stable_id);

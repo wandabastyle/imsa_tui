@@ -102,6 +102,52 @@ pub fn view_entries_for_mode<'a>(
    }
 }
 
+#[must_use]
+pub fn selected_group_idx(
+   selected_row: usize,
+   current_groups: &[(String, Vec<TimingEntry>)],
+) -> usize {
+   let mut running = 0usize;
+   for (idx, (_, class_entries)) in current_groups.iter().enumerate() {
+      if selected_row < running + class_entries.len() {
+         return idx;
+      }
+      running += class_entries.len();
+   }
+   0
+}
+
+#[must_use]
+pub fn group_start_row(current_groups: &[(String, Vec<TimingEntry>)], group_idx: usize) -> usize {
+   current_groups
+      .iter()
+      .take(group_idx)
+      .map(|(_, entries)| entries.len())
+      .sum()
+}
+
+#[must_use]
+pub fn step_group_selection(
+   selected_row: usize,
+   current_groups: &[(String, Vec<TimingEntry>)],
+   delta: isize,
+) -> usize {
+   if current_groups.is_empty() {
+      return 0;
+   }
+
+   let current_group = selected_group_idx(selected_row, current_groups);
+   let len = current_groups.len();
+   let steps = delta.unsigned_abs() % len;
+   let next_group = if delta.is_negative() {
+      (current_group + len - steps) % len
+   } else {
+      (current_group + steps) % len
+   };
+
+   group_start_row(current_groups, next_group)
+}
+
 pub fn view_mode_text(view_mode: ViewMode, group_names: &[String]) -> String {
    match view_mode {
       ViewMode::Overall => "Overall".to_string(),
@@ -165,4 +211,42 @@ fn normalize_imsa_label(raw: &str) -> String {
       }
    }
    raw.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn entry(stable_id: &str) -> TimingEntry {
+      TimingEntry {
+         stable_id: stable_id.to_string(),
+         ..TimingEntry::default()
+      }
+   }
+
+   fn groups() -> Vec<(String, Vec<TimingEntry>)> {
+      vec![
+         ("A".to_string(), vec![entry("a1"), entry("a2")]),
+         ("B".to_string(), vec![entry("b1"), entry("b2"), entry("b3")]),
+         ("C".to_string(), vec![entry("c1")]),
+      ]
+   }
+
+   #[test]
+   fn step_group_selection_moves_to_group_starts() {
+      let groups = groups();
+
+      assert_eq!(step_group_selection(0, &groups, 1), 2);
+      assert_eq!(step_group_selection(3, &groups, 1), 5);
+      assert_eq!(step_group_selection(3, &groups, -1), 0);
+   }
+
+   #[test]
+   fn step_group_selection_wraps_between_groups() {
+      let groups = groups();
+
+      assert_eq!(step_group_selection(0, &groups, -1), 5);
+      assert_eq!(step_group_selection(5, &groups, 1), 0);
+      assert_eq!(step_group_selection(0, &groups, 10), 2);
+   }
 }

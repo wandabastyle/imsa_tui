@@ -51,9 +51,11 @@ use super::{
    },
    gap::gap_anchor_from_entry,
    grouping::{
+      group_start_row,
       grouped_entries,
       next_view_mode,
       selected_series_index,
+      step_group_selection,
       view_entries_for_mode,
       ViewMode,
    },
@@ -1162,20 +1164,40 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                   gap_anchor_stable_id = None;
                },
                KeyCode::Down | KeyCode::Char('j') if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), 1);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, 1)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), 1)
+                  };
                },
                KeyCode::Up | KeyCode::Char('k') if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), -1);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, -1)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), -1)
+                  };
                },
                KeyCode::PageDown if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), 10);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, 10)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), 10)
+                  };
                },
                KeyCode::PageUp if !show_help => {
-                  selected_row = step_selection(selected_row, current_view_entries.len(), -10);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     step_group_selection(selected_row, &current_groups, -10)
+                  } else {
+                     step_selection(selected_row, current_view_entries.len(), -10)
+                  };
                },
                KeyCode::Home if !show_help => selected_row = 0,
                KeyCode::End if !show_help => {
-                  selected_row = current_view_entries.len().saturating_sub(1);
+                  selected_row = if view_mode == ViewMode::Grouped {
+                     group_start_row(&current_groups, current_groups.len().saturating_sub(1))
+                  } else {
+                     current_view_entries.len().saturating_sub(1)
+                  };
                },
                KeyCode::Char(' ') if !show_help => {
                   if let Some(entry) = current_view_entries.get(selected_row) {
