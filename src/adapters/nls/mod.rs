@@ -23,6 +23,7 @@ use serde_json::json;
 use tungstenite::{
    connect,
    Message,
+   WebSocket,
 };
 
 #[cfg(test)]
@@ -95,6 +96,71 @@ const N24_TARGET_EVENT_TITLE: &str = "ADAC RAVENOL 24h Nürburgring";
 const WEBSITE_EVENT_REFRESH_INTERVAL: Duration = Duration::from_mins(10);
 const SNAPSHOT_SAVE_DEBOUNCE: Duration = Duration::from_mins(3);
 
+/// Type alias for the websocket socket type.
+pub type NlsWebSocket = WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+
+/// Context for NLS websocket operations.
+struct NlsWorkerContext {
+   header:                    TimingHeader,
+   latest_entries:            Vec<TimingEntry>,
+   termine_event_name:      Option<String>,
+   homepage_event_name:       Option<String>,
+   next_website_refresh:      Instant,
+   countdown:                 Option<CountdownState>,
+   is_race_session:           bool,
+   active_event_id:           String,
+   persist:                   PersistState,
+   last_good_live_snapshot:   Option<NlsSnapshot>,
+   last_session_id:           Option<String>,
+}
+
+impl NlsWorkerContext {
+   fn new(tx: &Sender<TimingMessage>, source_id: u64, debug_output: &SeriesDebugOutput) -> Self {
+      let mut header = TimingHeader {
+         event_name: "NLS Live Timing".to_string(),
+         track_name: "Nürburgring".to_string(),
+         ..TimingHeader::default()
+      };
+      let mut latest_entries: Vec<TimingEntry> = Vec::new();
+      let mut persist = PersistState::new(nls_snapshot_path());
+
+      let last_session_id = restore_snapshot_from_disk(
+         &mut persist,
+         &mut header,
+         &mut latest_entries,
+         tx,
+         source_id,
+         debug_output,
+      );
+
+      let last_good_live_snapshot = if latest_entries.is_empty() {
+         None
+      } else {
+         Some(NlsSnapshot {
+            header:      header.clone(),
+            entries:     latest_entries.clone(),
+            session_id:  last_session_id.clone(),
+            fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
+            extra:       (),
+         })
+      };
+
+      Self {
+         header,
+         latest_entries,
+         termine_event_name: None,
+         homepage_event_name: None,
+         next_website_refresh: Instant::now(),
+         countdown: None,
+         is_race_session: false,
+         active_event_id: DEFAULT_NLS_EVENT_ID.to_string(),
+         persist,
+         last_good_live_snapshot,
+         last_session_id,
+      }
+   }
+}
+
 pub fn websocket_worker(tx: &Sender<TimingMessage>, source_id: u64, stop_rx: &Receiver<()>) {
    websocket_worker_with_debug(tx, source_id, stop_rx, &SeriesDebugOutput::Silent);
 }
@@ -105,330 +171,44 @@ pub fn websocket_worker_with_debug(
    stop_rx: &Receiver<()>,
    debug_output: &SeriesDebugOutput,
 ) {
-   let mut header = TimingHeader {
-      event_name: "NLS Live Timing".to_string(),
-      track_name: "Nürburgring".to_string(),
-      ..TimingHeader::default()
-   };
-   let mut latest_entries: Vec<TimingEntry> = Vec::new();
-   let website_client = Client::builder()
-      .timeout(Duration::from_secs(10))
-      .user_agent(
-         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 \
-          Safari/537.36",
-      )
-      .build()
-      .ok();
-   let mut termine_event_name: Option<String> = None;
-   let mut homepage_event_name: Option<String> = None;
-   let mut next_website_refresh = Instant::now();
-   let mut countdown: Option<CountdownState> = None;
-   let mut is_race_session = false;
-   let mut active_event_id = DEFAULT_NLS_EVENT_ID;
-   let mut persist = PersistState::new(nls_snapshot_path());
-   let mut last_good_live_snapshot: Option<NlsSnapshot> = None;
-   let mut last_session_id = restore_snapshot_from_disk(
-      &mut persist,
-      &mut header,
-      &mut latest_entries,
-      tx,
-      source_id,
-      debug_output,
-   );
-   if !latest_entries.is_empty() {
-      last_good_live_snapshot = Some(NlsSnapshot {
-         header:      header.clone(),
-         entries:     latest_entries.clone(),
-         session_id:  last_session_id.clone(),
-         fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
-         extra:       (),
-      });
-   }
+   let client = build_website_client();
+   let mut ctx = NlsWorkerContext::new(tx, source_id, debug_output);
 
    'outer: loop {
       if stop_rx.try_recv().is_ok() {
-         if let Some(snapshot) = last_good_live_snapshot.as_ref() {
-            persist_snapshot_if_dirty(&mut persist, snapshot, now_millis() as u64, debug_output);
+         if let Some(snapshot) = ctx.last_good_live_snapshot.as_ref() {
+            persist_snapshot_if_dirty(&mut ctx.persist, snapshot, now_millis() as u64, debug_output);
          }
          break;
       }
 
-      if Instant::now() >= next_website_refresh {
-         if let Some(client) = website_client.as_ref() {
-            if let Ok(parsed_name) = fetch_termine_event_name(client) {
-               termine_event_name = Some(parsed_name.clone());
-               header.event_name = parsed_name;
-            }
+      refresh_website_data(&client, &mut ctx, tx, source_id);
 
-            homepage_event_name = fetch_homepage_event_name(client);
-
-            if termine_event_name.is_none() {
-               if let Some(parsed_name) = homepage_event_name.as_ref() {
-                  header.event_name.clone_from(parsed_name);
-               }
-            }
-
-            if let Some(status_text) = refresh_active_event_id(
-               &mut active_event_id,
-               determine_active_nuerburgring_event_id(client),
-            ) {
-               let _ = tx.send(TimingMessage::Status {
-                  source_id,
-                  text: status_text,
-               });
-            }
-         }
-         next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
-      }
-
-      let _ = tx.send(TimingMessage::Status {
+      let (mut socket, subscribed_event_id) = match connect_to_websocket(
+         tx,
          source_id,
-         text: "Connecting to NLS websocket...".to_string(),
-      });
-      log_series_debug(debug_output, "NLS", "connecting websocket");
-
-      let request = nurburgring_ws::build_request(WS_URL, "https://livetiming.azurewebsites.net");
-      let connection = connect(request);
-
-      let (mut socket, response) = match connection {
-         Ok(ok) => ok,
-         Err(err) => {
-            let _ = tx.send(TimingMessage::Error {
-               source_id,
-               text: format!("connect failed: {err}"),
-            });
-            if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
-               break;
-            }
-            continue;
-         },
+         stop_rx,
+         debug_output,
+         &ctx.active_event_id,
+      ) {
+         Some(result) => result,
+         None => continue,
       };
 
-      nurburgring_ws::set_socket_timeout(&mut socket);
-
-      let _ = tx.send(TimingMessage::Status {
-         source_id,
-         text: format!("NLS connected ({})", response.status()),
-      });
-      log_series_debug(
-         debug_output,
-         "NLS",
-         format!("websocket connected ({})", response.status()),
-      );
       let mut connected_status_sent = true;
 
-      let subscribe = json!({
-          "clientLocalTime": now_millis(),
-          "eventId": active_event_id,
-          "eventPid": [0, 3, 4]
-      });
-
-      if let Err(err) = socket.send(Message::Text(subscribe.to_string().into())) {
-         let _ = tx.send(TimingMessage::Error {
-            source_id,
-            text: format!("subscribe failed: {err}"),
-         });
-         if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
-            break;
-         }
-         continue;
-      }
-      let subscribed_event_id = active_event_id;
-      log_series_debug(
+      if handle_message_loop(
+         &mut socket,
+         &mut ctx,
+         tx,
+         source_id,
+         stop_rx,
          debug_output,
-         "NLS",
-         format!("subscribed eventId {active_event_id}"),
-      );
-
-      loop {
-         if stop_rx.try_recv().is_ok() {
-            if let Some(snapshot) = last_good_live_snapshot.as_ref() {
-               persist_snapshot_if_dirty(&mut persist, snapshot, now_unix_ms(), debug_output);
-            }
-            break 'outer;
-         }
-
-         if Instant::now() >= next_website_refresh {
-            if let Some(client) = website_client.as_ref() {
-               if let Some(status_text) = refresh_active_event_id(
-                  &mut active_event_id,
-                  determine_active_nuerburgring_event_id(client),
-               ) {
-                  if active_event_id != subscribed_event_id {
-                     let _ = tx.send(TimingMessage::Status {
-                        source_id,
-                        text: status_text,
-                     });
-                     next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
-                     break;
-                  }
-               }
-            }
-            next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
-         }
-
-         match socket.read() {
-            Ok(Message::Text(text)) => {
-               for notice in notices_from_ws_message(&text) {
-                  let _ = tx.send(TimingMessage::Notice { source_id, notice });
-               }
-               if let Some((entries, header_changed)) = parse_ws_message(
-                  &text,
-                  &mut header,
-                  termine_event_name.as_deref(),
-                  homepage_event_name.as_deref(),
-                  &mut countdown,
-                  &mut is_race_session,
-                  active_event_id,
-               ) {
-                  if let Some(new_entries) = entries {
-                     latest_entries = new_entries;
-                  }
-                  refresh_header_time_to_go(&mut header, countdown.as_ref());
-                  let session_id = derive_session_id(&header);
-                  let snapshot = NlsSnapshot {
-                     header:      header.clone(),
-                     entries:     latest_entries.clone(),
-                     session_id:  session_id.clone(),
-                     fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
-                     extra:       (),
-                  };
-
-                  let first_real_of_session =
-                     !snapshot.entries.is_empty() && session_id != last_session_id;
-                  let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
-                  let materially_changed = last_good_live_snapshot
-                     .as_ref()
-                     .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
-
-                  if materially_changed {
-                     persist.dirty_since_last_save = true;
-                  }
-
-                  let never_persisted = persist.last_persisted_hash.is_none();
-                  let save_now = never_persisted
-                     || first_real_of_session
-                     || session_complete
-                     || (persist.dirty_since_last_save
-                        && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
-
-                  if save_now {
-                     persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
-                  }
-
-                  last_session_id = session_id;
-                  last_good_live_snapshot = Some(snapshot);
-
-                  let _ = tx.send(TimingMessage::Snapshot {
-                     source_id,
-                     header: header.clone(),
-                     entries: latest_entries.clone(),
-                  });
-                  if should_emit_connected_status_on_update(header_changed, connected_status_sent) {
-                     let _ = tx.send(TimingMessage::Status {
-                        source_id,
-                        text: "NLS live timing connected".to_string(),
-                     });
-                     connected_status_sent = true;
-                  }
-               }
-            },
-            Ok(Message::Binary(data)) => {
-               if let Ok(text) = std::str::from_utf8(&data) {
-                  for notice in notices_from_ws_message(text) {
-                     let _ = tx.send(TimingMessage::Notice { source_id, notice });
-                  }
-                  if let Some((entries, header_changed)) = parse_ws_message(
-                     text,
-                     &mut header,
-                     termine_event_name.as_deref(),
-                     homepage_event_name.as_deref(),
-                     &mut countdown,
-                     &mut is_race_session,
-                     active_event_id,
-                  ) {
-                     if let Some(new_entries) = entries {
-                        latest_entries = new_entries;
-                     }
-                     refresh_header_time_to_go(&mut header, countdown.as_ref());
-                     let session_id = derive_session_id(&header);
-                     let snapshot = NlsSnapshot {
-                        header:      header.clone(),
-                        entries:     latest_entries.clone(),
-                        session_id:  session_id.clone(),
-                        fingerprint: meaningful_snapshot_fingerprint(&header, &latest_entries),
-                        extra:       (),
-                     };
-
-                     let first_real_of_session =
-                        !snapshot.entries.is_empty() && session_id != last_session_id;
-                     let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
-                     let materially_changed = last_good_live_snapshot
-                        .as_ref()
-                        .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
-
-                     if materially_changed {
-                        persist.dirty_since_last_save = true;
-                     }
-
-                     let never_persisted = persist.last_persisted_hash.is_none();
-                     let save_now = never_persisted
-                        || first_real_of_session
-                        || session_complete
-                        || (persist.dirty_since_last_save
-                           && debounce_elapsed(persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
-
-                     if save_now {
-                        persist_snapshot(&mut persist, &snapshot, now_unix_ms(), debug_output);
-                     }
-
-                     last_session_id = session_id;
-                     last_good_live_snapshot = Some(snapshot);
-
-                     let _ = tx.send(TimingMessage::Snapshot {
-                        source_id,
-                        header: header.clone(),
-                        entries: latest_entries.clone(),
-                     });
-                     if should_emit_connected_status_on_update(
-                        header_changed,
-                        connected_status_sent,
-                     ) {
-                        let _ = tx.send(TimingMessage::Status {
-                           source_id,
-                           text: "NLS live timing connected".to_string(),
-                        });
-                        connected_status_sent = true;
-                     }
-                  }
-               }
-            },
-            Ok(Message::Ping(data)) => {
-               if let Err(err) = socket.send(Message::Pong(data)) {
-                  let _ = tx.send(TimingMessage::Error {
-                     source_id,
-                     text: format!("pong failed: {err}"),
-                  });
-                  break;
-               }
-            },
-            Ok(Message::Pong(_) | Message::Frame(_)) => {},
-            Ok(Message::Close(frame)) => {
-               let _ = tx.send(TimingMessage::Error {
-                  source_id,
-                  text: format!("socket closed: {frame:?}"),
-               });
-               break;
-            },
-            Err(err) if is_retriable_timeout(&err) => {},
-            Err(err) => {
-               let _ = tx.send(TimingMessage::Error {
-                  source_id,
-                  text: format!("read failed: {err}"),
-               });
-               break;
-            },
-         }
+         &client,
+         subscribed_event_id,
+         &mut connected_status_sent,
+      ) {
+         break 'outer;
       }
 
       let _ = tx.send(TimingMessage::Status {
@@ -436,9 +216,377 @@ pub fn websocket_worker_with_debug(
          text: "NLS reconnecting in 3s...".to_string(),
       });
       log_series_debug(debug_output, "NLS", "reconnecting in 3s");
+
       if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
          break;
       }
+   }
+}
+
+/// Build HTTP client for website data fetching.
+fn build_website_client() -> Option<Client> {
+   Client::builder()
+      .timeout(Duration::from_secs(10))
+      .user_agent(
+         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 \
+          Safari/537.36",
+      )
+      .build()
+      .ok()
+}
+
+/// Refresh website data (event names, event IDs) if needed.
+fn refresh_website_data(
+   client: &Option<Client>,
+   ctx: &mut NlsWorkerContext,
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+) {
+   if Instant::now() < ctx.next_website_refresh {
+      return;
+   }
+
+   let Some(client) = client.as_ref() else {
+      return;
+   };
+
+   if let Ok(parsed_name) = fetch_termine_event_name(client) {
+      ctx.termine_event_name = Some(parsed_name.clone());
+      ctx.header.event_name = parsed_name;
+   }
+
+   ctx.homepage_event_name = fetch_homepage_event_name(client);
+
+   if ctx.termine_event_name.is_none() {
+      if let Some(parsed_name) = ctx.homepage_event_name.as_ref() {
+         ctx.header.event_name.clone_from(parsed_name);
+      }
+   }
+
+   if let Some(status_text) = refresh_active_event_id(
+      &mut ctx.active_event_id,
+      determine_active_nuerburgring_event_id(client),
+   ) {
+      let _ = tx.send(TimingMessage::Status {
+         source_id,
+         text: status_text,
+      });
+   }
+
+   ctx.next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
+}
+
+/// Establish websocket connection and return socket with subscribed event ID.
+fn connect_to_websocket(
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
+   active_event_id: &str,
+) -> Option<(NlsWebSocket, String)> {
+   let _ = tx.send(TimingMessage::Status {
+      source_id,
+      text: "Connecting to NLS websocket...".to_string(),
+   });
+   log_series_debug(debug_output, "NLS", "connecting websocket");
+
+   let request = nurburgring_ws::build_request(WS_URL, "https://livetiming.azurewebsites.net");
+   let connection = connect(request);
+
+   let (mut socket, response) = match connection {
+      Ok(ok) => ok,
+      Err(err) => {
+         let _ = tx.send(TimingMessage::Error {
+            source_id,
+            text: format!("connect failed: {err}"),
+         });
+         if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
+            return None;
+         }
+         return None;
+      }
+   };
+
+   nurburgring_ws::set_socket_timeout(&mut socket);
+
+   let _ = tx.send(TimingMessage::Status {
+      source_id,
+      text: format!("NLS connected ({})", response.status()),
+   });
+   log_series_debug(
+      debug_output,
+      "NLS",
+      format!("websocket connected ({})", response.status()),
+   );
+
+   let subscribe = json!({
+       "clientLocalTime": now_millis(),
+       "eventId": active_event_id,
+       "eventPid": [0, 3, 4]
+   });
+
+   if let Err(err) = socket.send(Message::Text(subscribe.to_string().into())) {
+      let _ = tx.send(TimingMessage::Error {
+         source_id,
+         text: format!("subscribe failed: {err}"),
+      });
+      if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
+         return None;
+      }
+      return None;
+   }
+
+   log_series_debug(
+      debug_output,
+      "NLS",
+      format!("subscribed eventId {active_event_id}"),
+   );
+
+   Some((socket, active_event_id.to_string()))
+}
+
+/// Main message loop for processing websocket messages.
+/// Returns true if worker should stop (break outer loop).
+fn handle_message_loop(
+   socket: &mut NlsWebSocket,
+   ctx: &mut NlsWorkerContext,
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   stop_rx: &Receiver<()>,
+   debug_output: &SeriesDebugOutput,
+   client: &Option<Client>,
+   subscribed_event_id: String,
+   connected_status_sent: &mut bool,
+) -> bool {
+   loop {
+      if stop_rx.try_recv().is_ok() {
+         if let Some(snapshot) = ctx.last_good_live_snapshot.as_ref() {
+            persist_snapshot_if_dirty(&mut ctx.persist, snapshot, now_unix_ms(), debug_output);
+         }
+         return true;
+      }
+
+      // Check for event ID changes requiring reconnection
+      if Instant::now() >= ctx.next_website_refresh {
+         if check_event_id_change(ctx, tx, source_id, client, &subscribed_event_id) {
+            return false;
+         }
+      }
+
+      match socket.read() {
+         Ok(Message::Text(text)) => {
+            process_text_message(
+               &text,
+               tx,
+               source_id,
+               debug_output,
+               ctx,
+               connected_status_sent,
+            );
+         }
+         Ok(Message::Binary(data)) => {
+            process_binary_message(&data, tx, source_id, debug_output, ctx, connected_status_sent);
+         }
+         Ok(Message::Ping(data)) => {
+            if let Err(err) = socket.send(Message::Pong(data)) {
+               let _ = tx.send(TimingMessage::Error {
+                  source_id,
+                  text: format!("pong failed: {err}"),
+               });
+               break;
+            }
+         }
+         Ok(Message::Pong(_) | Message::Frame(_)) => {}
+         Ok(Message::Close(frame)) => {
+            let _ = tx.send(TimingMessage::Error {
+               source_id,
+               text: format!("socket closed: {frame:?}"),
+            });
+            break;
+         }
+         Err(err) if is_retriable_timeout(&err) => {}
+         Err(err) => {
+            let _ = tx.send(TimingMessage::Error {
+               source_id,
+               text: format!("read failed: {err}"),
+            });
+            break;
+         }
+      }
+   }
+   false
+}
+
+/// Check if event ID has changed and needs reconnection.
+/// Returns true if event ID changed (requires reconnect).
+fn check_event_id_change(
+   ctx: &mut NlsWorkerContext,
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   client: &Option<Client>,
+   subscribed_event_id: &str,
+) -> bool {
+   let Some(c) = client.as_ref() else {
+      ctx.next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
+      return false;
+   };
+
+   if let Some(status_text) =
+      refresh_active_event_id(&mut ctx.active_event_id, determine_active_nuerburgring_event_id(c))
+   {
+      if ctx.active_event_id != subscribed_event_id {
+         let _ = tx.send(TimingMessage::Status {
+            source_id,
+            text: status_text,
+         });
+         ctx.next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
+         return true;
+      }
+   }
+
+   ctx.next_website_refresh = Instant::now() + WEBSITE_EVENT_REFRESH_INTERVAL;
+   false
+}
+
+/// Process a text websocket message.
+fn process_text_message(
+   text: &str,
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   debug_output: &SeriesDebugOutput,
+   ctx: &mut NlsWorkerContext,
+   connected_status_sent: &mut bool,
+) {
+   for notice in notices_from_ws_message(text) {
+      let _ = tx.send(TimingMessage::Notice { source_id, notice });
+   }
+
+   let Some((entries, header_changed)) = parse_ws_message(
+      text,
+      &mut ctx.header,
+      ctx.termine_event_name.as_deref(),
+      ctx.homepage_event_name.as_deref(),
+      &mut ctx.countdown,
+      &mut ctx.is_race_session,
+      &ctx.active_event_id,
+   ) else {
+      return;
+   };
+
+   update_timing_state(
+      entries,
+      header_changed,
+      tx,
+      source_id,
+      debug_output,
+      ctx,
+      connected_status_sent,
+   );
+}
+
+/// Process a binary websocket message (converts to text then processes).
+fn process_binary_message(
+   data: &[u8],
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   debug_output: &SeriesDebugOutput,
+   ctx: &mut NlsWorkerContext,
+   connected_status_sent: &mut bool,
+) {
+   let Ok(text) = std::str::from_utf8(data) else {
+      return;
+   };
+
+   for notice in notices_from_ws_message(text) {
+      let _ = tx.send(TimingMessage::Notice { source_id, notice });
+   }
+
+   let Some((entries, header_changed)) = parse_ws_message(
+      text,
+      &mut ctx.header,
+      ctx.termine_event_name.as_deref(),
+      ctx.homepage_event_name.as_deref(),
+      &mut ctx.countdown,
+      &mut ctx.is_race_session,
+      &ctx.active_event_id,
+   ) else {
+      return;
+   };
+
+   update_timing_state(
+      entries,
+      header_changed,
+      tx,
+      source_id,
+      debug_output,
+      ctx,
+      connected_status_sent,
+   );
+}
+
+/// Update timing state from parsed data, emit snapshot, and persist if needed.
+fn update_timing_state(
+   entries: Option<Vec<TimingEntry>>,
+   header_changed: bool,
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   debug_output: &SeriesDebugOutput,
+   ctx: &mut NlsWorkerContext,
+   connected_status_sent: &mut bool,
+) {
+   if let Some(new_entries) = entries {
+      ctx.latest_entries = new_entries;
+   }
+
+   refresh_header_time_to_go(&mut ctx.header, ctx.countdown.as_ref());
+
+   let session_id = derive_session_id(&ctx.header);
+   let snapshot = NlsSnapshot {
+      header:      ctx.header.clone(),
+      entries:     ctx.latest_entries.clone(),
+      session_id:  session_id.clone(),
+      fingerprint: meaningful_snapshot_fingerprint(&ctx.header, &ctx.latest_entries),
+      extra:       (),
+   };
+
+   let first_real_of_session =
+      !snapshot.entries.is_empty() && session_id != ctx.last_session_id;
+   let session_complete = snapshot.header.flag.eq_ignore_ascii_case("checkered");
+   let materially_changed = ctx
+      .last_good_live_snapshot
+      .as_ref()
+      .is_none_or(|prev| prev.fingerprint != snapshot.fingerprint);
+
+   if materially_changed {
+      ctx.persist.dirty_since_last_save = true;
+   }
+
+   let never_persisted = ctx.persist.last_persisted_hash.is_none();
+   let save_now = never_persisted
+      || first_real_of_session
+      || session_complete
+      || (ctx.persist.dirty_since_last_save
+         && debounce_elapsed(ctx.persist.last_save_at, SNAPSHOT_SAVE_DEBOUNCE));
+
+   if save_now {
+      persist_snapshot(&mut ctx.persist, &snapshot, now_unix_ms(), debug_output);
+   }
+
+   ctx.last_session_id = session_id;
+   ctx.last_good_live_snapshot = Some(snapshot);
+
+   let _ = tx.send(TimingMessage::Snapshot {
+      source_id,
+      header: ctx.header.clone(),
+      entries: ctx.latest_entries.clone(),
+   });
+
+   if should_emit_connected_status_on_update(header_changed, *connected_status_sent) {
+      let _ = tx.send(TimingMessage::Status {
+         source_id,
+         text: "NLS live timing connected".to_string(),
+      });
+      *connected_status_sent = true;
    }
 }
 
@@ -1408,7 +1556,7 @@ mod tests {
 
    #[test]
    fn refresh_failure_keeps_previous_event_id() {
-      let mut active_event_id = N24_EVENT_ID;
+      let mut active_event_id = N24_EVENT_ID.to_string();
       let status = refresh_active_event_id(
          &mut active_event_id,
          Err("temporary schedule parse error".to_string()),

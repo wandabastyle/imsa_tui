@@ -167,65 +167,90 @@ pub fn worker_with_debug(
 
    loop {
       if stop_rx.try_recv().is_ok() {
-         if let Some(snapshot) = last_snapshot.as_ref() {
-            if persist.dirty_since_last_save {
-               persist_snapshot(&mut persist, snapshot, now_unix_ms(), "F1", debug_output);
-            }
-         }
+         save_snapshot_if_dirty(&mut persist, &last_snapshot, debug_output);
          break;
       }
 
-      let snapshot_result = match resolve_live_f1_sid(&client) {
-         Ok(sid) => {
-            offline_detail_logged = false;
-            let _ = tx.send(TimingMessage::Status {
-               source_id,
-               text: format!("F1 live session sid={sid}"),
-            });
-            build_live_snapshot_with_signalr_fallback(&client, sid, debug_output)
-         },
-         Err(live_err) => {
-            let _ = tx.send(TimingMessage::Status {
-               source_id,
-               text: "F1 offline: latest race results".to_string(),
-            });
-            if !offline_detail_logged {
-               log_series_debug(
-                  debug_output,
-                  "F1",
-                  format!(
-                     "No active Formula 1 live session; showing latest finished race results \
-                      ({live_err}) [ts={}]",
-                     now_unix_ms()
-                  ),
-               );
-               offline_detail_logged = true;
-            }
-            build_latest_finished_race_snapshot(&client)
-         },
-      };
+      let snapshot_result = poll_f1_snapshot(
+         &client,
+         tx,
+         source_id,
+         &mut offline_detail_logged,
+         debug_output,
+      );
 
-      match snapshot_result {
-         Ok(snapshot) => {
-            emit_snapshot(
-               (tx, source_id),
-               snapshot,
-               &mut persist,
-               &mut last_snapshot,
-               &mut last_session_id,
-               debug_output,
-            );
-         },
-         Err(err) => {
-            let _ = tx.send(TimingMessage::Error {
-               source_id,
-               text: format!("F1 update failed: {err}"),
-            });
-         },
+      if let Some(snapshot) = snapshot_result {
+         emit_snapshot(
+            (tx, source_id),
+            snapshot,
+            &mut persist,
+            &mut last_snapshot,
+            &mut last_session_id,
+            debug_output,
+         );
       }
 
       if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
          break;
+      }
+   }
+}
+
+fn poll_f1_snapshot(
+   client: &Client,
+   tx: &Sender<TimingMessage>,
+   source_id: u64,
+   offline_detail_logged: &mut bool,
+   debug_output: &SeriesDebugOutput,
+) -> Option<F1Snapshot> {
+   match resolve_live_f1_sid(client) {
+      Ok(sid) => {
+         *offline_detail_logged = false;
+         let _ = tx.send(TimingMessage::Status {
+            source_id,
+            text: format!("F1 live session sid={sid}"),
+         });
+         build_live_snapshot_with_signalr_fallback(client, sid, debug_output).ok()
+      },
+      Err(live_err) => {
+         let _ = tx.send(TimingMessage::Status {
+            source_id,
+            text: "F1 offline: latest race results".to_string(),
+         });
+         log_offline_once(offline_detail_logged, live_err, debug_output);
+         build_latest_finished_race_snapshot(client).ok()
+      },
+   }
+}
+
+fn log_offline_once(
+   offline_detail_logged: &mut bool,
+   live_err: String,
+   debug_output: &SeriesDebugOutput,
+) {
+   if *offline_detail_logged {
+      return;
+   }
+   log_series_debug(
+      debug_output,
+      "F1",
+      format!(
+         "No active Formula 1 live session; showing latest finished race results \
+          ({live_err}) [ts={}]",
+         now_unix_ms()
+      ),
+   );
+   *offline_detail_logged = true;
+}
+
+fn save_snapshot_if_dirty(
+   persist: &mut PersistState,
+   last_snapshot: &Option<F1Snapshot>,
+   debug_output: &SeriesDebugOutput,
+) {
+   if let Some(snapshot) = last_snapshot.as_ref() {
+      if persist.dirty_since_last_save {
+         persist_snapshot(persist, snapshot, now_unix_ms(), "F1", debug_output);
       }
    }
 }
@@ -355,77 +380,59 @@ fn apply_live_signalr_arguments(state: &mut F1LiveState, target: &str, arguments
    }
 }
 
-fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, String> {
-   let sessions = fetch_meta_sessions_for_series(client, F1_SERIES_ID)
-      .map_err(|err| format!("F1 meta sessions request failed: {err}"))?;
-   let Some(session) = choose_latest_finished_race_session(&sessions) else {
-      return Err("no finished Formula 1 race with results found".to_string());
-   };
-
-   let results_url = format!(
-      "https://insights.griiip.com/meta/sessions/{}/results",
-      session.id
-   );
-   let results_response = client.get(&results_url).send().map_err(|err| {
-      format!(
-         "F1 results request failed for session {}: {err}",
-         session.id
-      )
-   })?;
+fn fetch_f1_results(
+   client: &Client,
+   session_id: u64,
+) -> Result<(SessionResultsResponse, Vec<SessionParticipantRow>), String> {
+   let results_url = format!("https://insights.griiip.com/meta/sessions/{session_id}/results");
+   let results_response = client
+      .get(&results_url)
+      .send()
+      .map_err(|err| format!("F1 results request failed for session {session_id}: {err}"))?;
    if !results_response.status().is_success() {
       return Err(format!(
-         "F1 results request failed for session {} with HTTP {}",
-         session.id,
+         "F1 results request failed for session {session_id} with HTTP {}",
          results_response.status()
       ));
    }
-   let results_body = results_response.text().map_err(|err| {
-      format!(
-         "F1 results body read failed for session {}: {err}",
-         session.id
-      )
-   })?;
+   let results_body = results_response
+      .text()
+      .map_err(|err| format!("F1 results body read failed for session {session_id}: {err}"))?;
    let results_payload = serde_json::from_str::<SessionResultsResponse>(&results_body)
-      .map_err(|err| format!("F1 results decode failed for session {}: {err}", session.id))?;
+      .map_err(|err| format!("F1 results decode failed for session {session_id}: {err}"))?;
 
-   let participants_url = format!(
-      "https://insights.griiip.com/meta/sessions/{}/participants",
-      session.id
-   );
-   let participants_response = client.get(&participants_url).send().map_err(|err| {
-      format!(
-         "F1 participants request failed for session {}: {err}",
-         session.id
-      )
-   })?;
+   let participants_url =
+      format!("https://insights.griiip.com/meta/sessions/{session_id}/participants");
+   let participants_response = client
+      .get(&participants_url)
+      .send()
+      .map_err(|err| format!("F1 participants request failed for session {session_id}: {err}"))?;
    if !participants_response.status().is_success() {
       return Err(format!(
-         "F1 participants request failed for session {} with HTTP {}",
-         session.id,
+         "F1 participants request failed for session {session_id} with HTTP {}",
          participants_response.status()
       ));
    }
-   let participants_body = participants_response.text().map_err(|err| {
-      format!(
-         "F1 participants body read failed for session {}: {err}",
-         session.id
-      )
-   })?;
+   let participants_body = participants_response
+      .text()
+      .map_err(|err| format!("F1 participants body read failed for session {session_id}: {err}"))?;
    let participants = serde_json::from_str::<Vec<SessionParticipantRow>>(&participants_body)
-      .map_err(|err| {
-         format!(
-            "F1 participants decode failed for session {}: {err}",
-            session.id
-         )
-      })?;
+      .map_err(|err| format!("F1 participants decode failed for session {session_id}: {err}"))?;
 
+   Ok((results_payload, participants))
+}
+
+fn build_f1_entries_from_results(
+   results: SessionResultsResponse,
+   participants: Vec<SessionParticipantRow>,
+) -> Vec<TimingEntry> {
    let mut participants_by_id = HashMap::new();
    for participant in participants {
       participants_by_id.insert(participant.id, participant);
    }
 
    let mut entries = Vec::new();
-   for (idx, row) in results_payload.results.into_iter().enumerate() {
+   for (idx, row) in results.results.into_iter().enumerate() {
       let participant = participants_by_id.get(&row.session_participant_id);
       let car_number = participant
          .and_then(|item| item.car_number.as_deref())
@@ -476,14 +483,26 @@ fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, St
          pit: "No".to_string(),
          pit_stops: "-".to_string(),
          fastest_driver: "-".to_string(),
-         stable_id: if car_number != "-" {
-            format!("f1:{car_number}")
-         } else {
+         stable_id: if car_number == "-" {
             format!("f1:participant:{}", row.session_participant_id)
+         } else {
+            format!("f1:{car_number}")
          },
       });
    }
    entries.sort_by_key(|entry| entry.position);
+   entries
+}
+
+fn build_latest_finished_race_snapshot(client: &Client) -> Result<F1Snapshot, String> {
+   let sessions = fetch_meta_sessions_for_series(client, F1_SERIES_ID)
+      .map_err(|err| format!("F1 meta sessions request failed: {err}"))?;
+   let Some(session) = choose_latest_finished_race_session(&sessions) else {
+      return Err("no finished Formula 1 race with results found".to_string());
+   };
+
+   let (results, participants) = fetch_f1_results(client, session.id)?;
+   let entries = build_f1_entries_from_results(results, participants);
 
    let header = TimingHeader {
       session_name: session.name.clone().unwrap_or_else(|| "Race".to_string()),

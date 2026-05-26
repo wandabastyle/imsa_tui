@@ -407,25 +407,25 @@ pub(super) const fn should_emit_connected_status_on_update(
 }
 
 pub(super) fn refresh_active_event_id(
-   active_event_id: &mut &'static str,
-   refresh_result: Result<&'static str, String>,
+	active_event_id: &mut String,
+	refresh_result: Result<&str, String>,
 ) -> Option<String> {
-   match refresh_result {
-      Ok(event_id) => {
-         if *active_event_id != event_id {
-            *active_event_id = event_id;
-            Some(format!("NLS switching to eventId {event_id}"))
-         } else {
-            None
-         }
-      },
-      Err(err) => {
-         Some(format!(
-            "NLS 24h schedule refresh failed ({err}); keeping eventId {}",
-            *active_event_id
-         ))
-      },
-   }
+	match refresh_result {
+		Ok(event_id) => {
+			if *active_event_id != event_id {
+				*active_event_id = event_id.to_string();
+				Some(format!("NLS switching to eventId {event_id}"))
+			} else {
+				None
+			}
+		},
+		Err(err) => {
+			Some(format!(
+				"NLS 24h schedule refresh failed ({err}); keeping eventId {}",
+				*active_event_id
+			))
+		},
+	}
 }
 
 pub(super) fn is_retriable_timeout(err: &WsError) -> bool {
