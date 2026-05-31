@@ -112,6 +112,5 @@ Skills provide specialized instructions and workflows for specific tasks.
 
 **To use a skill:**
 1. Analyze the user's request and determine the correct skill (e.g., `tdd` for test-driven development)
-2. Read the file located at: `.agents/skills/<skill-name>/SKILL.md` using your file reader tool
 3. Completely read, absorb, and apply the instructions in that `SKILL.md` file
 4. Do not write any code until you have followed the planning/spec steps defined in the skill file
