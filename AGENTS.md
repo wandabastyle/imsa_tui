@@ -106,11 +106,3 @@ Agents and subagents must read lint/typecheck output completely before making an
 - `too_many_lines`, `missing_panics_doc`, `module_name_repetitions`, `similar_names` = `allow`
 - Run with: `cargo clippy --all-targets --no-default-features -- -D warnings`
 
-## SKILLS
-
-Skills provide specialized instructions and workflows for specific tasks.
-
-**To use a skill:**
-1. Analyze the user's request and determine the correct skill (e.g., `tdd` for test-driven development)
-3. Completely read, absorb, and apply the instructions in that `SKILL.md` file
-4. Do not write any code until you have followed the planning/spec steps defined in the skill file
