@@ -145,7 +145,12 @@ fn fetch_official_event_windows(
    series_id: u64,
 ) -> Result<Option<Vec<OfficialEventWindow>>, String> {
    match series_id {
-      WEC_SERIES_ID => fetch_wec_official_event_windows(client).map(Some),
+      WEC_SERIES_ID => {
+         match fetch_wec_official_event_windows(client) {
+            Ok(windows) => Ok(Some(windows)),
+            Err(_) => Ok(None),
+         }
+      },
       F1_SERIES_ID => fetch_f1_official_event_windows(client).map(Some),
       _ => Ok(None),
    }
@@ -218,8 +223,11 @@ fn parse_wec_official_event_windows(html: &str) -> Result<Vec<OfficialEventWindo
       let href = &html[href_start..href_end];
 
       let year = extract_year_from_slug(href);
-      let lookahead_end = html.len().min(href_end + 450);
-      let fragment = &html[href_end..lookahead_end];
+      // Find the closing </a> tag to extract the full anchor block
+      let Some(close_a_rel) = html[href_end..].find("</a>") else {
+         break;
+      };
+      let fragment = &html[href_end..href_end + close_a_rel];
       let day = extract_tag_number(fragment, "strong");
       let month = extract_tag_month(fragment, "small");
 
@@ -571,22 +579,97 @@ mod tests {
 
    #[test]
    fn parses_wec_schedule_entries_from_official_calendar_html() {
+      // HTML structure mimics actual fiawec.com with date tags ~500 chars after href
       let html = r#"
-            <a href="/en/race/official-prologue-imola-2026">
-              <strong class="fs-8 lh-sm">14</strong>
-              <small class="fs-11">Apr</small>
-            </a>
-            <a href="/en/race/6-hours-of-imola-2026">
-              <strong class="fs-8 lh-sm">19</strong>
-              <small class="fs-11">Apr</small>
-            </a>
-        "#;
+             <a href="/en/race/official-prologue-imola-2026">
+               <span class="flag:IT border border-light-subtle shadow-sm"></span>
+               <span class="fs-5 ff-normal fw-extrabold text-white lh-1 ">ITA</span>
+               <div class="d-flex flex-column align-items-center text-center text-uppercase text-primary">
+                 <strong class="fs-8 lh-sm">14</strong>
+                 <small class="fs-11">Apr</small>
+               </div>
+             </a>
+             <a href="/en/race/6-hours-of-imola-2026">
+               <span class="flag:IT border border-light-subtle shadow-sm"></span>
+               <span class="fs-5 ff-normal fw-extrabold text-white lh-1 ">ITA</span>
+               <div class="d-flex flex-column align-items-center text-center text-uppercase text-primary">
+                 <strong class="fs-8 lh-sm">19</strong>
+                 <small class="fs-11">Apr</small>
+               </div>
+             </a>
+         "#;
 
       let parsed = parse_wec_official_event_windows(html).expect("parse WEC calendar");
-      assert_eq!(parsed.len(), 2);
+      assert_eq!(parsed.len(), 2, "expected 2 entries to be parsed");
       assert_eq!(parsed[0].start_yyyymmdd, 20_260_414);
       assert_eq!(parsed[1].start_yyyymmdd, 20_260_419);
       assert!(parsed[1].label.contains("imola"));
+   }
+
+   #[test]
+   fn parses_wec_le_mans_2026_entry() {
+      // Test case for Le Mans 2026 with realistic HTML structure
+      let html = r#"
+             <a href="/en/race/24-hours-of-le-mans-2026">
+               <span class="flag:FR border border-light-subtle shadow-sm"></span>
+               <span class="fs-5 ff-normal fw-extrabold text-white lh-1 ">FRA</span>
+               <div class="d-flex flex-column align-items-center text-center text-uppercase text-primary">
+                 <strong class="fs-8 lh-sm">13</strong>
+                 <small class="fs-11">Jun</small>
+               </div>
+             </a>
+         "#;
+
+      let parsed = parse_wec_official_event_windows(html).expect("parse WEC Le Mans calendar");
+      assert_eq!(parsed.len(), 1, "expected 1 entry to be parsed");
+      assert_eq!(parsed[0].start_yyyymmdd, 20_260_613);
+      assert!(parsed[0].label.contains("le mans"));
+   }
+
+   #[test]
+   fn parses_wec_schedule_with_multiple_events_including_le_mans() {
+      // Full calendar with multiple events including Le Mans
+      let html = r#"
+             <a href="/en/race/6-hours-of-spa-2026">
+               <span class="flag:BE border border-light-subtle shadow-sm"></span>
+               <span class="fs-5 ff-normal fw-extrabold text-white lh-1 ">BEL</span>
+               <div class="d-flex flex-column align-items-center text-center text-uppercase text-primary">
+                 <strong class="fs-8 lh-sm">2</strong>
+                 <small class="fs-11">May</small>
+               </div>
+             </a>
+             <a href="/en/race/24-hours-of-le-mans-2026">
+               <span class="flag:FR border border-light-subtle shadow-sm"></span>
+               <span class="fs-5 ff-normal fw-extrabold text-white lh-1 ">FRA</span>
+               <div class="d-flex flex-column align-items-center text-center text-uppercase text-primary">
+                 <strong class="fs-8 lh-sm">13</strong>
+                 <small class="fs-11">Jun</small>
+               </div>
+             </a>
+             <a href="/en/race/6-hours-of-monza-2026">
+               <span class="flag:IT border border-light-subtle shadow-sm"></span>
+               <span class="fs-5 ff-normal fw-extrabold text-white lh-1 ">ITA</span>
+               <div class="d-flex flex-column align-items-center text-center text-uppercase text-primary">
+                 <strong class="fs-8 lh-sm">18</strong>
+                 <small class="fs-11">Jul</small>
+               </div>
+             </a>
+         "#;
+
+      let parsed = parse_wec_official_event_windows(html).expect("parse WEC full calendar");
+      assert_eq!(parsed.len(), 3, "expected 3 entries to be parsed");
+
+      // Verify Spa (May 2, 2026)
+      assert_eq!(parsed[0].start_yyyymmdd, 20_260_502);
+      assert!(parsed[0].label.contains("spa"));
+
+      // Verify Le Mans (June 13, 2026)
+      assert_eq!(parsed[1].start_yyyymmdd, 20_260_613);
+      assert!(parsed[1].label.contains("le mans"));
+
+      // Verify Monza (July 18, 2026)
+      assert_eq!(parsed[2].start_yyyymmdd, 20_260_718);
+      assert!(parsed[2].label.contains("monza"));
    }
 
    #[test]
