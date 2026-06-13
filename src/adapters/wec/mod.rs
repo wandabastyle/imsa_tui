@@ -1156,6 +1156,24 @@ fn apply_receive_batch(state: &mut WecLiveState, arguments: &[Value]) -> bool {
                   false
                }
             },
+            // Handle pit-in: car entering pit lane
+            Some("pit-in") => {
+               if let Some(view_obj) = view.and_then(Value::as_object) {
+                  if let Some((_key, entry)) = upsert_car_state(state, view_obj) {
+                     changed |= set_opt_bool(&mut entry.pit, Some(true));
+                  }
+               }
+               false
+            },
+            // Handle pit-out: car exiting pit lane
+            Some("pit-out") => {
+               if let Some(view_obj) = view.and_then(Value::as_object) {
+                  if let Some((_key, entry)) = upsert_car_state(state, view_obj) {
+                     changed |= set_opt_bool(&mut entry.pit, Some(false));
+                  }
+               }
+               false
+            },
             // commentator-phrase is handled separately for liveticker,
             // it doesn't affect timing data
             _ => false,
@@ -3268,9 +3286,102 @@ mod tests {
          }]
       });
 
-      let changed3 = apply_receive_batch(&mut state, &[batch3]);
-      assert!(changed3, "Newer Green flag should update");
-      assert_eq!(state.header.flag, "Green", "Flag should revert to Green");
+       let changed3 = apply_receive_batch(&mut state, &[batch3]);
+       assert!(changed3, "Newer Green flag should update");
+       assert_eq!(state.header.flag, "Green", "Flag should revert to Green");
+    }
+
+   #[test]
+   fn apply_receive_batch_pit_in_out_transitions() {
+      // Test pit-in/pit-out ReceiveBatch channels update pit state
+      let mut state = WecLiveState::default();
+
+      // Set up a participant first
+      apply_signalr_arguments(
+         &mut state,
+         "lv-participants",
+         &[serde_json::json!({
+             "items": [{ "pid": 1, "carNumber": "8", "teamName": "Toyota" }]
+         })][..],
+      );
+
+      // Initial state: car not in pit
+      let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
+      let car = entries.iter().find(|e| e.car_number == "8").expect("car 8");
+      assert_eq!(car.pit, "No", "Initial pit state should be No");
+
+      // Apply pit-in via ReceiveBatch
+      let batch1 = serde_json::json!({
+         "items": [{
+            "channel": "pit-in",
+            "view": {
+               "pid": 1,
+               "carNumber": "8",
+               "lapNumber": 100,
+               "elapsedTimeMillis": 36_000_000
+            }
+         }]
+      });
+
+      let changed1 = apply_receive_batch(&mut state, &[batch1]);
+      assert!(changed1, "pit-in should trigger change");
+
+      let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
+      let car = entries.iter().find(|e| e.car_number == "8").expect("car 8");
+      assert_eq!(car.pit, "Yes", "After pit-in, pit should be Yes");
+
+      // Apply pit-out via ReceiveBatch
+      let batch2 = serde_json::json!({
+         "items": [{
+            "channel": "pit-out",
+            "view": {
+               "pid": 1,
+               "carNumber": "8",
+               "lapNumber": 101,
+               "elapsedTimeMillis": 36_120_000
+            }
+         }]
+      });
+
+      let changed2 = apply_receive_batch(&mut state, &[batch2]);
+      assert!(changed2, "pit-out should trigger change");
+
+      let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
+      let car = entries.iter().find(|e| e.car_number == "8").expect("car 8");
+      assert_eq!(car.pit, "No", "After pit-out, pit should be No");
+   }
+
+   #[test]
+   fn apply_receive_batch_pit_in_without_participant_updates_existing_car() {
+      // Test that pit-in works for cars already in state
+      let mut state = WecLiveState::default();
+
+      // Set up participant
+      apply_signalr_arguments(
+         &mut state,
+         "lv-participants",
+         &[serde_json::json!({
+             "items": [{ "pid": 5, "carNumber": "50", "teamName": "Ferrari" }]
+         })][..],
+      );
+
+      // pit-in
+      let batch = serde_json::json!({
+         "items": [{
+            "channel": "pit-in",
+            "view": {
+               "pid": 5,
+               "carNumber": "50",
+               "lapNumber": 75
+            }
+         }]
+      });
+
+      let _changed = apply_receive_batch(&mut state, &[batch]);
+
+      let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
+      let car = entries.iter().find(|e| e.car_number == "50").expect("car 50");
+      assert_eq!(car.pit, "Yes");
    }
 
    // =========================================================================
