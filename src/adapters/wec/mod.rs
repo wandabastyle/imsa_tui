@@ -183,10 +183,12 @@ struct ParticipantDriver {
 
 #[derive(Debug, Default, Clone)]
 struct WecLiveState {
-   header:       TimingHeader,
-   rows:         HashMap<String, WecCarState>,
-   class_names:  HashMap<String, String>,
-   class_colors: BTreeMap<String, TimingClassColor>,
+   header:            TimingHeader,
+   rows:              HashMap<String, WecCarState>,
+   class_names:       HashMap<String, String>,
+   class_colors:      BTreeMap<String, TimingClassColor>,
+   /// Session length in milliseconds (for TTE calculation)
+   session_length_ms: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -975,6 +977,9 @@ fn parse_signalr_frame(frame: &str) -> SignalRFrame {
 }
 
 fn bootstrap_live_state(client: &Client, sid: u64, state: &mut WecLiveState) -> Result<(), String> {
+   // Fetch session length from schedule endpoint first
+   fetch_session_length_from_schedule(client, sid, state)?;
+
    apply_session_info(state, &fetch_live_json(client, sid, "session-info")?);
    apply_session_clock(state, &fetch_live_json(client, sid, "session-clock")?);
    apply_race_flags(state, &fetch_live_json(client, sid, "race-flags")?);
@@ -984,6 +989,57 @@ fn bootstrap_live_state(client: &Client, sid: u64, state: &mut WecLiveState) -> 
    apply_laps(state, &fetch_live_json(client, sid, "laps")?);
    apply_sectors(state, &fetch_live_json(client, sid, "sectors")?);
    Ok(())
+}
+
+/// Fetch session length from the schedule endpoint's lengthLimit field.
+fn fetch_session_length_from_schedule(
+   client: &Client,
+   sid: u64,
+   state: &mut WecLiveState,
+) -> Result<(), String> {
+   let url = format!("{}/meta/sessions-schedule-live", ORIGIN_URL);
+   let response = client
+      .get(&url)
+      .send()
+      .map_err(|err| format!("WEC schedule request failed: {err}"))?;
+
+   if !response.status().is_success() {
+      return Err(format!(
+         "WEC schedule failed with HTTP {}",
+         response.status()
+      ));
+   }
+
+   let body = response
+      .text()
+      .map_err(|err| format!("WEC schedule body read failed: {err}"))?;
+
+   let sessions: Vec<Value> =
+      serde_json::from_str(&body).map_err(|err| format!("WEC schedule decode failed: {err}"))?;
+
+   // Find the session matching our sid
+   for session in sessions {
+      if let Some(session_sid) = session.get("sid").and_then(Value::as_u64) {
+         if session_sid == sid {
+            // Extract lengthLimit.timeLimitSeconds
+            if let Some(length_limit) = session.get("lengthLimit").and_then(Value::as_object) {
+               if let Some(time_limit_secs) =
+                  length_limit.get("timeLimitSeconds").and_then(Value::as_i64)
+               {
+                  if time_limit_secs > 0 {
+                     state.session_length_ms =
+                        Some(u64::try_from(time_limit_secs).unwrap_or(0) * 1000);
+                     return Ok(());
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   Err(format!(
+      "Session {sid} not found in schedule or lengthLimit missing"
+   ))
 }
 
 fn fetch_live_json(client: &Client, sid: u64, route: &str) -> Result<Value, String> {
@@ -1029,6 +1085,8 @@ fn apply_signalr_arguments(state: &mut WecLiveState, target: &str, arguments: &[
 
 fn apply_receive_batch(state: &mut WecLiveState, arguments: &[Value]) -> bool {
    let mut changed = false;
+   let mut latest_elapsed_ms: Option<i64> = None;
+
    for argument in arguments {
       // Each argument should have an "items" array
       let items = argument.get("items").and_then(Value::as_array);
@@ -1038,6 +1096,14 @@ fn apply_receive_batch(state: &mut WecLiveState, arguments: &[Value]) -> bool {
       for item in items {
          let channel = item.get("channel").and_then(Value::as_str);
          let view = item.get("view");
+
+         // Capture elapsed time from any item that has it
+         if let Some(view_obj) = item.get("view").and_then(Value::as_object) {
+            if let Some(elapsed) = map_i64(view_obj, "elapsedTimeMillis") {
+               latest_elapsed_ms = Some(elapsed);
+            }
+         }
+
          let was_changed = match channel {
             // official-rank channel is intentionally ignored to prevent
             // bad gap_overall updates (e.g., "+1 L" overwrites)
@@ -1056,6 +1122,22 @@ fn apply_receive_batch(state: &mut WecLiveState, arguments: &[Value]) -> bool {
          changed |= was_changed;
       }
    }
+
+   // Recalculate TTE whenever we have elapsed time from any batch item
+   if let (Some(elapsed_ms), Some(session_length_ms)) = (latest_elapsed_ms, state.session_length_ms)
+   {
+      if elapsed_ms >= 0 {
+         let elapsed_u64 = u64::try_from(elapsed_ms).unwrap_or(0);
+         let remaining_ms = session_length_ms.saturating_sub(elapsed_u64);
+         if set_header_text(
+            &mut state.header.time_to_go,
+            Some(format_clock_ms(remaining_ms)),
+         ) {
+            changed = true;
+         }
+      }
+   }
+
    changed
 }
 
@@ -1213,10 +1295,33 @@ fn apply_session_clock(state: &mut WecLiveState, payload: &Value) -> bool {
       &mut state.header.day_time,
       map_str(map, "tsNow").map(|raw| compact_iso_timestamp(&raw)),
    );
-   if let Some(ms) = map_i64(map, "elapsedTimeMillisNow") {
+
+   // Extract session length if available (various field names for compatibility)
+   let session_length = map_i64(map, "sessionLengthMillis")
+      .or_else(|| map_i64(map, "maxSessionLength"))
+      .or_else(|| map_i64(map, "timeLimitMillis"))
+      .or_else(|| map_i64(map, "lengthLimitMillis"));
+   if let Some(length) = session_length {
+      if length > 0 {
+         state.session_length_ms = Some(u64::try_from(length).unwrap_or(0));
+         changed = true;
+      }
+   }
+
+   // Calculate time remaining (TTE) from session length minus elapsed time
+   // Requires session_length_ms to be set from schedule's lengthLimit
+   // Try elapsedTimeMillisNow first, fall back to elapsedTimeMillis
+   let elapsed_ms =
+      map_i64(map, "elapsedTimeMillisNow").or_else(|| map_i64(map, "elapsedTimeMillis"));
+   if let (Some(ms), Some(session_length_ms)) = (elapsed_ms, state.session_length_ms) {
       if ms >= 0 {
-         let ms_u64 = u64::try_from(ms).unwrap_or(0);
-         changed |= set_header_text(&mut state.header.time_to_go, Some(format_clock_ms(ms_u64)));
+         let elapsed_u64 = u64::try_from(ms).unwrap_or(0);
+         // Calculate remaining time (TTE = session length - elapsed)
+         let remaining_ms = session_length_ms.saturating_sub(elapsed_u64);
+         changed |= set_header_text(
+            &mut state.header.time_to_go,
+            Some(format_clock_ms(remaining_ms)),
+         );
       }
    }
    changed
@@ -3044,5 +3149,235 @@ mod tests {
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
       let entry = entries.iter().find(|e| e.car_number == "8").expect("car 8");
       assert_eq!(entry.laps, "150", "Laps should increase to 150");
+   }
+
+   // =========================================================================
+   // Session clock TTE calculation tests
+   // =========================================================================
+
+   #[test]
+   fn apply_session_clock_calculates_remaining_time_from_elapsed() {
+      // Given a 6-hour race (21,600,000 ms) with 1 hour elapsed (3,600,000 ms)
+      // Should display 5 hours remaining
+      let mut state = WecLiveState::default();
+      // Set session length from schedule (simulating
+      // fetch_session_length_from_schedule)
+      state.session_length_ms = Some(21_600_000); // 6 hours
+
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 3_600_000,
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+
+      apply_session_clock(&mut state, &payload);
+
+      // 6h - 1h = 5h remaining = 05:00:00
+      assert_eq!(
+         state.header.time_to_go, "05:00:00",
+         "Expected 5 hours remaining (6h - 1h), got: {}",
+         state.header.time_to_go
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_uses_explicit_session_length() {
+      // Given a 6-hour race (21,600,000 ms) with 2 hours elapsed
+      // Should display 4 hours remaining
+      let mut state = WecLiveState::default();
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 7_200_000,
+          "sessionLengthMillis": 21_600_000,
+          "tsNow": "2026-06-13T14:00:00Z"
+      });
+
+      apply_session_clock(&mut state, &payload);
+
+      // 4 hours remaining = 14,400,000 ms = 04:00:00
+      assert_eq!(
+         state.header.time_to_go, "04:00:00",
+         "Expected 4 hours remaining, got: {}",
+         state.header.time_to_go
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_elapsed_time_millis_now_priority() {
+      // elapsedTimeMillisNow should take priority over elapsedTimeMillis
+      let mut state = WecLiveState::default();
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 3_600_000,    // 1 hour (should be ignored)
+          "elapsedTimeMillisNow": 7_200_000, // 2 hours (should be used)
+          "sessionLengthMillis": 21_600_000, // 6 hours
+          "tsNow": "2026-06-13T14:00:00Z"
+      });
+
+      apply_session_clock(&mut state, &payload);
+
+      // 6 hours - 2 hours = 4 hours = 04:00:00
+      assert_eq!(
+         state.header.time_to_go, "04:00:00",
+         "Expected elapsedTimeMillisNow to be prioritized"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_uses_fallback_field_names() {
+      // Test that alternative field names work
+      let mut state = WecLiveState::default();
+
+      // Test with maxSessionLength
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 7_200_000,
+          "maxSessionLength": 21_600_000,
+          "tsNow": "2026-06-13T14:00:00Z"
+      });
+
+      apply_session_clock(&mut state, &payload);
+
+      assert_eq!(
+         state.header.time_to_go, "04:00:00",
+         "Expected maxSessionLength to work"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_negative_elapsed_ignored() {
+      // Negative elapsed time should be ignored (doesn't update time_to_go)
+      // but tsNow still updates day_time, so overall changed will be true
+      let mut state = WecLiveState::default();
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": -1000,
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+
+      let _changed = apply_session_clock(&mut state, &payload);
+
+      // day_time should be updated from tsNow, but time_to_go should remain empty
+      assert!(
+         state.header.time_to_go.is_empty(),
+         "time_to_go should remain empty with negative elapsed"
+      );
+      assert!(
+         !state.header.day_time.is_empty(),
+         "day_time should be updated from tsNow"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_zero_session_length_ignored() {
+      // Zero or negative session length means no TTE calculation
+      // (session length must come from schedule's lengthLimit)
+      let mut state = WecLiveState::default();
+      state.session_length_ms = Some(0); // Invalid zero length from bad schedule data
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 3_600_000,
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+
+      let _changed = apply_session_clock(&mut state, &payload);
+
+      // With zero session length, no TTE should be calculated
+      // (the saturating_sub would result in 0, showing "00:00:00")
+      assert_eq!(
+         state.header.time_to_go, "00:00",
+         "Should show 00:00 when session length is zero"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_session_length_persists() {
+      // Session length should persist between calls
+      let mut state = WecLiveState::default();
+
+      // First call sets session length
+      let payload1 = serde_json::json!({
+          "elapsedTimeMillis": 3_600_000,
+          "sessionLengthMillis": 21_600_000,
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+      apply_session_clock(&mut state, &payload1);
+      assert_eq!(state.header.time_to_go, "05:00:00");
+
+      // Second call without session length should use cached value
+      let payload2 = serde_json::json!({
+          "elapsedTimeMillis": 7_200_000,
+          "tsNow": "2026-06-13T13:00:00Z"
+      });
+      apply_session_clock(&mut state, &payload2);
+
+      // Should use cached 6h length: 6h - 2h = 4h
+      assert_eq!(
+         state.header.time_to_go, "04:00:00",
+         "Should use cached session length"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_updates_session_length() {
+      // Session length can be updated
+      let mut state = WecLiveState::default();
+
+      // First call: 6 hour session with 1 hour elapsed
+      let payload1 = serde_json::json!({
+          "elapsedTimeMillis": 3_600_000,
+          "sessionLengthMillis": 21_600_000,
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+      apply_session_clock(&mut state, &payload1);
+      assert_eq!(state.header.time_to_go, "05:00:00");
+
+      // Second call updates to 8 hour session with 2 hours elapsed
+      let payload2 = serde_json::json!({
+          "elapsedTimeMillis": 7_200_000,
+          "sessionLengthMillis": 28_800_000, // 8 hours
+          "tsNow": "2026-06-13T13:00:00Z"
+      });
+      apply_session_clock(&mut state, &payload2);
+
+      // 8h - 2h = 6h = 06:00:00
+      assert_eq!(
+         state.header.time_to_go, "06:00:00",
+         "Should use updated session length"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_calculates_24h_race_correctly() {
+      // Le Mans 24h race at 12 hours elapsed
+      let mut state = WecLiveState::default();
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 43_200_000,    // 12 hours
+          "sessionLengthMillis": 86_400_000, // 24 hours
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+
+      apply_session_clock(&mut state, &payload);
+
+      // Should show 12 hours remaining
+      assert_eq!(
+         state.header.time_to_go, "12:00:00",
+         "Expected 12 hours remaining in 24h race"
+      );
+   }
+
+   #[test]
+   fn apply_session_clock_8h_race_with_session_length_from_schedule() {
+      // Session length must come from schedule's lengthLimit
+      // Set it explicitly here (simulating fetch_session_length_from_schedule)
+      let mut state = WecLiveState::default();
+      state.session_length_ms = Some(28_800_000); // 8 hours from schedule
+
+      let payload = serde_json::json!({
+          "elapsedTimeMillis": 28_800_000, // 8 hours elapsed
+          "tsNow": "2026-06-13T12:00:00Z"
+      });
+
+      apply_session_clock(&mut state, &payload);
+
+      // 8h - 8h = 0, so TTE should be 00:00
+      assert_eq!(
+         state.header.time_to_go, "00:00",
+         "Expected 0 hours remaining (8h - 8h)"
+      );
    }
 }
