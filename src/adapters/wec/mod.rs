@@ -2,15 +2,18 @@ use std::{
    collections::{
       BTreeMap,
       HashMap,
+      HashSet,
    },
    net::TcpStream,
    sync::mpsc::{
       Receiver,
       Sender,
    },
+   thread,
    time::Duration,
 };
 
+use liveticker::parse_commentator_phrase;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{
@@ -18,6 +21,9 @@ use serde_json::{
    Value,
 };
 use tungstenite::{
+   Error as WsError,
+   Message,
+   WebSocket,
    connect,
    http::header::{
       HeaderValue,
@@ -25,42 +31,43 @@ use tungstenite::{
       USER_AGENT,
    },
    stream::MaybeTlsStream,
-   Error as WsError,
-   Message,
-   WebSocket,
 };
 
 use crate::{
    adapters::insights::{
       session::{
+         MetaSessionItem,
          fetch_meta_sessions_for_series,
          resolve_live_sid_for_series,
-         MetaSessionItem,
       },
       snapshot::{
+         Snapshot,
          meaningful_snapshot_fingerprint,
          now_unix_ms,
          persist_snapshot,
          restore_snapshot_from_disk,
          snapshot_path,
-         Snapshot,
       },
    },
    snapshot_runtime::derive_session_identifier,
    timing::{
-      canonicalize_class_name,
       TimingClassColor,
       TimingEntry,
       TimingHeader,
       TimingMessage,
+      TimingNotice,
+      WecLivetickerEntry,
+      canonicalize_class_name,
    },
    timing_persist::{
-      debounce_elapsed,
-      log_series_debug,
       PersistState,
       SeriesDebugOutput,
+      debounce_elapsed,
+      log_series_debug,
    },
 };
+
+pub mod liveticker;
 
 const WEC_SERIES_ID: u64 = 10;
 const NEGOTIATE_URL: &str =
@@ -458,6 +465,12 @@ pub fn websocket_worker_with_debug(
          text: format!("WEC stream connected (sid={sid})"),
       });
 
+      // Spawn race control messages polling thread
+      let (rc_stop_tx, rc_stop_rx) = std::sync::mpsc::channel::<()>();
+      let rc_client = client.clone();
+      let rc_thread =
+         spawn_racecontrol_polling_thread(tx.clone(), source_id, rc_stop_rx, rc_client, sid);
+
       loop {
          if stop_rx.try_recv().is_ok() {
             if let Some(snapshot) = last_snapshot.as_ref() {
@@ -484,11 +497,16 @@ pub fn websocket_worker_with_debug(
          };
 
          let mut closed = false;
+         let mut liveticker_entries: Vec<WecLivetickerEntry> = Vec::new();
          for frame in split_signalr_frames(&raw) {
             match parse_signalr_frame(frame) {
                SignalRFrame::Invocation { target, arguments } => {
                   if !target.starts_with("lv-") && target != "ReceiveBatch" {
                      continue;
+                  }
+                  // Extract liveticker entries from ReceiveBatch
+                  if target == "ReceiveBatch" {
+                     liveticker_entries.extend(extract_liveticker_entries(&arguments));
                   }
                   if apply_signalr_arguments(&mut live_state, &target, &arguments) {
                      if let Some((header, entries)) = snapshot_from_live_state(&live_state) {
@@ -524,6 +542,14 @@ pub fn websocket_worker_with_debug(
             }
          }
 
+         // Send liveticker entries if any were collected
+         if !liveticker_entries.is_empty() {
+            let _ = tx.send(TimingMessage::WecLiveticker {
+               source_id,
+               entries: liveticker_entries,
+            });
+         }
+
          if closed {
             let _ = tx.send(TimingMessage::Error {
                source_id,
@@ -537,6 +563,11 @@ pub fn websocket_worker_with_debug(
          source_id,
          text: "WEC reconnecting in 4s...".to_string(),
       });
+
+      // Stop the race control polling thread
+      let _ = rc_stop_tx.send(());
+      drop(rc_thread);
+
       if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
          break;
       }
@@ -997,7 +1028,7 @@ fn fetch_session_length_from_schedule(
    sid: u64,
    state: &mut WecLiveState,
 ) -> Result<(), String> {
-   let url = format!("{}/meta/sessions-schedule-live", ORIGIN_URL);
+   let url = format!("{ORIGIN_URL}/meta/sessions-schedule-live");
    let response = client
       .get(&url)
       .send()
@@ -1117,6 +1148,16 @@ fn apply_receive_batch(state: &mut WecLiveState, arguments: &[Value]) -> bool {
                   false
                }
             },
+            // Handle race-flags via ReceiveBatch (in addition to direct lv-race-flags)
+            Some("race-flags") => {
+               if let Some(view) = view {
+                  apply_race_flags(state, view)
+               } else {
+                  false
+               }
+            },
+            // commentator-phrase is handled separately for liveticker,
+            // it doesn't affect timing data
             _ => false,
          };
          changed |= was_changed;
@@ -1139,6 +1180,28 @@ fn apply_receive_batch(state: &mut WecLiveState, arguments: &[Value]) -> bool {
    }
 
    changed
+}
+
+/// Extract liveticker entries from `ReceiveBatch` arguments.
+fn extract_liveticker_entries(arguments: &[Value]) -> Vec<WecLivetickerEntry> {
+   let mut entries = Vec::new();
+   for argument in arguments {
+      let items = argument.get("items").and_then(Value::as_array);
+      let Some(items) = items else {
+         continue;
+      };
+      for item in items {
+         let channel = item.get("channel").and_then(Value::as_str);
+         if channel == Some("commentator-phrase") {
+            if let Some(view) = item.get("view") {
+               if let Some(entry) = parse_commentator_phrase(view) {
+                  entries.push(entry);
+               }
+            }
+         }
+      }
+   }
+   entries
 }
 
 #[cfg(test)]
@@ -1249,11 +1312,6 @@ fn apply_session_info(state: &mut WecLiveState, payload: &Value) -> bool {
       &mut state.header.session_type_raw,
       map_text(map, "sessionType"),
    );
-   changed |= set_header_text(
-      &mut state.header.flag,
-      map_str(map, "connectionStatus").map(|flag| normalize_flag(&flag)),
-   );
-
    if let Some(classes) = map.get("sessionClasses").and_then(Value::as_array) {
       let mut class_names = HashMap::new();
       let mut class_colors = BTreeMap::new();
@@ -1902,6 +1960,10 @@ fn normalize_flag(raw: &str) -> String {
       "Red".to_string()
    } else if normalized.contains("yellow") {
       "Yellow".to_string()
+   } else if normalized.contains("safety") || normalized.contains("sc ") || normalized == "sc" {
+      "Yellow (SC)".to_string()
+   } else if normalized.contains("fcy") || normalized.contains("full course") {
+      "Yellow (FCY)".to_string()
    } else if normalized.contains("code 60") || normalized == "60" {
       "Code 60".to_string()
    } else if normalized.contains("green") {
@@ -3148,7 +3210,67 @@ mod tests {
 
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
       let entry = entries.iter().find(|e| e.car_number == "8").expect("car 8");
-      assert_eq!(entry.laps, "150", "Laps should increase to 150");
+       assert_eq!(entry.laps, "150", "Laps should increase to 150");
+   }
+
+   #[test]
+   fn apply_receive_batch_race_flags_updates_header_flag() {
+      // Test that ReceiveBatch with channel "race-flags" updates header.flag
+      let mut state = WecLiveState::default();
+
+      // Apply initial Green flag via ReceiveBatch
+      let batch1 = serde_json::json!({
+         "items": [{
+            "channel": "race-flags",
+            "view": {
+               "raceFlagID": "20260613222259842",
+               "flag": "Green",
+               "ts": "2026-06-13T22:22:59.842+00:00",
+               "elapsedTimeMillis": 30_179_842
+            }
+         }]
+      });
+
+      let changed = apply_receive_batch(&mut state, &[batch1]);
+      assert!(changed, "ReceiveBatch race-flags should update flag");
+      assert_eq!(state.header.flag, "Green", "Flag should be Green");
+
+      // Apply SafetyCar flag via ReceiveBatch - should normalize to Yellow (SC)
+      let batch2 = serde_json::json!({
+         "items": [{
+            "channel": "race-flags",
+            "view": {
+               "raceFlagID": "20260613213804930",
+               "flag": "SafetyCar",
+               "ts": "2026-06-13T22:38:04.930+00:00",
+               "elapsedTimeMillis": 27_484_930
+            }
+         }]
+      });
+
+      let changed2 = apply_receive_batch(&mut state, &[batch2]);
+      assert!(changed2, "ReceiveBatch SafetyCar should update flag");
+      assert_eq!(
+         state.header.flag, "Yellow (SC)",
+         "SafetyCar should normalize to Yellow (SC)"
+      );
+
+      // Apply newer Green flag - should override
+      let batch3 = serde_json::json!({
+         "items": [{
+            "channel": "race-flags",
+            "view": {
+               "raceFlagID": "20260613230000000",
+               "flag": "Green",
+               "ts": "2026-06-13T23:00:00.000+00:00",
+               "elapsedTimeMillis": 36_000_000
+            }
+         }]
+      });
+
+      let changed3 = apply_receive_batch(&mut state, &[batch3]);
+      assert!(changed3, "Newer Green flag should update");
+      assert_eq!(state.header.flag, "Green", "Flag should revert to Green");
    }
 
    // =========================================================================
@@ -3159,10 +3281,12 @@ mod tests {
    fn apply_session_clock_calculates_remaining_time_from_elapsed() {
       // Given a 6-hour race (21,600,000 ms) with 1 hour elapsed (3,600,000 ms)
       // Should display 5 hours remaining
-      let mut state = WecLiveState::default();
       // Set session length from schedule (simulating
       // fetch_session_length_from_schedule)
-      state.session_length_ms = Some(21_600_000); // 6 hours
+      let mut state = WecLiveState {
+         session_length_ms: Some(21_600_000),
+         ..WecLiveState::default()
+      };
 
       let payload = serde_json::json!({
           "elapsedTimeMillis": 3_600_000,
@@ -3267,8 +3391,11 @@ mod tests {
    fn apply_session_clock_zero_session_length_ignored() {
       // Zero or negative session length means no TTE calculation
       // (session length must come from schedule's lengthLimit)
-      let mut state = WecLiveState::default();
-      state.session_length_ms = Some(0); // Invalid zero length from bad schedule data
+      // Invalid zero length from bad schedule data
+      let mut state = WecLiveState {
+         session_length_ms: Some(0),
+         ..WecLiveState::default()
+      };
       let payload = serde_json::json!({
           "elapsedTimeMillis": 3_600_000,
           "tsNow": "2026-06-13T12:00:00Z"
@@ -3364,8 +3491,11 @@ mod tests {
    fn apply_session_clock_8h_race_with_session_length_from_schedule() {
       // Session length must come from schedule's lengthLimit
       // Set it explicitly here (simulating fetch_session_length_from_schedule)
-      let mut state = WecLiveState::default();
-      state.session_length_ms = Some(28_800_000); // 8 hours from schedule
+      // 8 hours from schedule
+      let mut state = WecLiveState {
+         session_length_ms: Some(28_800_000),
+         ..WecLiveState::default()
+      };
 
       let payload = serde_json::json!({
           "elapsedTimeMillis": 28_800_000, // 8 hours elapsed
@@ -3380,4 +3510,112 @@ mod tests {
          "Expected 0 hours remaining (8h - 8h)"
       );
    }
+}
+
+/// Race control message from the WEC insights API.
+#[derive(Debug, Deserialize)]
+struct RaceControlMessage {
+   #[serde(rename = "raceControlMessageID")]
+   id:   String,
+   text: String,
+   #[serde(rename = "ts", default)]
+   ts:   Option<String>,
+}
+
+/// Fetch and process race control messages from the WEC API.
+/// Returns a Vec of `TimingNotice` for new messages.
+fn fetch_racecontrol_messages(
+   client: &Client,
+   sid: u64,
+   seen_ids: &mut HashSet<String>,
+) -> Result<Vec<TimingNotice>, String> {
+   let url = format!("{LIVE_BASE_URL}/racecontrol-messages/{sid}");
+   let response = client
+      .get(&url)
+      .send()
+      .map_err(|err| format!("racecontrol-messages request failed: {err}"))?;
+
+   if !response.status().is_success() {
+      return Err(format!(
+         "racecontrol-messages endpoint failed with HTTP {}",
+         response.status()
+      ));
+   }
+
+   let body = response
+      .text()
+      .map_err(|err| format!("racecontrol-messages body read failed: {err}"))?;
+   let messages: Vec<RaceControlMessage> = serde_json::from_str(&body)
+      .map_err(|err| format!("racecontrol-messages decode failed: {err}"))?;
+
+   let notices: Vec<TimingNotice> = messages
+      .into_iter()
+      .filter(|msg| !msg.text.trim().is_empty() && seen_ids.insert(msg.id.clone()))
+      .map(|msg| {
+         TimingNotice {
+            id:   format!("wec_rc_{}", msg.id),
+            time: msg.ts.as_deref().map_or_else(
+               || {
+                  // Use current time as fallback
+                  let now = std::time::SystemTime::now()
+                     .duration_since(std::time::UNIX_EPOCH)
+                     .unwrap_or_default();
+                  let total_secs = now.as_secs();
+                  let hours = (total_secs / 3600) % 24;
+                  let mins = (total_secs / 60) % 60;
+                  let secs = total_secs % 60;
+                  format!("{hours:02}:{mins:02}:{secs:02}")
+               },
+               compact_iso_timestamp,
+            ),
+            text: msg.text,
+         }
+      })
+      .collect();
+
+   Ok(notices)
+}
+
+const POLL_INTERVAL: Duration = Duration::from_secs(12);
+
+/// Spawn a thread that polls the race control messages endpoint.
+fn spawn_racecontrol_polling_thread(
+   tx: Sender<TimingMessage>,
+   source_id: u64,
+   stop_rx: Receiver<()>,
+   client: Client,
+   sid: u64,
+) -> thread::JoinHandle<()> {
+   thread::spawn(move || {
+      let mut seen_ids: HashSet<String> = HashSet::new();
+
+      loop {
+         // Check for stop signal
+         if stop_rx.try_recv().is_ok() {
+            break;
+         }
+
+         // Poll for messages
+         match fetch_racecontrol_messages(&client, sid, &mut seen_ids) {
+            Ok(notices) => {
+               for notice in notices {
+                  let _ = tx.send(TimingMessage::Notice { source_id, notice });
+               }
+            },
+            Err(err) => {
+               // Log error but don't crash - retry on next poll
+               let _ = tx.send(TimingMessage::Error {
+                  source_id,
+                  text: format!("WEC racecontrol poll: {err}"),
+               });
+            },
+         }
+
+         // Wait for next poll or stop signal
+         match stop_rx.recv_timeout(POLL_INTERVAL) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {},
+         }
+      }
+   })
 }

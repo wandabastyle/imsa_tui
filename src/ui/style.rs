@@ -44,10 +44,12 @@ fn lerp_color(a: Color, b: Color, elapsed_ms: u128, duration_ms: u128) -> Color 
 }
 
 fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
-   match flag.trim().to_ascii_lowercase().as_str() {
+   let normalized = flag.trim().to_ascii_lowercase();
+   let base = normalized.split(" (").next().unwrap_or(&normalized);
+   match base {
       "green" | "normal" | "-" | "" => {
          (
-            "Green".to_string(),
+            flag.trim().to_string(),
             Color::Rgb(0, 153, 68),
             Color::Black,
             false,
@@ -55,7 +57,7 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
       },
       "yellow" => {
          (
-            "Yellow".to_string(),
+            flag.trim().to_string(),
             Color::Rgb(255, 221, 0),
             Color::Black,
             true,
@@ -63,7 +65,7 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
       },
       "red" => {
          (
-            "Red".to_string(),
+            flag.trim().to_string(),
             Color::Rgb(200, 16, 46),
             Color::White,
             false,
@@ -71,7 +73,7 @@ fn base_flag_colors(flag: &str) -> (String, Color, Color, bool) {
       },
       "checkered" | "chequered" => {
          (
-            "Checkered".to_string(),
+            flag.trim().to_string(),
             Color::Rgb(245, 245, 245),
             Color::Black,
             false,

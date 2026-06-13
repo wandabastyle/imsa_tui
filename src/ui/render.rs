@@ -47,6 +47,7 @@ use super::{
       messages_popup,
       nls_liveticker_popup,
       series_picker_popup,
+      wec_liveticker_popup,
       GroupPickerState,
       LogsPanelState,
       MessagesPanelState,
@@ -72,6 +73,7 @@ use crate::{
       TimingEntry,
       TimingHeader,
       TimingNotice,
+      WecLivetickerEntry,
    },
 };
 
@@ -101,6 +103,10 @@ pub struct RenderCtx<'a> {
    pub(crate) nls_liveticker_entries:     &'a [LivetickerEntry],
    pub(crate) nls_liveticker_last_update: Option<Instant>,
    pub(crate) nls_liveticker_last_error:  Option<&'a str>,
+   // WEC liveticker state
+   pub(crate) wec_liveticker_entries:     &'a [WecLivetickerEntry],
+   pub(crate) wec_liveticker_last_update: Option<Instant>,
+   pub(crate) show_wec_liveticker:        bool,
    pub(crate) highlighted_notice_cars:    &'a HashSet<String>,
    pub(crate) imsa_debug_logs:            &'a VecDeque<String>,
    pub(crate) demo_mode:                  bool,
@@ -210,11 +216,21 @@ fn render_header(f: &mut Frame<'_>, ctx: &RenderCtx<'_>, area: ratatui::layout::
       header_style,
    )];
 
-   if ctx.active_series == Series::Nls {
-      key_hint_spans.push(Span::styled(
-         format!(" | l ticker ({})", ctx.nls_liveticker_entries.len()),
-         header_style,
-      ));
+   // Show liveticker indicator for NLS and WEC
+   match ctx.active_series {
+      Series::Nls => {
+         key_hint_spans.push(Span::styled(
+            format!(" | l ticker ({})", ctx.nls_liveticker_entries.len()),
+            header_style,
+         ));
+      },
+      Series::Wec => {
+         key_hint_spans.push(Span::styled(
+            format!(" | l ticker ({})", ctx.wec_liveticker_entries.len()),
+            header_style,
+         ));
+      },
+      _ => {},
    }
 
    key_hint_spans.push(Span::styled(" | L logs | d demo | q quit", header_style));
@@ -351,16 +367,33 @@ fn render_messages_popup(f: &mut Frame<'_>, ctx: &RenderCtx<'_>, size: ratatui::
 fn render_liveticker_popup(f: &mut Frame<'_>, ctx: &RenderCtx<'_>, size: ratatui::layout::Rect) {
    let area = centered_rect(78, 72, size);
    f.render_widget(Clear, area);
-   let age_secs = ctx
-      .nls_liveticker_last_update
-      .map(|updated_at| updated_at.elapsed().as_secs());
-   f.render_widget(
-      nls_liveticker_popup(
-         ctx.nls_liveticker_entries,
-         ctx.nls_liveticker_panel.scroll,
-         age_secs,
-         ctx.nls_liveticker_last_error,
-      ),
-      area,
-   );
+
+   if ctx.show_wec_liveticker {
+      // WEC liveticker
+      let age_secs = ctx
+         .wec_liveticker_last_update
+         .map(|updated_at| updated_at.elapsed().as_secs());
+      f.render_widget(
+         wec_liveticker_popup(
+            ctx.wec_liveticker_entries,
+            ctx.nls_liveticker_panel.scroll,
+            age_secs,
+         ),
+         area,
+      );
+   } else {
+      // NLS liveticker
+      let age_secs = ctx
+         .nls_liveticker_last_update
+         .map(|updated_at| updated_at.elapsed().as_secs());
+      f.render_widget(
+         nls_liveticker_popup(
+            ctx.nls_liveticker_entries,
+            ctx.nls_liveticker_panel.scroll,
+            age_secs,
+            ctx.nls_liveticker_last_error,
+         ),
+         area,
+      );
+   }
 }

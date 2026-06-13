@@ -209,7 +209,8 @@ fn start_feed_bridge_internal(
             TimingMessage::Status { source_id, .. }
             | TimingMessage::Error { source_id, .. }
             | TimingMessage::Snapshot { source_id, .. }
-            | TimingMessage::Notice { source_id, .. } => *source_id,
+            | TimingMessage::Notice { source_id, .. }
+            | TimingMessage::WecLiveticker { source_id, .. } => *source_id,
          };
 
          let Some(series) = source_to_series.get(&source_id).copied() else {
