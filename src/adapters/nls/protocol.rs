@@ -1,8 +1,12 @@
-use std::io;
 #[cfg(test)] use std::time::Duration;
+use std::{
+   collections::BTreeSet,
+   io,
+};
 
 use serde_json::Value;
 use tungstenite::Error as WsError;
+use whichlang::Lang;
 
 use super::{
    countdown::{
@@ -274,7 +278,7 @@ pub(crate) fn notices_from_ws_message(text: &str) -> Vec<TimingNotice> {
       return Vec::new();
    }
 
-   parsed
+   let messages = parsed
       .get("MESSAGES")
       .and_then(|value| value.as_array())
       .into_iter()
@@ -290,7 +294,178 @@ pub(crate) fn notices_from_ws_message(text: &str) -> Vec<TimingNotice> {
             text: text.to_string(),
          })
       })
+      .collect::<Vec<_>>();
+
+   filter_german_duplicates(messages)
+      .into_iter()
+      .map(clean_notice_placeholder_marker)
       .collect()
+}
+
+fn clean_notice_placeholder_marker(mut notice: TimingNotice) -> TimingNotice {
+   notice.text = notice.text.replace(" ? ", " ");
+   notice
+}
+
+/// Detects if a notice is German using whichlang.
+/// Assumes the feed contains only English and German, so any non-German is
+/// treated as English.
+fn is_detected_german_notice(text: &str) -> bool {
+   whichlang::detect_language(text) == Lang::Deu
+}
+
+/// Parses a time string "HH:MM:SS" into seconds since midnight.
+fn notice_time_seconds(time: &str) -> Option<u32> {
+   let parts: Vec<&str> = time.trim().split(':').collect();
+   if parts.len() != 3 {
+      return None;
+   }
+   let h: u32 = parts[0].parse().ok()?;
+   let m: u32 = parts[1].parse().ok()?;
+   let s: u32 = parts[2].parse().ok()?;
+   if h > 23 || m > 59 || s > 59 {
+      return None;
+   }
+   Some(h * 3600 + m * 60 + s)
+}
+
+/// Extracts normalized car numbers from a notice text.
+fn notice_car_numbers(text: &str) -> BTreeSet<String> {
+   let mut cars = BTreeSet::new();
+   let mut chars = text.chars().peekable();
+   let mut saw_hash = false;
+
+   while let Some(c) = chars.next() {
+      if c == '#' {
+         saw_hash = true;
+         continue;
+      }
+
+      if saw_hash {
+         // Skip whitespace after hash
+         if c.is_whitespace() {
+            continue;
+         }
+         // Check for comma-separated numbers: "#11, #111, #492, #808"
+         if c.is_ascii_digit() {
+            let mut num = String::new();
+            num.push(c);
+            while let Some(&next) = chars.peek() {
+               if next.is_ascii_digit() {
+                  num.push(chars.next().unwrap());
+               } else {
+                  break;
+               }
+            }
+            // Skip trailing whitespace and check for comma
+            while let Some(&next) = chars.peek() {
+               if next.is_whitespace() {
+                  chars.next();
+               } else if next == ',' {
+                  chars.next();
+                  break;
+               } else {
+                  break;
+               }
+            }
+            // Normalize by trimming leading zeros
+            let normalized = num.trim_start_matches('0');
+            if normalized.is_empty() {
+               cars.insert("0".to_string());
+            } else {
+               cars.insert(normalized.to_string());
+            }
+         }
+         saw_hash = false;
+      }
+   }
+
+   cars
+}
+
+/// Internal struct for classified notices to avoid complex tuple type.
+struct ClassifiedNotice {
+   idx:       usize,
+   notice:    TimingNotice,
+   is_german: bool,
+   time_secs: Option<u32>,
+   cars:      BTreeSet<String>,
+}
+
+/// Filters German notices that have an English duplicate in the same batch.
+/// For each German notice, looks for an English notice with:
+/// - Same non-empty car-number set
+/// - Timestamp delta <= 20 seconds
+/// - Batch index distance <= 3
+fn filter_german_duplicates(notices: Vec<TimingNotice>) -> Vec<TimingNotice> {
+   if notices.len() < 2 {
+      return notices;
+   }
+
+   let classified: Vec<ClassifiedNotice> = notices
+      .into_iter()
+      .enumerate()
+      .map(|(idx, notice)| {
+         let is_german = is_detected_german_notice(&notice.text);
+         let time_secs = notice_time_seconds(&notice.time);
+         let cars = notice_car_numbers(&notice.text);
+         ClassifiedNotice {
+            idx,
+            notice,
+            is_german,
+            time_secs,
+            cars,
+         }
+      })
+      .collect();
+
+   let mut filtered = Vec::new();
+
+   for classified_notice in &classified {
+      if !classified_notice.is_german {
+         // Keep all non-German (English or unknown) notices
+         filtered.push(classified_notice.notice.clone());
+         continue;
+      }
+
+      // For German notices, check if there's an English duplicate
+      let has_english_duplicate = classified.iter().any(|other_classified| {
+         // Must be English (not German)
+         if other_classified.is_german {
+            return false;
+         }
+
+         // Must have car numbers and they must match
+         if classified_notice.cars.is_empty()
+            || other_classified.cars.is_empty()
+            || classified_notice.cars != other_classified.cars
+         {
+            return false;
+         }
+
+         // Index distance check (max 3)
+         let idx_diff = classified_notice.idx.abs_diff(other_classified.idx);
+         if idx_diff > 3 {
+            return false;
+         }
+
+         // Time check (max 20 seconds)
+         match (classified_notice.time_secs, other_classified.time_secs) {
+            (Some(t1), Some(t2)) => {
+               let time_diff = t1.abs_diff(t2);
+               time_diff <= 20
+            },
+            _ => false, // Can't compare times, don't consider duplicate
+         }
+      });
+
+      if !has_english_duplicate {
+         // Keep German notices without an English duplicate
+         filtered.push(classified_notice.notice.clone());
+      }
+   }
+
+   filtered
 }
 
 fn track_state_text(raw: &str) -> String {
