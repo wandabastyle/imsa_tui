@@ -3425,7 +3425,7 @@ mod tests {
             {
                "displayName": "Nyck de Vries",
                "externalDriverID": "3",
-               "driverId": 111912
+               "driverId": 111_912
             }
          ]
       });

@@ -66,7 +66,7 @@ fn render_class_table(
       format!("{} ({} cars)", class_name, class_entries.len()),
       visible_entries,
       &table_ctx,
-      area.width,
+      area.width.saturating_sub(2),
       ctx.table_width_baselines,
    );
    f.render_stateful_widget(table, area, &mut state);

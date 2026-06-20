@@ -160,6 +160,11 @@ impl NlsColumnWidths {
       self.driver as usize
    }
 
+   #[must_use]
+   pub(crate) const fn class_width(self) -> usize {
+      self.class as usize
+   }
+
    pub(crate) const fn vehicle_width(self) -> usize {
       self.vehicle as usize
    }
@@ -312,8 +317,12 @@ pub fn calculate_nls_widths(
       (None, None) => NlsColumnWidths::header_minimums(),
    }
    .enforce_header_minimums();
+
+   // Store the target class width as content minimum before any reduction
+   let class_content_minimum = target.class;
+
    let mut widths = target.to_array();
-   let minimums = NlsColumnWidths::header_minimums().to_array();
+   let header_minimums = NlsColumnWidths::header_minimums().to_array();
    let available_width = terminal_width.saturating_sub(NLS_GUTTERS);
    let total_width: u16 = widths.iter().sum();
 
@@ -321,13 +330,30 @@ pub fn calculate_nls_widths(
       distribute_extra_space(&mut widths, available_width - total_width);
    } else if total_width > available_width {
       let mut deficit = total_width - available_width;
-      deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[6, 5]);
-      deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[
-         1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+
+      // Phase 1: Reduce non-class columns toward header minimums (protect class)
+      deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[6, 5]);
+      deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[
+         1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15,
       ]);
-      deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[4, 0]);
+      deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[4, 0]);
+
+      // Phase 2: If deficit remains, reduce class toward its content minimum
       if deficit > 0 {
-         widths = minimums;
+         let mut content_minimums = header_minimums;
+         content_minimums[2] = class_content_minimum;
+         deficit = reduce_widths_in_order(&mut widths, &content_minimums, deficit, &[2]);
+      }
+
+      // Phase 3: Last resort - reduce all toward header minimums
+      if deficit > 0 {
+         deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[
+            6, 5, 1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 0, 2,
+         ]);
+      }
+
+      if deficit > 0 {
+         widths = header_minimums;
       }
    }
 

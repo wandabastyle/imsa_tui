@@ -261,7 +261,12 @@ fn build_imsa_row(
    Row::new(vec![
       Cell::from(e.position.to_string()),
       car_cell,
-      Cell::from(e.class_name.clone()),
+      Cell::from(marquee_if_needed(
+         &e.class_name,
+         imsa_widths.map_or(5, ImsaColumnWidths::class_width),
+         selected,
+         ctx.marquee_tick,
+      )),
       Cell::from(e.class_rank.clone()),
       Cell::from(marquee_if_needed(
          &e.driver,
@@ -321,7 +326,12 @@ fn build_nls_row(
    Row::new(vec![
       Cell::from(e.position.to_string()),
       car_cell,
-      Cell::from(e.class_name.clone()),
+      Cell::from(marquee_if_needed(
+         &e.class_name,
+         nls_widths.map_or(5, NlsColumnWidths::class_width),
+         selected,
+         ctx.marquee_tick,
+      )),
       Cell::from(e.class_rank.clone()),
       Cell::from(marquee_if_needed(
          &e.driver,
@@ -413,7 +423,12 @@ fn build_wec_row(
    Row::new(vec![
       Cell::from(e.position.to_string()),
       car_cell,
-      Cell::from(e.class_name.clone()),
+      Cell::from(marquee_if_needed(
+         &e.class_name,
+         wec_widths.map_or(5, WecColumnWidths::class_width),
+         selected,
+         ctx.marquee_tick,
+      )),
       Cell::from(e.class_rank.clone()),
       Cell::from(marquee_if_needed(
          &e.driver,
