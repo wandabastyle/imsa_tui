@@ -1720,8 +1720,21 @@ fn refresh_class_name(state: &mut WecLiveState, key: &str) {
 
 fn current_driver_name(row: &Map<String, Value>) -> Option<String> {
    if let Some(drivers) = row.get("drivers").and_then(Value::as_array) {
-      let current_driver_id = map_str(row, "currentDriverId");
+      // Use map_text to handle both numeric and string currentDriverId
+      let current_driver_id = map_text(row, "currentDriverId");
       if let Some(current_driver_id) = current_driver_id {
+         // First try to match against externalDriverID (WEC live format)
+         for driver in drivers {
+            let Some(driver_map) = driver.as_object() else {
+               continue;
+            };
+            if map_text(driver_map, "externalDriverID").as_deref() == Some(current_driver_id.as_str()) {
+               if let Some(name) = map_str(driver_map, "displayName") {
+                  return Some(name);
+               }
+            }
+         }
+         // Fall back to driverId match (for compatibility)
          for driver in drivers {
             let Some(driver_map) = driver.as_object() else {
                continue;
@@ -1733,6 +1746,7 @@ fn current_driver_name(row: &Map<String, Value>) -> Option<String> {
             }
          }
       }
+      // Last resort: return first driver
       for driver in drivers {
          let Some(driver_map) = driver.as_object() else {
             continue;
@@ -3382,6 +3396,89 @@ mod tests {
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
       let car = entries.iter().find(|e| e.car_number == "50").expect("car 50");
       assert_eq!(car.pit, "Yes");
+   }
+
+   // =========================================================================
+   // Current driver matching tests
+   // =========================================================================
+
+   #[test]
+   fn current_driver_name_matches_external_driver_id() {
+      // Regression test for car 7 (Toyota) showing wrong driver.
+      // WEC uses externalDriverID for currentDriverId matching, not driverId.
+      let payload = serde_json::json!({
+         "carNumber": "7",
+         "displayName": "TOYOTA RACING",
+         "teamName": "TOYOTA RACING",
+         "currentDriverId": "2",
+         "drivers": [
+            {
+               "displayName": "Mike Conway",
+               "externalDriverID": "1",
+               "driverId": 225
+            },
+            {
+               "displayName": "Kamui Kobayashi",
+               "externalDriverID": "2",
+               "driverId": 261
+            },
+            {
+               "displayName": "Nyck de Vries",
+               "externalDriverID": "3",
+               "driverId": 111912
+            }
+         ]
+      });
+
+      let mut state = WecLiveState::default();
+      apply_participants(
+         &mut state,
+         &serde_json::json!({ "items": [payload] }),
+      );
+
+      let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
+      let car = entries
+         .iter()
+         .find(|e| e.car_number == "7")
+         .expect("car 7 exists");
+      assert_eq!(
+         car.driver, "Kamui Kobayashi",
+         "Should match driver with externalDriverID == currentDriverId (2), not first driver"
+      );
+   }
+
+   #[test]
+   fn current_driver_name_falls_back_to_driver_id() {
+      // Test that driverId is used as fallback when externalDriverID doesn't match
+      let payload = serde_json::json!({
+         "carNumber": "8",
+         "displayName": "FERRARI AF CORSE",
+         "teamName": "FERRARI AF CORSE",
+         "currentDriverId": "261",
+         "drivers": [
+            {
+               "displayName": "Antonio Fuoco",
+               "externalDriverID": "5",
+               "driverId": 261
+            }
+         ]
+      });
+
+      let mut state = WecLiveState::default();
+      apply_participants(
+         &mut state,
+         &serde_json::json!({ "items": [payload] }),
+      );
+
+      let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
+      let car = entries
+         .iter()
+         .find(|e| e.car_number == "8")
+         .expect("car 8 exists");
+      assert_eq!(
+         car.driver, "Antonio Fuoco",
+         "Should match driver by driverId when externalDriverID doesn't match"
+      );
    }
 
    // =========================================================================
