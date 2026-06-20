@@ -192,7 +192,7 @@ impl ImsaColumnWidths {
    }
 }
 
-    pub fn calculate_imsa_widths(
+pub fn calculate_imsa_widths(
    terminal_width: u16,
    entries: &[TimingEntry],
    baseline: Option<&ImsaColumnWidths>,

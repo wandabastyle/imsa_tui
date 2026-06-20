@@ -214,13 +214,9 @@ fn build_single_row(
    wec_widths: Option<WecColumnWidths>,
 ) -> Row<'static> {
    let fav_key = favourites::favourite_key(ctx.active_series, &e.stable_id);
-   let fav_marker = if ctx.favourites.contains(&fav_key) {
-      "★ "
-   } else {
-      ""
-   };
+   let is_favourite = ctx.favourites.contains(&fav_key);
    let selected = ctx.selected_row_in_view == Some(idx);
-   let car_cell = build_car_cell(e, fav_marker, ctx.highlighted_cars);
+   let car_cell = build_car_cell(e, ctx.highlighted_cars);
 
    let row = match ctx.active_series {
       Series::Imsa => build_imsa_row(e, car_cell, selected, ctx, imsa_widths),
@@ -229,15 +225,11 @@ fn build_single_row(
       Series::Wec => build_wec_row(e, car_cell, selected, ctx, wec_widths),
    };
 
-   let style = build_row_style(e, ctx);
+   let style = build_row_style(e, ctx, is_favourite);
    row.style(style)
 }
 
-fn build_car_cell(
-   e: &TimingEntry,
-   fav_marker: &str,
-   highlighted_cars: &HashSet<String>,
-) -> Cell<'static> {
+fn build_car_cell(e: &TimingEntry, highlighted_cars: &HashSet<String>) -> Cell<'static> {
    let highlighted_car =
       super::table_utils::is_highlighted_car_number(&e.car_number, highlighted_cars);
    let car_cell_style = if highlighted_car {
@@ -248,7 +240,7 @@ fn build_car_cell(
    } else {
       Style::default()
    };
-   Cell::from(format!("{fav_marker}{}", e.car_number)).style(car_cell_style)
+   Cell::from(e.car_number.clone()).style(car_cell_style)
 }
 
 fn build_imsa_row(
@@ -464,8 +456,11 @@ fn build_wec_row(
    ])
 }
 
-fn build_row_style(e: &TimingEntry, ctx: &TableRenderCtx<'_>) -> Style {
+fn build_row_style(e: &TimingEntry, ctx: &TableRenderCtx<'_>, is_favourite: bool) -> Style {
    let mut style = class_style(&e.class_name, ctx.active_series, ctx.class_colors);
+   if is_favourite {
+      style = style.patch(Style::default().bg(Color::Rgb(58, 38, 86)));
+   }
    if let Some(pit_style) = pit_style_for_entry(ctx.pit_trackers, e, ctx.now) {
       style = style.patch(pit_style);
    }

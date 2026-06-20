@@ -21,9 +21,6 @@ use serde_json::{
    Value,
 };
 use tungstenite::{
-   Error as WsError,
-   Message,
-   WebSocket,
    connect,
    http::header::{
       HeaderValue,
@@ -31,39 +28,42 @@ use tungstenite::{
       USER_AGENT,
    },
    stream::MaybeTlsStream,
+   Error as WsError,
+   Message,
+   WebSocket,
 };
 
 use crate::{
    adapters::insights::{
       session::{
-         MetaSessionItem,
          fetch_meta_sessions_for_series,
          resolve_live_sid_for_series,
+         MetaSessionItem,
       },
       snapshot::{
-         Snapshot,
          meaningful_snapshot_fingerprint,
          now_unix_ms,
          persist_snapshot,
          restore_snapshot_from_disk,
          snapshot_path,
+         Snapshot,
       },
    },
    snapshot_runtime::derive_session_identifier,
    timing::{
+      canonicalize_class_name,
       TimingClassColor,
       TimingEntry,
       TimingHeader,
       TimingMessage,
       TimingNotice,
       WecLivetickerEntry,
-      canonicalize_class_name,
    },
    timing_persist::{
-      PersistState,
-      SeriesDebugOutput,
       debounce_elapsed,
       log_series_debug,
+      PersistState,
+      SeriesDebugOutput,
    },
 };
 
@@ -1728,7 +1728,9 @@ fn current_driver_name(row: &Map<String, Value>) -> Option<String> {
             let Some(driver_map) = driver.as_object() else {
                continue;
             };
-            if map_text(driver_map, "externalDriverID").as_deref() == Some(current_driver_id.as_str()) {
+            if map_text(driver_map, "externalDriverID").as_deref()
+               == Some(current_driver_id.as_str())
+            {
                if let Some(name) = map_str(driver_map, "displayName") {
                   return Some(name);
                }
@@ -3242,7 +3244,7 @@ mod tests {
 
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
       let entry = entries.iter().find(|e| e.car_number == "8").expect("car 8");
-       assert_eq!(entry.laps, "150", "Laps should increase to 150");
+      assert_eq!(entry.laps, "150", "Laps should increase to 150");
    }
 
    #[test]
@@ -3300,10 +3302,10 @@ mod tests {
          }]
       });
 
-       let changed3 = apply_receive_batch(&mut state, &[batch3]);
-       assert!(changed3, "Newer Green flag should update");
-       assert_eq!(state.header.flag, "Green", "Flag should revert to Green");
-    }
+      let changed3 = apply_receive_batch(&mut state, &[batch3]);
+      assert!(changed3, "Newer Green flag should update");
+      assert_eq!(state.header.flag, "Green", "Flag should revert to Green");
+   }
 
    #[test]
    fn apply_receive_batch_pit_in_out_transitions() {
@@ -3394,7 +3396,10 @@ mod tests {
       let _changed = apply_receive_batch(&mut state, &[batch]);
 
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
-      let car = entries.iter().find(|e| e.car_number == "50").expect("car 50");
+      let car = entries
+         .iter()
+         .find(|e| e.car_number == "50")
+         .expect("car 50");
       assert_eq!(car.pit, "Yes");
    }
 
@@ -3431,10 +3436,7 @@ mod tests {
       });
 
       let mut state = WecLiveState::default();
-      apply_participants(
-         &mut state,
-         &serde_json::json!({ "items": [payload] }),
-      );
+      apply_participants(&mut state, &serde_json::json!({ "items": [payload] }));
 
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
       let car = entries
@@ -3465,10 +3467,7 @@ mod tests {
       });
 
       let mut state = WecLiveState::default();
-      apply_participants(
-         &mut state,
-         &serde_json::json!({ "items": [payload] }),
-      );
+      apply_participants(&mut state, &serde_json::json!({ "items": [payload] }));
 
       let (_header, entries) = snapshot_from_live_state(&state).expect("snapshot");
       let car = entries

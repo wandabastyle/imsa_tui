@@ -292,7 +292,8 @@ fn extract_notice_car_numbers(text: &str) -> HashSet<String> {
          && chars[idx + 1] == 'A'
          && chars[idx + 2] == 'R'
       {
-         // Check for singular "CAR" not "CARS" - next char after CAR must be whitespace or end
+         // Check for singular "CAR" not "CARS" - next char after CAR must be whitespace
+         // or end
          let after_car = idx + 3;
          if after_car < chars.len() && chars[after_car].is_ascii_whitespace() {
             // Check if next non-whitespace char is a digit
@@ -1490,55 +1491,55 @@ mod tests {
       );
    }
 
-    #[test]
-    fn extract_notice_car_numbers_collects_hash_numbers() {
-       let cars = extract_notice_car_numbers(
-          "#999 non respect of code 60 | #155 penalty | reminder | #007 warning",
-       );
-       assert!(cars.contains("999"));
-       assert!(cars.contains("155"));
-       assert!(cars.contains("007"));
-       assert!(cars.contains("7"));
-    }
+   #[test]
+   fn extract_notice_car_numbers_collects_hash_numbers() {
+      let cars = extract_notice_car_numbers(
+         "#999 non respect of code 60 | #155 penalty | reminder | #007 warning",
+      );
+      assert!(cars.contains("999"));
+      assert!(cars.contains("155"));
+      assert!(cars.contains("007"));
+      assert!(cars.contains("7"));
+   }
 
-    #[test]
-    fn extract_notice_car_numbers_detects_wec_car_pattern() {
-       let cars = extract_notice_car_numbers("CAR 91 TO MOVE TO THE SIDE");
-       assert!(cars.contains("91"));
-       assert!(!cars.contains("9"));
+   #[test]
+   fn extract_notice_car_numbers_detects_wec_car_pattern() {
+      let cars = extract_notice_car_numbers("CAR 91 TO MOVE TO THE SIDE");
+      assert!(cars.contains("91"));
+      assert!(!cars.contains("9"));
 
-       let cars = extract_notice_car_numbers("CAR 007 DRIVER SORENSEN - PENALTY");
-       assert!(cars.contains("007"));
-       // CAR XXX should only match exact, not normalized (no "7" for "007")
-       assert!(!cars.contains("7"));
+      let cars = extract_notice_car_numbers("CAR 007 DRIVER SORENSEN - PENALTY");
+      assert!(cars.contains("007"));
+      // CAR XXX should only match exact, not normalized (no "7" for "007")
+      assert!(!cars.contains("7"));
 
-       let cars = extract_notice_car_numbers("CAR 50 - REPRIMAND");
-       assert!(cars.contains("50"));
-       assert!(!cars.contains("5"));
-    }
+      let cars = extract_notice_car_numbers("CAR 50 - REPRIMAND");
+      assert!(cars.contains("50"));
+      assert!(!cars.contains("5"));
+   }
 
-    #[test]
-    fn extract_notice_car_numbers_ignores_plural_cars() {
-       let cars = extract_notice_car_numbers("CARS 54 CASTELLACCI - 88 LEVORATO");
-       // CARS plural should not match
-       assert!(!cars.contains("54"));
-       assert!(!cars.contains("88"));
-    }
+   #[test]
+   fn extract_notice_car_numbers_ignores_plural_cars() {
+      let cars = extract_notice_car_numbers("CARS 54 CASTELLACCI - 88 LEVORATO");
+      // CARS plural should not match
+      assert!(!cars.contains("54"));
+      assert!(!cars.contains("88"));
+   }
 
-    #[test]
-    fn extract_notice_car_numbers_ignores_marshalling_posts() {
-       let cars = extract_notice_car_numbers("YELLOW AT MP 5");
-       assert!(!cars.contains("5"));
+   #[test]
+   fn extract_notice_car_numbers_ignores_marshalling_posts() {
+      let cars = extract_notice_car_numbers("YELLOW AT MP 5");
+      assert!(!cars.contains("5"));
 
-       let cars = extract_notice_car_numbers("DOUBLE YELLOW AT MP 2, 3, 5, 35");
-       assert!(!cars.contains("2"));
-       assert!(!cars.contains("3"));
-       assert!(!cars.contains("5"));
-       assert!(!cars.contains("35"));
-    }
+      let cars = extract_notice_car_numbers("DOUBLE YELLOW AT MP 2, 3, 5, 35");
+      assert!(!cars.contains("2"));
+      assert!(!cars.contains("3"));
+      assert!(!cars.contains("5"));
+      assert!(!cars.contains("35"));
+   }
 
-    #[test]
-    fn rebuild_highlighted_notice_cars_aggregates_all_notices() {
+   #[test]
+   fn rebuild_highlighted_notice_cars_aggregates_all_notices() {
       let notices = vec![
          TimingNotice {
             id:   "1".to_string(),
