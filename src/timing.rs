@@ -179,4 +179,23 @@ pub enum TimingMessage {
       source_id: u64,
       notice:    TimingNotice,
    },
+   /// WEC liveticker entries from the commentator-phrase channel.
+   WecLiveticker {
+      source_id: u64,
+      entries:   Vec<WecLivetickerEntry>,
+   },
+}
+
+/// A WEC liveticker entry containing commentary from the commentator-phrase
+/// channel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WecLivetickerEntry {
+   /// Elapsed time in milliseconds from session start
+   pub elapsed_time_ms: i64,
+   /// The commentary text (English)
+   pub phrase:          String,
+   /// Optional audio URL for the commentary
+   pub audio_url:       Option<String>,
+   /// Optional ISO timestamp from the signalr feed
+   pub ts:              Option<String>,
 }

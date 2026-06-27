@@ -44,7 +44,7 @@ export const NlsLivetickerModal = function NlsLivetickerModal(
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<Element | null>(null);
   const wasOpenRef = useRef(false);
-  const orderedEntries = entries.toReversed();
+  const orderedEntries = entries;
 
   const closeModal = useCallback((): void => {
     onClose();

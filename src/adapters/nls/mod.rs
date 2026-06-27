@@ -18,7 +18,13 @@ pub use websocket::{
 
 #[cfg(test)]
 mod tests {
-   use std::time::Duration;
+   use std::{
+      io,
+      time::{
+         Duration,
+         Instant,
+      },
+   };
 
    use serde_json::json;
 
@@ -30,11 +36,15 @@ mod tests {
          },
          protocol::{
             entry_from_value,
+            is_retriable_timeout,
+            is_transient_disconnect,
             notices_from_ws_message,
             parse_ws_message,
             refresh_active_event_id,
             set_tcp_read_timeout,
             should_emit_connected_status_on_update,
+            websocket_ping_due,
+            websocket_stale_elapsed,
          },
          schedule::{
             discover_termine_url_from_homepage_html,
@@ -942,6 +952,84 @@ mod tests {
    }
 
    #[test]
+   fn pid3_filters_german_noise_duplicate() {
+      // From live feed: English notice followed by German duplicate
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:00:50","MESSAGE":"# 300 first noise violation"},{"ID":"2","MESSAGETIME":"09:00:56","MESSAGE":"# 300 erste L?rm?berschreitung"}]}"##;
+      let notices = notices_from_ws_message(payload);
+      // Should keep English, drop German duplicate
+      assert_eq!(notices.len(), 1);
+      assert!(notices[0].text.contains("noise violation"));
+   }
+
+   #[test]
+   fn pid3_filters_german_pitlane_duplicate() {
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:38:44","MESSAGE":"# 801 ? overspeeding pitlane under investigation"},{"ID":"2","MESSAGETIME":"09:38:49","MESSAGE":"# 801 ? Geschwindigkeits?berschreitung Boxengasse wird untersucht"}]}"##;
+      let notices = notices_from_ws_message(payload);
+      // Should keep English, drop German duplicate
+      assert_eq!(notices.len(), 1);
+      assert!(notices[0].text.contains("overspeeding pitlane"));
+   }
+
+   #[test]
+   fn pid3_filters_german_code60_duplicate() {
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:44:26","MESSAGE":"# 899 - Code 60 nicht beachtet wird untersucht"},{"ID":"2","MESSAGETIME":"09:44:32","MESSAGE":"# 899 ? failed to manage Code 60 under investigation"}]}"##;
+      let notices = notices_from_ws_message(payload);
+      // Should keep English, drop German duplicate
+      assert_eq!(notices.len(), 1);
+      assert!(notices[0].text.contains("failed to manage Code 60"));
+   }
+
+   #[test]
+   fn pid3_removes_placeholder_marker_from_remaining_messages() {
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:44:32","MESSAGE":"# 899 ? failed to manage Code 60 under investigation"}]}"##;
+      let notices = notices_from_ws_message(payload);
+
+      assert_eq!(notices.len(), 1);
+      assert_eq!(
+         notices[0].text,
+         "# 899 failed to manage Code 60 under investigation"
+      );
+   }
+
+   #[test]
+   fn pid3_filters_german_black_flag_duplicate() {
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"08:41:10","MESSAGE":"# 170 black flag with orange disc - check timekeeping-transponder - no signal"},{"ID":"2","MESSAGETIME":"08:41:17","MESSAGE":"# 170 Schwarze Flagge mit oranger Scheibe - Zeitnahme-Transponder pr?fen - kein Signal"}]}"##;
+      let notices = notices_from_ws_message(payload);
+      // Should keep English, drop German duplicate
+      assert_eq!(notices.len(), 1);
+      assert!(notices[0].text.contains("black flag"));
+   }
+
+   #[test]
+   fn pid3_keeps_german_only_message() {
+      // German message without English counterpart
+      let payload = r#"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:44:26","MESSAGE":"Code 60 nicht beachtet wird untersucht"}]}"#;
+      let notices = notices_from_ws_message(payload);
+      // Should keep the German-only message
+      assert_eq!(notices.len(), 1);
+      assert!(notices[0].text.contains("nicht beachtet"));
+   }
+
+   #[test]
+   fn pid3_keeps_german_different_time() {
+      // German and English for same car but different times (not duplicates)
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:00:50","MESSAGE":"# 300 first noise violation"},{"ID":"2","MESSAGETIME":"09:05:00","MESSAGE":"# 300 erste L?rm?berschreitung"}]}"##;
+      let notices = notices_from_ws_message(payload);
+      // Time diff is 5 minutes (300 seconds), should keep both
+      assert_eq!(notices.len(), 2);
+   }
+
+   #[test]
+   fn pid3_keeps_english_even_if_misclassified() {
+      // These messages were misclassified as Portuguese/Italian by whichlang
+      // but should be kept as English
+      let payload = r##"{"PID":"3","MESSAGES":[{"ID":"1","MESSAGETIME":"09:36:25","MESSAGE":"#480 under investigation"},{"ID":"2","MESSAGETIME":"09:40:31","MESSAGE":"#480 no further action"},{"ID":"3","MESSAGETIME":"09:37:31","MESSAGE":"#480 referred to the stewards"}]}"##;
+      let notices = notices_from_ws_message(payload);
+      // All English notices should be kept
+      assert_eq!(notices.len(), 3);
+   }
+
+   #[test]
    fn chooses_24h_event_when_today_in_range() {
       let start = CalendarDate {
          year:  2026,
@@ -1031,5 +1119,72 @@ mod tests {
       assert_eq!(active_event_id, N24_EVENT_ID);
       assert!(status.contains("keeping eventId"));
       assert!(status.contains(N24_EVENT_ID));
+   }
+
+   #[test]
+   fn websocket_stale_elapsed_reports_true_after_timeout() {
+      let start = Instant::now();
+      let now = start + Duration::from_secs(30);
+
+      assert!(websocket_stale_elapsed(start, now, Duration::from_secs(30)));
+      assert!(!websocket_stale_elapsed(
+         start,
+         start + Duration::from_secs(29),
+         Duration::from_secs(30)
+      ));
+   }
+
+   #[test]
+   fn websocket_ping_due_reports_true_after_interval() {
+      let start = Instant::now();
+      let now = start + Duration::from_secs(10);
+
+      assert!(websocket_ping_due(start, now, Duration::from_secs(10)));
+      assert!(!websocket_ping_due(
+         start,
+         start + Duration::from_secs(9),
+         Duration::from_secs(10)
+      ));
+   }
+
+   #[test]
+   fn transient_disconnect_true_for_connection_reset() {
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::ConnectionReset,
+         "connection reset",
+      ));
+      assert!(is_transient_disconnect(&err));
+   }
+
+   #[test]
+   fn transient_disconnect_true_for_connection_aborted() {
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::ConnectionAborted,
+         "connection aborted",
+      ));
+      assert!(is_transient_disconnect(&err));
+   }
+
+   #[test]
+   fn transient_disconnect_true_for_broken_pipe() {
+      let err = tungstenite::Error::Io(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
+      assert!(is_transient_disconnect(&err));
+   }
+
+   #[test]
+   fn transient_disconnect_false_for_timeout() {
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::WouldBlock,
+         "operation timed out",
+      ));
+      assert!(!is_transient_disconnect(&err));
+      assert!(is_retriable_timeout(&err));
+
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::TimedOut,
+         "operation timed out",
+      ));
+      assert!(!is_transient_disconnect(&err));
+      assert!(is_retriable_timeout(&err));
    }
 }

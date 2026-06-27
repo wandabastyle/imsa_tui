@@ -178,30 +178,68 @@ pub fn extract_notice_car_numbers(text: &str) -> HashSet<String> {
    let mut idx = 0usize;
 
    while idx < chars.len() {
-      if chars[idx] != '#' {
+      // Look for #NUMBER (NLS style)
+      if chars[idx] == '#' {
          idx += 1;
+         let start = idx;
+         while idx < chars.len() && chars[idx].is_ascii_digit() {
+            idx += 1;
+         }
+         if idx == start {
+            continue;
+         }
+
+         let raw: String = chars[start..idx].iter().collect();
+         if raw.is_empty() {
+            continue;
+         }
+
+         car_numbers.insert(raw.clone());
+         let normalized = raw.trim_start_matches('0');
+         if !normalized.is_empty() {
+            car_numbers.insert(normalized.to_string());
+         }
          continue;
+      }
+
+      // Look for CAR NUMBER (WEC style) - singular CAR only
+      if idx + 3 < chars.len()
+         && chars[idx] == 'C'
+         && chars[idx + 1] == 'A'
+         && chars[idx + 2] == 'R'
+      {
+         // Check for singular "CAR" not "CARS" - next char after CAR must be whitespace or end
+         let after_car = idx + 3;
+         if after_car < chars.len() && chars[after_car].is_ascii_whitespace() {
+            // Check if next non-whitespace char is a digit
+            let mut num_start = after_car + 1;
+            while num_start < chars.len() && chars[num_start].is_ascii_whitespace() {
+               num_start += 1;
+            }
+
+            if num_start < chars.len() && chars[num_start].is_ascii_digit() {
+               // Collect digits (1-3 digits for car numbers)
+               let mut num_end = num_start;
+               while num_end < chars.len()
+                  && chars[num_end].is_ascii_digit()
+                  && num_end - num_start < 3
+               {
+                  num_end += 1;
+               }
+
+               let raw: String = chars[num_start..num_end].iter().collect();
+               if !raw.is_empty() {
+                  // For CAR XXX, insert only exact raw number (no normalization)
+                  car_numbers.insert(raw);
+               }
+
+               idx = num_end;
+               continue;
+            }
+         }
       }
 
       idx += 1;
-      let start = idx;
-      while idx < chars.len() && chars[idx].is_ascii_digit() {
-         idx += 1;
-      }
-      if idx == start {
-         continue;
-      }
-
-      let raw: String = chars[start..idx].iter().collect();
-      if raw.is_empty() {
-         continue;
-      }
-
-      car_numbers.insert(raw.clone());
-      let normalized = raw.trim_start_matches('0');
-      if !normalized.is_empty() {
-         car_numbers.insert(normalized.to_string());
-      }
    }
 
    car_numbers

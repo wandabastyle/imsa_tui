@@ -16,6 +16,7 @@ use crate::{
       TimingHeader,
       TimingMessage,
       TimingNotice,
+      WecLivetickerEntry,
    },
    timing_persist::SeriesDebugOutput,
 };
@@ -69,6 +70,11 @@ pub fn drain_series_debug_logs(feed: Option<&ActiveFeed>, logs: &mut VecDeque<St
    }
 }
 
+pub struct DrainedMessages {
+   pub notices:        Vec<TimingNotice>,
+   pub wec_liveticker: Vec<WecLivetickerEntry>,
+}
+
 pub fn drain_messages(
    rx: &Receiver<TimingMessage>,
    active_source_id: u64,
@@ -77,8 +83,9 @@ pub fn drain_messages(
    status: &mut String,
    last_error: &mut Option<String>,
    last_update: &mut Option<Instant>,
-) -> Vec<TimingNotice> {
+) -> DrainedMessages {
    let mut notices = Vec::new();
+   let mut wec_liveticker = Vec::new();
    while let Ok(msg) = rx.try_recv() {
       match msg {
          TimingMessage::Status { source_id, text } if source_id == active_source_id => {
@@ -127,10 +134,16 @@ pub fn drain_messages(
          TimingMessage::Notice { source_id, notice } if source_id == active_source_id => {
             notices.push(notice);
          },
+         TimingMessage::WecLiveticker { source_id, entries } if source_id == active_source_id => {
+            wec_liveticker.extend(entries);
+         },
          _ => {},
       }
    }
-   notices
+   DrainedMessages {
+      notices,
+      wec_liveticker,
+   }
 }
 
 #[cfg(test)]
@@ -158,7 +171,7 @@ mod tests {
       let mut last_error = None;
       let mut last_update = None;
 
-      let notices = drain_messages(
+      let drained = drain_messages(
          &rx,
          source_id,
          &mut header,
@@ -168,7 +181,7 @@ mod tests {
          &mut last_update,
       );
 
-      assert!(notices.is_empty());
+      assert!(drained.notices.is_empty());
       assert_eq!(header.session_name, "Race 1");
       assert_eq!(header.session_type_raw, "R");
       assert_eq!(status, "Live timing connected");

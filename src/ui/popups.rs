@@ -28,6 +28,7 @@ use crate::{
    timing::{
       Series,
       TimingNotice,
+      WecLivetickerEntry,
    },
 };
 
@@ -146,7 +147,7 @@ pub fn help_popup() -> Paragraph<'static> {
       Line::from("n/p    next/prev search result"),
       Line::from("d      toggle demo/live data source"),
       Line::from("m      toggle race messages popup"),
-      Line::from("l      toggle NLS liveticker popup"),
+      Line::from("l      toggle liveticker popup"),
       Line::from("C      clear persisted message dismissals (in messages popup)"),
       Line::from("L      toggle IMSA debug logs"),
       Line::from("q      quit"),
@@ -316,7 +317,7 @@ pub fn nls_liveticker_popup(
    if entries.is_empty() {
       lines.push(Line::from("No liveticker entries yet."));
    } else {
-      for entry in entries.iter().rev() {
+      for entry in entries {
          lines.push(Line::from(vec![Span::styled(
             format!("{} {} Uhr", entry.day_label, entry.time_text),
             Style::default()
@@ -348,6 +349,97 @@ pub fn nls_liveticker_popup(
             .title("NLS Liveticker")
             .borders(Borders::ALL),
       )
+}
+
+/// WEC liveticker popup showing elapsed race time and commentary.
+pub fn wec_liveticker_popup(
+   entries: &[WecLivetickerEntry],
+   scroll: usize,
+   updated_age_secs: Option<u64>,
+) -> Paragraph<'static> {
+   let mut lines = vec![];
+
+   let update_text = updated_age_secs.map_or_else(
+      || "updated -".to_string(),
+      |age| format!("updated {age}s ago"),
+   );
+   lines.push(Line::from(format!(
+      "{} entries | {}",
+      entries.len(),
+      update_text
+   )));
+   lines.push(Line::from(""));
+
+   if entries.is_empty() {
+      lines.push(Line::from("No liveticker entries yet."));
+   } else {
+      for entry in entries.iter().rev() {
+         // Use ts (clock time) if available, otherwise fall back to elapsed time
+         let time_str = entry.ts.as_deref().map_or_else(
+            || {
+               // Fallback to elapsed time formatting
+               let total_secs = entry.elapsed_time_ms / 1000;
+               let hours = total_secs / 3600;
+               let mins = (total_secs % 3600) / 60;
+               let secs = total_secs % 60;
+               if hours > 0 {
+                  format!("{hours:02}:{mins:02}:{secs:02}")
+               } else {
+                  format!("{mins:02}:{secs:02}")
+               }
+            },
+            |ts| {
+               // Extract just the time part from ISO timestamp
+               // Input: "2026-06-13T17:27:14.7309842+00:00"
+               // Output: "17:27:14" or similar
+               ts.split('T')
+                  .nth(1)
+                  .and_then(|t| t.split(['.', '+']).next())
+                  .map_or_else(|| "--:--:--".to_string(), str::to_string)
+            },
+         );
+
+         lines.push(Line::from(vec![Span::styled(
+            time_str,
+            Style::default()
+               .fg(Color::Yellow)
+               .add_modifier(Modifier::BOLD),
+         )]));
+         lines.push(Line::from(entry.phrase.clone()));
+         lines.push(Line::from(""));
+      }
+   }
+
+   lines.push(Line::from(
+      "↑/↓ scroll | PgUp/PgDn fast scroll | Home/End jump | Esc or l close",
+   ));
+
+   Paragraph::new(lines)
+      .alignment(Alignment::Left)
+      .wrap(Wrap { trim: false })
+      .scroll((u16::try_from(scroll).expect("scroll should fit in u16"), 0))
+      .block(
+         Block::default()
+            .title("WEC Liveticker")
+            .borders(Borders::ALL),
+      )
+}
+
+/// Calculate line count for WEC liveticker.
+pub fn wec_liveticker_line_count(entries: &[WecLivetickerEntry]) -> usize {
+   let mut lines = 2usize; // header + separator
+
+   if entries.is_empty() {
+      lines += 1; // "No liveticker entries yet."
+   } else {
+      for entry in entries {
+         lines += 1; // time
+         lines += entry.phrase.lines().count().max(1); // message
+         lines += 1; // separator
+      }
+   }
+
+   lines + 1 // footer
 }
 
 pub fn liveticker_line_count(entries: &[LivetickerEntry], has_error: bool) -> usize {

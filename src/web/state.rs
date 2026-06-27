@@ -202,6 +202,8 @@ impl WebAppState {
                snapshot.notices.drain(0..remove);
             }
          },
+         // WEC liveticker is handled separately, not in web snapshot
+         TimingMessage::WecLiveticker { .. } => {},
       }
       drop(guard);
    }

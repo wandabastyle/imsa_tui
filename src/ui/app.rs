@@ -47,6 +47,7 @@ use super::{
       start_feed,
       stop_feed,
       ActiveFeed,
+      DrainedMessages,
       IMSA_DEBUG_LOG_CAPACITY,
    },
    gap::gap_anchor_from_entry,
@@ -65,6 +66,7 @@ use super::{
    },
    popups::{
       liveticker_line_count,
+      wec_liveticker_line_count,
       GroupPickerState,
       LogsPanelState,
       MessagesPanelState,
@@ -127,6 +129,8 @@ struct SeriesChangeCtx<'a> {
    nls_liveticker_last_update: &'a mut Option<Instant>,
    nls_liveticker_last_error:  &'a mut Option<String>,
    nls_liveticker_panel:       &'a mut NlsLivetickerPanelState,
+   // WEC liveticker state
+   wec_liveticker_entries:     &'a mut Vec<crate::timing::WecLivetickerEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -258,30 +262,69 @@ fn extract_notice_car_numbers(text: &str) -> HashSet<String> {
    let mut idx = 0usize;
 
    while idx < chars.len() {
-      if chars[idx] != '#' {
+      // Look for #NUMBER (NLS style)
+      if chars[idx] == '#' {
          idx += 1;
+         let start = idx;
+         while idx < chars.len() && chars[idx].is_ascii_digit() {
+            idx += 1;
+         }
+         if idx == start {
+            continue;
+         }
+
+         let raw: String = chars[start..idx].iter().collect();
+         if raw.is_empty() {
+            continue;
+         }
+
+         car_numbers.insert(raw.clone());
+         let normalized = raw.trim_start_matches('0');
+         if !normalized.is_empty() {
+            car_numbers.insert(normalized.to_string());
+         }
          continue;
+      }
+
+      // Look for CAR NUMBER (WEC style) - singular CAR only
+      if idx + 3 < chars.len()
+         && chars[idx] == 'C'
+         && chars[idx + 1] == 'A'
+         && chars[idx + 2] == 'R'
+      {
+         // Check for singular "CAR" not "CARS" - next char after CAR must be whitespace
+         // or end
+         let after_car = idx + 3;
+         if after_car < chars.len() && chars[after_car].is_ascii_whitespace() {
+            // Check if next non-whitespace char is a digit
+            let mut num_start = after_car + 1;
+            while num_start < chars.len() && chars[num_start].is_ascii_whitespace() {
+               num_start += 1;
+            }
+
+            if num_start < chars.len() && chars[num_start].is_ascii_digit() {
+               // Collect digits (1-3 digits for car numbers)
+               let mut num_end = num_start;
+               while num_end < chars.len()
+                  && chars[num_end].is_ascii_digit()
+                  && num_end - num_start < 3
+               {
+                  num_end += 1;
+               }
+
+               let raw: String = chars[num_start..num_end].iter().collect();
+               if !raw.is_empty() {
+                  // For CAR XXX, insert only exact raw number (no normalization)
+                  car_numbers.insert(raw);
+               }
+
+               idx = num_end;
+               continue;
+            }
+         }
       }
 
       idx += 1;
-      let start = idx;
-      while idx < chars.len() && chars[idx].is_ascii_digit() {
-         idx += 1;
-      }
-      if idx == start {
-         continue;
-      }
-
-      let raw: String = chars[start..idx].iter().collect();
-      if raw.is_empty() {
-         continue;
-      }
-
-      car_numbers.insert(raw.clone());
-      let normalized = raw.trim_start_matches('0');
-      if !normalized.is_empty() {
-         car_numbers.insert(normalized.to_string());
-      }
    }
 
    car_numbers
@@ -548,7 +591,6 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
       ctx.nls_liveticker_entries.clear();
       *ctx.nls_liveticker_last_update = None;
       *ctx.nls_liveticker_last_error = None;
-      *ctx.nls_liveticker_panel = NlsLivetickerPanelState::closed();
    } else if ctx.nls_liveticker_feed.is_none() {
       let initial_kind = if ctx.header.event_id == "50" {
          LivetickerFeedKind::N24
@@ -558,6 +600,16 @@ fn apply_series_change(next_series: Series, ctx: &mut SeriesChangeCtx<'_>) {
       *ctx.nls_liveticker_feed = Some(crate::adapters::nls::liveticker::start_liveticker_feed(
          initial_kind,
       ));
+   }
+
+   // Clear WEC liveticker when switching away from WEC
+   if *ctx.active_series != Series::Wec {
+      ctx.wec_liveticker_entries.clear();
+   }
+
+   // Close liveticker panel unless we're on NLS or WEC
+   if *ctx.active_series != Series::Nls && *ctx.active_series != Series::Wec {
+      *ctx.nls_liveticker_panel = NlsLivetickerPanelState::closed();
    }
 
    ctx.config.selected_series = *ctx.active_series;
@@ -611,6 +663,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
    let mut nls_liveticker_entries: Vec<LivetickerEntry> = Vec::new();
    let mut nls_liveticker_last_update: Option<Instant> = None;
    let mut nls_liveticker_last_error: Option<String> = None;
+   // WEC liveticker state
+   let mut wec_liveticker_entries: Vec<crate::timing::WecLivetickerEntry> = Vec::new();
+   let mut wec_liveticker_last_update: Option<Instant> = None;
    let mut nls_liveticker_feed = if active_series == Series::Nls {
       let initial_kind = if header.event_id == "50" {
          LivetickerFeedKind::N24
@@ -647,7 +702,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
          last_error = None;
          last_update = Some(Instant::now());
       } else if let Some(active_feed) = &feed {
-         let incoming_notices = drain_messages(
+         let drained: DrainedMessages = drain_messages(
             &rx,
             active_feed.source_id,
             &mut header,
@@ -656,6 +711,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             &mut last_error,
             &mut last_update,
          );
+         let incoming_notices = drained.notices;
 
          // Check for NLS event ID changes to switch liveticker feed
          if active_series == Series::Nls {
@@ -689,13 +745,19 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                continue;
             }
             if notice_keys.insert(key) {
-               notices.push(notice);
+               notices.insert(0, notice);
             }
          }
          highlighted_notice_cars = rebuild_highlighted_notice_cars(&notices);
          messages_panel.selected_idx = messages_panel
             .selected_idx
             .min(notices.len().saturating_sub(1));
+
+         // Process WEC liveticker entries received from drain_messages
+         if !drained.wec_liveticker.is_empty() {
+            wec_liveticker_entries.extend(drained.wec_liveticker);
+            wec_liveticker_last_update = Some(Instant::now());
+         }
       }
       drain_series_debug_logs(feed.as_ref(), &mut imsa_debug_logs);
 
@@ -714,9 +776,13 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
          }
       }
 
-      let liveticker_max_scroll =
+      // Calculate liveticker scroll max based on active series
+      let liveticker_max_scroll = if active_series == Series::Wec {
+         wec_liveticker_line_count(&wec_liveticker_entries).saturating_sub(1)
+      } else {
          liveticker_line_count(&nls_liveticker_entries, nls_liveticker_last_error.is_some())
-            .saturating_sub(1);
+            .saturating_sub(1)
+      };
       nls_liveticker_panel.scroll = nls_liveticker_panel.scroll.min(liveticker_max_scroll);
 
       if !demo_mode {
@@ -817,6 +883,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
             nls_liveticker_entries: &nls_liveticker_entries,
             nls_liveticker_last_update,
             nls_liveticker_last_error: nls_liveticker_last_error.as_deref(),
+            // WEC liveticker state
+            wec_liveticker_entries: &wec_liveticker_entries,
+            wec_liveticker_last_update,
+            show_wec_liveticker: active_series == Series::Wec && nls_liveticker_panel.is_open,
             highlighted_notice_cars: &highlighted_notice_cars,
             imsa_debug_logs: &imsa_debug_logs,
             demo_mode,
@@ -904,6 +974,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                         nls_liveticker_last_update: &mut nls_liveticker_last_update,
                         nls_liveticker_last_error: &mut nls_liveticker_last_error,
                         nls_liveticker_panel: &mut nls_liveticker_panel,
+                        wec_liveticker_entries: &mut wec_liveticker_entries,
                      };
                      apply_series_change(next_series, &mut series_change_ctx);
                      gap_anchor_stable_id = None;
@@ -1083,7 +1154,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Res
                   group_picker.is_open = false;
                   nls_liveticker_panel.is_open = false;
                },
-               KeyCode::Char('l') if !show_help && active_series == Series::Nls => {
+               KeyCode::Char('l')
+                  if !show_help
+                     && (active_series == Series::Nls || active_series == Series::Wec) =>
+               {
                   nls_liveticker_panel.is_open = !nls_liveticker_panel.is_open;
                   nls_liveticker_panel.scroll = 0;
                   messages_panel.is_open = false;
@@ -1426,6 +1500,42 @@ mod tests {
       assert!(cars.contains("155"));
       assert!(cars.contains("007"));
       assert!(cars.contains("7"));
+   }
+
+   #[test]
+   fn extract_notice_car_numbers_detects_wec_car_pattern() {
+      let cars = extract_notice_car_numbers("CAR 91 TO MOVE TO THE SIDE");
+      assert!(cars.contains("91"));
+      assert!(!cars.contains("9"));
+
+      let cars = extract_notice_car_numbers("CAR 007 DRIVER SORENSEN - PENALTY");
+      assert!(cars.contains("007"));
+      // CAR XXX should only match exact, not normalized (no "7" for "007")
+      assert!(!cars.contains("7"));
+
+      let cars = extract_notice_car_numbers("CAR 50 - REPRIMAND");
+      assert!(cars.contains("50"));
+      assert!(!cars.contains("5"));
+   }
+
+   #[test]
+   fn extract_notice_car_numbers_ignores_plural_cars() {
+      let cars = extract_notice_car_numbers("CARS 54 CASTELLACCI - 88 LEVORATO");
+      // CARS plural should not match
+      assert!(!cars.contains("54"));
+      assert!(!cars.contains("88"));
+   }
+
+   #[test]
+   fn extract_notice_car_numbers_ignores_marshalling_posts() {
+      let cars = extract_notice_car_numbers("YELLOW AT MP 5");
+      assert!(!cars.contains("5"));
+
+      let cars = extract_notice_car_numbers("DOUBLE YELLOW AT MP 2, 3, 5, 35");
+      assert!(!cars.contains("2"));
+      assert!(!cars.contains("3"));
+      assert!(!cars.contains("5"));
+      assert!(!cars.contains("35"));
    }
 
    #[test]

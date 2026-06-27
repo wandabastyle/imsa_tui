@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "imsa_tui"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "A terminal user interface for timing data"
 license = "MIT"
@@ -29,6 +29,7 @@ axum = { version = "0.8", features = ["json"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "fs"] }
 tokio-stream = { version = "0.1", features = ["sync", "time"] }
 mime_guess = "2"
+whichlang = "0.1"
 rand = "0.10"
 argon2 = "0.5"
 libc = "0.2"
