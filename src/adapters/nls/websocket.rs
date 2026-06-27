@@ -5,7 +5,10 @@ use std::{
       Receiver,
       Sender,
    },
-   time::Duration,
+   time::{
+      Duration,
+      Instant,
+   },
 };
 
 use serde_json::json;
@@ -20,8 +23,11 @@ use crate::{
       nls::{
          protocol::{
             is_retriable_timeout,
+            is_transient_disconnect,
             notices_from_ws_message,
             parse_ws_message,
+            websocket_ping_due,
+            websocket_stale_elapsed,
          },
          snapshot::persist_snapshot_if_dirty,
          state::{
@@ -42,6 +48,9 @@ use crate::{
 };
 
 const WS_URL: &str = "wss://livetiming.azurewebsites.net/";
+const RECONNECT_DELAY: Duration = Duration::from_secs(3);
+const NLS_PING_INTERVAL: Duration = Duration::from_secs(10);
+const NLS_STALE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Type alias for the websocket socket type.
 pub type NlsWebSocket = WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
@@ -104,7 +113,7 @@ pub fn websocket_worker_with_debug(
       });
       log_series_debug(debug_output, "NLS", "reconnecting in 3s");
 
-      if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
+      if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
          break;
       }
    }
@@ -134,7 +143,7 @@ fn connect_to_websocket(
             source_id,
             text: format!("connect failed: {err}"),
          });
-         if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
+         if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
             return None;
          }
          return None;
@@ -164,7 +173,7 @@ fn connect_to_websocket(
          source_id,
          text: format!("subscribe failed: {err}"),
       });
-      if stop_rx.recv_timeout(Duration::from_secs(3)).is_ok() {
+      if stop_rx.recv_timeout(RECONNECT_DELAY).is_ok() {
          return None;
       }
       return None;
@@ -194,6 +203,9 @@ struct MessageLoop<'a> {
 }
 
 fn handle_message_loop(loop_ctx: &mut MessageLoop<'_>) -> bool {
+   let mut last_activity_at = Instant::now();
+   let mut last_ping_at = last_activity_at;
+
    loop {
       if loop_ctx.stop_rx.try_recv().is_ok() {
          if let Some(snapshot) = loop_ctx.ctx.last_good_live_snapshot.as_ref() {
@@ -220,8 +232,10 @@ fn handle_message_loop(loop_ctx: &mut MessageLoop<'_>) -> bool {
          return false;
       }
 
+      let now = Instant::now();
       match loop_ctx.socket.read() {
          Ok(Message::Text(text)) => {
+            last_activity_at = now;
             process_text_message(
                &text,
                loop_ctx.tx,
@@ -232,6 +246,7 @@ fn handle_message_loop(loop_ctx: &mut MessageLoop<'_>) -> bool {
             );
          },
          Ok(Message::Binary(data)) => {
+            last_activity_at = now;
             process_binary_message(
                &data,
                loop_ctx.tx,
@@ -242,6 +257,7 @@ fn handle_message_loop(loop_ctx: &mut MessageLoop<'_>) -> bool {
             );
          },
          Ok(Message::Ping(data)) => {
+            last_activity_at = now;
             if let Err(err) = loop_ctx.socket.send(Message::Pong(data)) {
                let _ = loop_ctx.tx.send(TimingMessage::Error {
                   source_id: loop_ctx.source_id,
@@ -250,7 +266,9 @@ fn handle_message_loop(loop_ctx: &mut MessageLoop<'_>) -> bool {
                break;
             }
          },
-         Ok(Message::Pong(_) | Message::Frame(_)) => {},
+         Ok(Message::Pong(_) | Message::Frame(_)) => {
+            last_activity_at = now;
+         },
          Ok(Message::Close(frame)) => {
             let _ = loop_ctx.tx.send(TimingMessage::Error {
                source_id: loop_ctx.source_id,
@@ -258,12 +276,36 @@ fn handle_message_loop(loop_ctx: &mut MessageLoop<'_>) -> bool {
             });
             break;
          },
-         Err(err) if is_retriable_timeout(&err) => {},
+         Err(err) if is_retriable_timeout(&err) => {
+            if websocket_stale_elapsed(last_activity_at, now, NLS_STALE_TIMEOUT) {
+               let _ = loop_ctx.tx.send(TimingMessage::Status {
+                  source_id: loop_ctx.source_id,
+                  text:      "NLS websocket stale for 30s; reconnecting".to_string(),
+               });
+               break;
+            } else if websocket_ping_due(last_ping_at, now, NLS_PING_INTERVAL) {
+               if let Err(err) = loop_ctx.socket.send(Message::Ping(Vec::new().into())) {
+                  let _ = loop_ctx.tx.send(TimingMessage::Error {
+                     source_id: loop_ctx.source_id,
+                     text:      format!("ping failed: {err}"),
+                  });
+                  break;
+               }
+               last_ping_at = Instant::now();
+            }
+         },
          Err(err) => {
-            let _ = loop_ctx.tx.send(TimingMessage::Error {
-               source_id: loop_ctx.source_id,
-               text:      format!("read failed: {err}"),
-            });
+            if is_transient_disconnect(&err) {
+               let _ = loop_ctx.tx.send(TimingMessage::Status {
+                  source_id: loop_ctx.source_id,
+                  text:      "NLS connection reset; reconnecting...".to_string(),
+               });
+            } else {
+               let _ = loop_ctx.tx.send(TimingMessage::Error {
+                  source_id: loop_ctx.source_id,
+                  text:      format!("read failed: {err}"),
+               });
+            }
             break;
          },
       }

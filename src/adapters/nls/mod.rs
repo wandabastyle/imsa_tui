@@ -18,7 +18,13 @@ pub use websocket::{
 
 #[cfg(test)]
 mod tests {
-   use std::time::Duration;
+   use std::{
+      io,
+      time::{
+         Duration,
+         Instant,
+      },
+   };
 
    use serde_json::json;
 
@@ -30,11 +36,15 @@ mod tests {
          },
          protocol::{
             entry_from_value,
+            is_retriable_timeout,
+            is_transient_disconnect,
             notices_from_ws_message,
             parse_ws_message,
             refresh_active_event_id,
             set_tcp_read_timeout,
             should_emit_connected_status_on_update,
+            websocket_ping_due,
+            websocket_stale_elapsed,
          },
          schedule::{
             discover_termine_url_from_homepage_html,
@@ -1109,5 +1119,72 @@ mod tests {
       assert_eq!(active_event_id, N24_EVENT_ID);
       assert!(status.contains("keeping eventId"));
       assert!(status.contains(N24_EVENT_ID));
+   }
+
+   #[test]
+   fn websocket_stale_elapsed_reports_true_after_timeout() {
+      let start = Instant::now();
+      let now = start + Duration::from_secs(30);
+
+      assert!(websocket_stale_elapsed(start, now, Duration::from_secs(30)));
+      assert!(!websocket_stale_elapsed(
+         start,
+         start + Duration::from_secs(29),
+         Duration::from_secs(30)
+      ));
+   }
+
+   #[test]
+   fn websocket_ping_due_reports_true_after_interval() {
+      let start = Instant::now();
+      let now = start + Duration::from_secs(10);
+
+      assert!(websocket_ping_due(start, now, Duration::from_secs(10)));
+      assert!(!websocket_ping_due(
+         start,
+         start + Duration::from_secs(9),
+         Duration::from_secs(10)
+      ));
+   }
+
+   #[test]
+   fn transient_disconnect_true_for_connection_reset() {
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::ConnectionReset,
+         "connection reset",
+      ));
+      assert!(is_transient_disconnect(&err));
+   }
+
+   #[test]
+   fn transient_disconnect_true_for_connection_aborted() {
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::ConnectionAborted,
+         "connection aborted",
+      ));
+      assert!(is_transient_disconnect(&err));
+   }
+
+   #[test]
+   fn transient_disconnect_true_for_broken_pipe() {
+      let err = tungstenite::Error::Io(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
+      assert!(is_transient_disconnect(&err));
+   }
+
+   #[test]
+   fn transient_disconnect_false_for_timeout() {
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::WouldBlock,
+         "operation timed out",
+      ));
+      assert!(!is_transient_disconnect(&err));
+      assert!(is_retriable_timeout(&err));
+
+      let err = tungstenite::Error::Io(io::Error::new(
+         io::ErrorKind::TimedOut,
+         "operation timed out",
+      ));
+      assert!(!is_transient_disconnect(&err));
+      assert!(is_retriable_timeout(&err));
    }
 }

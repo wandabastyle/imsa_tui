@@ -1,7 +1,10 @@
-#[cfg(test)] use std::time::Duration;
 use std::{
    collections::BTreeSet,
    io,
+   time::{
+      Duration,
+      Instant,
+   },
 };
 
 use serde_json::Value;
@@ -632,4 +635,29 @@ pub(crate) fn is_retriable_timeout(err: &WsError) -> bool {
        WsError::Io(io_err)
            if io_err.kind() == io::ErrorKind::WouldBlock || io_err.kind() == io::ErrorKind::TimedOut
    )
+}
+
+pub(crate) fn is_transient_disconnect(err: &WsError) -> bool {
+   matches!(
+       err,
+       WsError::Io(io_err)
+           if matches!(
+               io_err.kind(),
+               io::ErrorKind::ConnectionReset
+                   | io::ErrorKind::ConnectionAborted
+                   | io::ErrorKind::BrokenPipe
+           )
+   )
+}
+
+pub(crate) fn websocket_stale_elapsed(
+   last_activity_at: Instant,
+   now: Instant,
+   timeout: Duration,
+) -> bool {
+   now.duration_since(last_activity_at) >= timeout
+}
+
+pub(crate) fn websocket_ping_due(last_ping_at: Instant, now: Instant, interval: Duration) -> bool {
+   now.duration_since(last_ping_at) >= interval
 }

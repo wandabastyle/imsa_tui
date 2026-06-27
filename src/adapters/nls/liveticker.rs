@@ -344,13 +344,20 @@ fn fallback_text_lines(raw: &str) -> Vec<String> {
 
 fn parse_header_line(line: &str) -> Option<(String, String, String)> {
    let trimmed = line.trim();
-   let comma_idx = trimmed.find(',')?;
-   let day = trimmed[..comma_idx].trim();
-   if !matches!(day, "Mo" | "Di" | "Mi" | "Do" | "Fr" | "Sa" | "So") {
-      return None;
-   }
+   let (day, rest) = if let Some(comma_idx) = trimmed.find(',') {
+      let day = trimmed[..comma_idx].trim();
+      if !matches!(day, "Mo" | "Di" | "Mi" | "Do" | "Fr" | "Sa" | "So") {
+         return None;
+      }
+      (day.to_string(), trimmed[comma_idx + 1..].trim_start())
+   } else {
+      if !trimmed.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+         return None;
+      }
+      (String::new(), trimmed)
+   };
 
-   let mut chars = trimmed[comma_idx + 1..].trim_start().chars().peekable();
+   let mut chars = rest.chars().peekable();
 
    let mut hour = String::new();
    while let Some(ch) = chars.peek().copied() {
@@ -394,11 +401,7 @@ fn parse_header_line(line: &str) -> Option<(String, String, String)> {
    }
    let inline_message = trailing[3..].trim_start().to_string();
 
-   Some((
-      day.to_string(),
-      format!("{hour_num:02}:{minute}"),
-      inline_message,
-   ))
+   Some((day, format!("{hour_num:02}:{minute}"), inline_message))
 }
 
 fn normalize_spaces(raw: &str) -> String {
@@ -495,6 +498,55 @@ mod tests {
         ";
       let entries = parse_liveticker_entries(raw);
       assert_eq!(entries.len(), 1);
+   }
+
+   #[test]
+   fn parser_handles_new_format_without_weekday() {
+      let raw = "12:35&nbsp;UhrMessage here";
+      let entries = parse_liveticker_entries(raw);
+      assert_eq!(entries.len(), 1);
+      assert_eq!(entries[0].day_label, "");
+      assert_eq!(entries[0].time_text, "12:35");
+      assert_eq!(entries[0].message, "Message here");
+   }
+
+   #[test]
+   fn parser_handles_new_format_through_table_pipeline() {
+      let raw = "<table><tr><td>12:35&nbsp;Uhr</td><td>Message</td></tr></table>";
+      let entries = parse_liveticker_entries(raw);
+      assert_eq!(entries.len(), 1);
+      assert_eq!(entries[0].day_label, "");
+      assert_eq!(entries[0].time_text, "12:35");
+      assert_eq!(entries[0].message, "Message");
+   }
+
+   #[test]
+   fn parser_does_not_panic_on_non_ascii_continuation() {
+      let raw = "<table><tr><td>12:35&nbsp;Uhr</td><td>Line \
+                 one</td></tr><tr><td>Ölspur</td><td>Line two</td></tr></table>";
+      let entries = parse_liveticker_entries(raw);
+      assert_eq!(entries.len(), 1);
+      assert!(entries[0].message.contains("Line one"));
+      assert!(entries[0].message.contains("Ölspur"));
+      assert!(entries[0].message.contains("Line two"));
+   }
+
+   #[test]
+   fn parser_handles_mixed_old_and_new_table_rows() {
+      let raw = "
+             <table>
+               <tr><td>Sa,&nbsp;18:42&nbsp;Uhr</td><td>Old entry</td></tr>
+               <tr><td>12:35&nbsp;Uhr</td><td>New entry</td></tr>
+             </table>
+         ";
+      let entries = parse_liveticker_entries(raw);
+      assert_eq!(entries.len(), 2);
+      assert_eq!(entries[0].day_label, "Sa");
+      assert_eq!(entries[0].time_text, "18:42");
+      assert_eq!(entries[0].message, "Old entry");
+      assert_eq!(entries[1].day_label, "");
+      assert_eq!(entries[1].time_text, "12:35");
+      assert_eq!(entries[1].message, "New entry");
    }
 
    #[test]
