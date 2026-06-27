@@ -178,7 +178,6 @@ impl ImsaColumnWidths {
       self.driver as usize
    }
 
-   #[must_use]
    pub const fn class_width(self) -> usize {
       self.class as usize
    }
@@ -209,7 +208,7 @@ pub fn calculate_imsa_widths(
    let class_content_minimum = target.class;
 
    let mut widths = target.to_array();
-   let header_minimums = ImsaColumnWidths::header_minimums().to_array();
+   let minimums = ImsaColumnWidths::header_minimums().to_array();
    let gutters =
       u16::try_from(IMSA_COLUMN_COUNT.saturating_sub(1)).expect("gutters should fit in u16");
    let available_width = terminal_width.saturating_sub(gutters);
@@ -221,28 +220,28 @@ pub fn calculate_imsa_widths(
       let mut deficit = total_width - available_width;
 
       // Phase 1: Reduce non-class columns toward header minimums (protect class)
-      deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[5]);
-      deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[
+      deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[5]);
+      deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[
          1, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
       ]);
-      deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[4, 0]);
+      deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[4, 0]);
 
       // Phase 2: If deficit remains, reduce class toward its content minimum
       if deficit > 0 {
-         let mut content_minimums = header_minimums;
+         let mut content_minimums = minimums;
          content_minimums[2] = class_content_minimum;
          deficit = reduce_widths_in_order(&mut widths, &content_minimums, deficit, &[2]);
       }
 
       // Phase 3: Last resort - reduce all toward header minimums
       if deficit > 0 {
-         deficit = reduce_widths_in_order(&mut widths, &header_minimums, deficit, &[
+         deficit = reduce_widths_in_order(&mut widths, &minimums, deficit, &[
             5, 1, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 0, 2,
          ]);
       }
 
       if deficit > 0 {
-         widths = header_minimums;
+         widths = minimums;
       }
    }
 

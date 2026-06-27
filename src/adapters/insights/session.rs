@@ -600,7 +600,7 @@ mod tests {
          "#;
 
       let parsed = parse_wec_official_event_windows(html).expect("parse WEC calendar");
-      assert_eq!(parsed.len(), 2, "expected 2 entries to be parsed");
+      assert_eq!(parsed.len(), 2);
       assert_eq!(parsed[0].start_yyyymmdd, 20_260_414);
       assert_eq!(parsed[1].start_yyyymmdd, 20_260_419);
       assert!(parsed[1].label.contains("imola"));

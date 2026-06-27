@@ -401,7 +401,11 @@ fn parse_header_line(line: &str) -> Option<(String, String, String)> {
    }
    let inline_message = trailing[3..].trim_start().to_string();
 
-   Some((day, format!("{hour_num:02}:{minute}"), inline_message))
+   Some((
+      day.clone(),
+      format!("{hour_num:02}:{minute}"),
+      inline_message,
+   ))
 }
 
 fn normalize_spaces(raw: &str) -> String {

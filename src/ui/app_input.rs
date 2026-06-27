@@ -309,7 +309,7 @@ pub fn handle_input(state: &mut InputState<'_>, event: Event) -> bool {
            state.series_picker.is_open = false;
            state.group_picker.is_open = false;
            state.nls_liveticker_panel.is_open = false;
-       }
+        }
         KeyCode::Char('l')
             if !*state.show_help
                 && (*state.active_series == Series::Nls || *state.active_series == Series::Wec)
@@ -321,7 +321,7 @@ pub fn handle_input(state: &mut InputState<'_>, event: Event) -> bool {
             state.series_picker.is_open = false;
             state.group_picker.is_open = false;
         }
-       KeyCode::Char('L') if !*state.show_help => {
+        KeyCode::Char('L') if !*state.show_help => {
            state.logs_panel.is_open = !state.logs_panel.is_open;
            if state.logs_panel.is_open {
                retain_logs_for_series(state.imsa_debug_logs, *state.active_series);
